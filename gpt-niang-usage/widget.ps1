@@ -111,7 +111,7 @@ $script:alphaStride=$bitmap.PixelWidth*4;$script:alphaPixels=New-Object byte[] (
 $script:alphaBitmap.CopyPixels($script:alphaPixels,$script:alphaStride,0)
 $script:status=$null
 $script:statusStamp=0
-$script:offsetRight=0.0;$script:offsetBottom=0.0;$script:offsetLeft=$null;$script:anchor='right';$script:side='right';$script:scale=1.0;$script:collapsed=$true
+$script:offsetRight=0.0;$script:offsetBottom=0.0;$script:offsetLeft=$null;$script:anchor='right';$script:side='right';$script:scale=1.0;$script:bubbleScale=1.0;$script:collapsed=$true
 $script:soundOn=$true;$script:soundVolume=0.9;$script:bubbleTapAdvance=$false;$script:hideMenu=$false
 $script:followHost=$true;$script:desktopTopmost=$false;$script:desktopLeft=$null;$script:desktopTop=$null
 $script:hostReadiness=New-WidgetReadinessState
@@ -123,6 +123,9 @@ try{$settings=Get-Content -LiteralPath $settingsFile -Raw -Encoding UTF8 | Conve
   if($null-ne $settings.right){$script:offsetRight=[Math]::Max(0,[double]$settings.right)}
   if($null-ne $settings.bottom){$script:offsetBottom=[Math]::Max(0,[double]$settings.bottom)}
   if([double]$settings.scale-ge 0.6 -and [double]$settings.scale-le 2.5){$script:scale=[double]$settings.scale}
+  # Existing preferences keep their previous appearance until independently adjusted.
+  $script:bubbleScale=$script:scale
+  if([double]$settings.bubbleScale-ge 0.6 -and [double]$settings.bubbleScale-le 2.5){$script:bubbleScale=[double]$settings.bubbleScale}
   if($settings.layoutVersion-eq 2){
     if($null-ne $settings.left){$script:offsetLeft=[Math]::Max(0,[double]$settings.left)}
     if(@('left','right','free')-contains $settings.anchor){$script:anchor=$settings.anchor}
@@ -145,7 +148,7 @@ function Write-WidgetJson($file,$value){
   $temp=$file+'.tmp';[IO.File]::WriteAllText($temp,($value|ConvertTo-Json -Depth 6),[Text.UTF8Encoding]::new($false))
   if([IO.File]::Exists($file)){[IO.File]::Replace($temp,$file,($file+'.bak'),$true)}else{[IO.File]::Move($temp,$file)}
 }
-function Save-Settings {Write-WidgetJson $settingsFile @{layoutVersion=2;right=$script:offsetRight;left=$script:offsetLeft;bottom=$script:offsetBottom;anchor=$script:anchor;side=$script:side;scale=$script:scale;collapsed=$script:collapsed;soundOn=$script:soundOn;soundVolume=$script:soundVolume;bubbleTapAdvance=$script:bubbleTapAdvance;hideMenu=$script:hideMenu;colorMode=$script:colorMode;colorChance=$script:colorChance;colorTextChance=$script:colorTextChance;colorPaused=$script:colorPaused;followHost=$script:followHost;desktopTopmost=$script:desktopTopmost;desktopLeft=$script:desktopLeft;desktopTop=$script:desktopTop}}
+function Save-Settings {Write-WidgetJson $settingsFile @{layoutVersion=2;right=$script:offsetRight;left=$script:offsetLeft;bottom=$script:offsetBottom;anchor=$script:anchor;side=$script:side;scale=$script:scale;bubbleScale=$script:bubbleScale;collapsed=$script:collapsed;soundOn=$script:soundOn;soundVolume=$script:soundVolume;bubbleTapAdvance=$script:bubbleTapAdvance;hideMenu=$script:hideMenu;colorMode=$script:colorMode;colorChance=$script:colorChance;colorTextChance=$script:colorTextChance;colorPaused=$script:colorPaused;followHost=$script:followHost;desktopTopmost=$script:desktopTopmost;desktopLeft=$script:desktopLeft;desktopTop=$script:desktopTop}}
 function Get-WidgetPlacementFrame {
   if($script:followHost){return Get-WidgetVisibleFrame}
   $point=if($null-ne $script:desktopLeft -and $null-ne $script:desktopTop){[Drawing.Point]::new([int]$script:desktopLeft,[int]$script:desktopTop)}else{[Drawing.Point]::new(0,0)}
@@ -176,7 +179,9 @@ function Set-Facing {
   $script:ui.MenuButton.RenderTransform=[Windows.Media.ScaleTransform]::new($factor,1)
 }
 function Set-Appearance {
-  $actual=$script:scale
+  $bubbleScale=if($script:bubbleScale-ge 0.6 -and $script:bubbleScale-le 2.5){$script:bubbleScale}else{$script:scale}
+  $layoutScale=[Math]::Max([double]$script:scale,[double]$bubbleScale)
+  $actual=$layoutScale
   if(!$script:followHost -or ($script:hostHandle -and $script:hostHandle-ne [IntPtr]::Zero -and [GptWidgetNative]::IsWindow($script:hostHandle))){
     $frame=Get-WidgetPlacementFrame;$dpi=Get-WidgetPlacementDpi
     if(Test-WidgetPlacementFrame $frame $dpi){$actual=[Math]::Min($actual,[Math]::Min(($frame.Right-$frame.Left)/$dpi/$script:designWidth,($frame.Bottom-$frame.Top)/$dpi/$script:designHeight))}
@@ -185,6 +190,28 @@ function Set-Appearance {
   # Transparent space around the original 350px pose contains press/rebound
   # overshoot without shrinking the character or exposing a rectangular cut.
   $null=Set-WidgetPixelSize (Get-WidgetPlacementDpi)
+  # Each component occupies the same design stage at its own size. The Viewbox
+  # applies only their shared work-area fit and keeps mirroring/animations intact.
+  if($script:ui.Girl){
+    $character=$script:scale/$layoutScale;$bubble=$bubbleScale/$layoutScale
+    $girlLeft=350-208*$character;$girlTop=350-208*$character
+    $script:ui.Girl.Width=208*$character;$script:ui.Girl.Height=208*$character
+    [Windows.Controls.Canvas]::SetLeft($script:ui.Girl,$girlLeft)
+    [Windows.Controls.Canvas]::SetTop($script:ui.Girl,$girlTop)
+    $script:ui.Bubble.LayoutTransform=[Windows.Media.ScaleTransform]::new($bubble,$bubble)
+    $bubbleLeft=[Math]::Max(0,[Math]::Min(350-350*$bubble,$girlLeft+104*$character-246*$bubble))
+    [Windows.Controls.Canvas]::SetLeft($script:ui.Bubble,$bubbleLeft)
+    [Windows.Controls.Canvas]::SetTop($script:ui.Bubble,$girlTop-142*$bubble)
+    $script:ui.Tail.Width=25*$character;$script:ui.Tail.Height=18*$character
+    [Windows.Controls.Canvas]::SetLeft($script:ui.Tail,$girlLeft-34*$character)
+    [Windows.Controls.Canvas]::SetTop($script:ui.Tail,$girlTop+40*$character)
+    $script:ui.TailNear.Width=17*$character;$script:ui.TailNear.Height=12*$character
+    [Windows.Controls.Canvas]::SetLeft($script:ui.TailNear,$girlLeft)
+    [Windows.Controls.Canvas]::SetTop($script:ui.TailNear,$girlTop+72*$character)
+    $script:ui.MenuButton.Width=24*$character;$script:ui.MenuButton.Height=24*$character
+    [Windows.Controls.Canvas]::SetLeft($script:ui.MenuButton,350-30*$character)
+    [Windows.Controls.Canvas]::SetTop($script:ui.MenuButton,$girlTop+20*$character)
+  }
   # The Viewbox scales the completed pose, including the mirror origin and press motion.
   # Scaling and mirroring this same Canvas made its origin escape the native window.
   $script:ui.Root.LayoutTransform=[Windows.Media.Transform]::Identity
@@ -239,7 +266,7 @@ function Animate-Value($target,$property,[double]$to,[int]$duration,[int]$delay=
 function Set-BubbleState {
   foreach($name in @('Bubble','Tail','TailNear')){
     $element=$script:ui[$name]
-    $element.Visibility=if($script:collapsed){[Windows.Visibility]::Hidden}else{[Windows.Visibility]::Visible}
+    $element.Visibility=if($script:collapsed -and !$script:settingsBubblePreview){[Windows.Visibility]::Hidden}else{[Windows.Visibility]::Visible}
     Set-AnimatedValue $element ([Windows.UIElement]::OpacityProperty) 1
     Set-AnimatedValue $element.RenderTransform ([Windows.Media.ScaleTransform]::ScaleXProperty) 1
     Set-AnimatedValue $element.RenderTransform ([Windows.Media.ScaleTransform]::ScaleYProperty) 1
@@ -269,6 +296,7 @@ function Restart-SceneTtl([int]$renderDelay=0,[long]$now=[DateTimeOffset]::UtcNo
   }
 }
 function Tick-Scene([long]$now){
+  if($script:settingsBubblePreview){return}
   if($script:collapsed -or $script:sceneDeadline-le 0){return}
   if($now-ge $script:sceneDeadline){Hide-Quota;return}
   if($script:bubbleMode-eq 'quota' -and $script:resetTimeMode-ne 'fixed' -and $now-ge $script:sceneStartedAt+2000){Set-ResetTimeMode 'fixed' $now}
@@ -724,7 +752,8 @@ function Tick-Widget {
     if(!$script:drag){
       $frame=$placementFrame;$dpi=$placementDpi
       if($dpi-le 0){$dpi=1}
-      $fitted=[Math]::Min($script:scale,[Math]::Min(($frame.Right-$frame.Left)/$dpi/$script:designWidth,($frame.Bottom-$frame.Top)/$dpi/$script:designHeight))
+      $layoutScale=[Math]::Max([double]$script:scale,[double]$script:bubbleScale)
+      $fitted=[Math]::Min($layoutScale,[Math]::Min(($frame.Right-$frame.Left)/$dpi/$script:designWidth,($frame.Bottom-$frame.Top)/$dpi/$script:designHeight))
       if([Math]::Abs($script:displayScale-$fitted)-gt 0.001){Set-Appearance}
       $null=Set-WidgetPixelSize $dpi
       $w=[int]($script:designWidth*$script:displayScale*$dpi);$h=[int]($script:designHeight*$script:displayScale*$dpi)

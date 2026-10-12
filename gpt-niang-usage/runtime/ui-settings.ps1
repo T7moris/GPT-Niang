@@ -102,6 +102,7 @@ function Initialize-WidgetSettingsMenu {
 </ResourceDictionary>
 '@)
   $script:settingsMenuSync=$false;$script:settingsMenuUi=@{};$script:settingsSubmenus=@()
+  $script:settingsSizePreview=$false;$script:settingsBubblePreview=$false
   $script:context=New-Object Windows.Controls.ContextMenu
   $script:context.FontFamily=[Windows.Media.FontFamily]::new('Microsoft YaHei UI');$script:context.FontSize=14.5;$script:context.Width=328
   $script:context.MaxHeight=[Math]::Max(360,[Math]::Min(730,[Windows.SystemParameters]::WorkArea.Height-28))
@@ -135,10 +136,17 @@ function Initialize-WidgetSettingsMenu {
     $presets.Children.Add($button)|Out-Null;$script:settingsMenuUi.SizeButtons+=,$button
   }
   Add-SettingsPanel $presets
-  $size=New-SettingsSlider '挂件大小' 0.6 2.5 0.1
+  $size=New-SettingsSlider '人物大小' 0.6 2.5 0.1
   $script:sizeSlider=$size.Slider;$script:settingsMenuUi.SizeText=$size.Value;$size.Slider.Value=$script:scale
   $size.Slider.Add_ValueChanged({param($sender,$event)if($script:settingsMenuSync){return};$script:scale=[Math]::Round($sender.Value,1);$script:settingsMenuUi.SizeText.Text=([Math]::Round($script:scale*100)).ToString()+'%';Update-WidgetSizePresets;Set-Appearance;Save-Settings})
+  Register-WidgetSizePreview $size.Slider
   Add-SettingsPanel $size.Panel
+  if($null-eq $script:bubbleScale){$script:bubbleScale=$script:scale}
+  $bubbleSize=New-SettingsSlider '气泡大小' 0.6 2.5 0.1
+  $script:bubbleSizeSlider=$bubbleSize.Slider;$script:settingsMenuUi.BubbleSizeText=$bubbleSize.Value;$bubbleSize.Slider.Value=$script:bubbleScale
+  $bubbleSize.Slider.Add_ValueChanged({param($sender,$event)if($script:settingsMenuSync){return};$script:bubbleScale=[Math]::Round($sender.Value,1);$script:settingsMenuUi.BubbleSizeText.Text=([Math]::Round($script:bubbleScale*100)).ToString()+'%';Set-Appearance;Save-Settings})
+  Register-WidgetSizePreview $bubbleSize.Slider
+  Add-SettingsPanel $bubbleSize.Panel
   $script:settingsMenuUi.Hide=Add-SettingsAction '隐藏设置按钮' {param($sender,$event)$script:hideMenu=$sender.IsChecked;Set-MenuVisible $false;Save-Settings} -Description '仍可右键点角色打开设置' -Checkable -ReturnItem
   } -ReturnItem
   $script:settingsMenuUi.Colors=Add-SettingsSubmenu '配色效果' {
@@ -184,7 +192,9 @@ function Initialize-WidgetSettingsMenu {
   } -ReturnItem
   Add-SettingsDivider
   $exit=Add-SettingsAction '退出 GPT 娘' {Exit-WidgetForSession} -ReturnItem;$exit.Foreground=[Windows.Media.BrushConverter]::new().ConvertFromString('#A1788D')
-  $script:context.Add_Opened({Update-WidgetSettingsMenu;Set-WidgetMenuBounds;Position-WidgetMenuToHost});Update-WidgetSettingsMenu;$script:window.ContextMenu=$script:context
+  $script:context.Add_Opened({Update-WidgetSettingsMenu;Set-WidgetMenuBounds;Position-WidgetMenuToHost})
+  $script:context.Add_Closed({Set-WidgetSizePreview $false})
+  Update-WidgetSettingsMenu;$script:window.ContextMenu=$script:context
 }
 
 function New-SettingsText([string]$Text,[double]$Size,[string]$Color){$t=New-Object Windows.Controls.TextBlock;$t.Text=$Text;$t.FontSize=$Size;$t.Foreground=[Windows.Media.BrushConverter]::new().ConvertFromString($Color);return $t}
@@ -238,6 +248,7 @@ function Update-WidgetSettingsMenu{
     $script:settingsMenuUi.ColorPause.IsChecked=$script:colorPaused;$script:settingsMenuUi.ColorPause.IsEnabled=$script:colorMode-ne 'original'
     $script:settingsMenuUi.Volume.Value=$script:soundVolume;$script:settingsMenuUi.Volume.IsEnabled=$script:soundOn;$script:settingsMenuUi.VolumeText.Text=([Math]::Round($script:soundVolume*100)).ToString()+'%'
     $script:sizeSlider.Value=$script:scale;$script:settingsMenuUi.SizeText.Text=([Math]::Round($script:scale*100)).ToString()+'%';Update-WidgetSizePresets
+    $script:bubbleSizeSlider.Value=$script:bubbleScale;$script:settingsMenuUi.BubbleSizeText.Text=([Math]::Round($script:bubbleScale*100)).ToString()+'%'
   }finally{$script:settingsMenuSync=$false}
 }
 
@@ -265,9 +276,40 @@ function Set-WidgetMenuBounds {
   }catch{}
 }
 
+function Set-WidgetSizePreview([bool]$Active,[bool]$PreviewBubble=$false) {
+  if($Active -and $PreviewBubble -and !$script:settingsBubblePreview){
+    # Preview changes only visibility; the user's collapsed preference stays intact.
+    $script:settingsBubblePreview=$true
+    if($script:resetPhaseTimer){$script:resetPhaseTimer.Stop()}
+    Set-BubbleState
+  }
+  if(!$Active -and $script:settingsBubblePreview){
+    $script:settingsBubblePreview=$false
+    Set-BubbleState
+    if(!$script:collapsed){Restart-SceneTtl}
+  }
+  $script:settingsSizePreview=$Active
+  $opacity=if($Active){0.08}else{1.0}
+  $script:context.Opacity=$opacity
+  foreach($submenu in $script:settingsSubmenus){
+    if(!$submenu.Template){continue}
+    $popup=$submenu.Template.FindName('PART_Popup',$submenu)
+    if($popup -and $popup.Child){$popup.Child.Opacity=$opacity}
+  }
+  if(!$Active){Position-WidgetMenuToHost}
+}
+
+function Register-WidgetSizePreview($Slider) {
+  $Slider.Add_PreviewMouseLeftButtonDown({param($sender,$event)Set-WidgetSizePreview $true ($sender-eq $script:bubbleSizeSlider)})
+  $Slider.AddHandler([Windows.Controls.Primitives.Thumb]::DragStartedEvent,[Windows.Controls.Primitives.DragStartedEventHandler]{param($sender,$event)Set-WidgetSizePreview $true ($sender-eq $script:bubbleSizeSlider)})
+  $Slider.AddHandler([Windows.Controls.Primitives.Thumb]::DragCompletedEvent,[Windows.Controls.Primitives.DragCompletedEventHandler]{param($sender,$event)Set-WidgetSizePreview $false})
+  $Slider.AddHandler([Windows.UIElement]::PreviewMouseLeftButtonUpEvent,[Windows.Input.MouseButtonEventHandler]{param($sender,$event)Set-WidgetSizePreview $false},$true)
+  $Slider.AddHandler([Windows.UIElement]::LostMouseCaptureEvent,[Windows.Input.MouseEventHandler]{param($sender,$event)Set-WidgetSizePreview $false},$true)
+}
+
 function Position-WidgetMenuToHost {
   # Move only our own popup; host geometry is read-only.
-  if(!$script:context.IsOpen){return}
+  if(!$script:context.IsOpen -or $script:settingsSizePreview){return}
   try{
     if($script:followHost -and ($script:hostHandle-eq [IntPtr]::Zero -or ![GptWidgetNative]::IsWindow($script:hostHandle))){return}
     $script:context.UpdateLayout()

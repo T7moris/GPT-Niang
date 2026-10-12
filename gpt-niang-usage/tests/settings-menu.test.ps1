@@ -9,6 +9,17 @@ function Set-WidgetFollowHost([bool]$Follow){$script:followHost=$Follow}
 function Set-WidgetMenuBounds {}
 function Position-WidgetMenuToHost {}
 function Set-Appearance {}
+function Restart-SceneTtl {}
+$widgetSource=[IO.File]::ReadAllText((Join-Path $appDir 'widget.ps1'),[Text.Encoding]::UTF8)
+$tokens=$null;$errors=$null
+$widgetAst=[Management.Automation.Language.Parser]::ParseInput($widgetSource,[ref]$tokens,[ref]$errors)
+foreach($name in @('Set-AnimatedValue','Set-BubbleState')){
+  $definition=$widgetAst.Find({param($n)$n-is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name-eq $name},$true)
+  . ([ScriptBlock]::Create($definition.Extent.Text))
+}
+$poseWindow=[Windows.Markup.XamlReader]::Parse([IO.File]::ReadAllText((Join-Path $appDir 'widget.xaml'),[Text.Encoding]::UTF8))
+$script:ui=@{}
+foreach($name in @('Bubble','Tail','TailNear','SceneText')){$script:ui[$name]=$poseWindow.FindName($name)}
 function Set-WidgetAudioVolume {}
 function Stop-WidgetAudio {}
 . (Join-Path $appDir 'runtime\supervisor-task.ps1')
@@ -52,11 +63,70 @@ try{
   $script:settingsMenuUi.SizeButtons[2].RaiseEvent([Windows.RoutedEventArgs]::new([Windows.Controls.Button]::ClickEvent))
   Assert-Equal $script:scale 1.4 'Preset updates actual size'
   Assert-Equal $script:sizeSlider.Value 1.4 'Preset and slider stay synchronized'
+  $script:bubbleSizeSlider.Value=1.2
+  Assert-Equal $script:bubbleScale 1.2 'Bubble slider changes bubble size'
+  Assert-Equal $script:scale 1.4 'Bubble slider preserves character size'
+  $script:sizeSlider.Value=0.6
+  Assert-Equal $script:scale 0.6 'Character slider changes character size'
+  Assert-Equal $script:bubbleScale 1.2 'Character slider preserves bubble size'
+  Update-WidgetSettingsMenu
+  Assert-Equal $script:settingsMenuUi.SizeText.Text '60%' 'Character label follows character size'
+  Assert-Equal $script:settingsMenuUi.BubbleSizeText.Text '120%' 'Bubble label follows bubble size'
+  $script:settingsMenuUi.Appearance.ApplyTemplate()|Out-Null
+  $appearancePopup=$script:settingsMenuUi.Appearance.Template.FindName('PART_Popup',$script:settingsMenuUi.Appearance)
+  if(!$appearancePopup.Child){throw 'The actual appearance popup template must exist for preview testing'}
+  foreach($slider in @($script:sizeSlider,$script:bubbleSizeSlider)){
+    $started=[Windows.Controls.Primitives.DragStartedEventArgs]::new(0,0)
+    $started.RoutedEvent=[Windows.Controls.Primitives.Thumb]::DragStartedEvent
+    $script:collapsed=$true;Set-BubbleState
+    $slider.RaiseEvent($started)
+    $expectedBubble=if($slider-eq $script:bubbleSizeSlider){[Windows.Visibility]::Visible}else{[Windows.Visibility]::Hidden}
+    foreach($name in @('Bubble','Tail','TailNear')){Assert-Equal $script:ui[$name].Visibility $expectedBubble 'Bubble-size drag temporarily shows the actual bubble and tails'}
+    Assert-Equal $script:collapsed $true 'Preview must not change the persisted collapsed preference'
+    Assert-Equal $script:context.Opacity 0.08 'Dragging fades the main settings menu'
+    Assert-Equal $appearancePopup.Child.Opacity 0.08 'Dragging also fades the separate submenu popup'
+    Assert-Equal $script:context.IsHitTestVisible $true 'Transparent settings retain mouse interaction'
+    $completed=[Windows.Controls.Primitives.DragCompletedEventArgs]::new(0,0,$false)
+    $completed.RoutedEvent=[Windows.Controls.Primitives.Thumb]::DragCompletedEvent
+    $slider.RaiseEvent($completed)
+    Assert-Equal $script:ui.Bubble.Visibility Hidden 'Release restores the originally closed bubble'
+    Assert-Equal $script:context.Opacity 1 'Releasing restores the main menu'
+    Assert-Equal $appearancePopup.Child.Opacity 1 'Releasing restores the submenu'
+    $slider.RaiseEvent($started)
+    $lost=[Windows.Input.MouseEventArgs]::new([Windows.Input.Mouse]::PrimaryDevice,0)
+    $lost.RoutedEvent=[Windows.UIElement]::LostMouseCaptureEvent
+    $slider.RaiseEvent($lost)
+    Assert-Equal $script:ui.Bubble.Visibility Hidden 'Lost capture restores the originally closed bubble'
+    Assert-Equal $script:context.Opacity 1 'Lost capture also restores settings'
+  }
+  $pressed=[Windows.Input.MouseButtonEventArgs]::new([Windows.Input.Mouse]::PrimaryDevice,0,[Windows.Input.MouseButton]::Left)
+  $pressed.RoutedEvent=[Windows.UIElement]::PreviewMouseLeftButtonDownEvent
+  $script:sizeSlider.RaiseEvent($pressed)
+  Assert-Equal $script:context.Opacity 0.08 'Clicking the track previews size too'
+  $released=[Windows.Input.MouseButtonEventArgs]::new([Windows.Input.Mouse]::PrimaryDevice,0,[Windows.Input.MouseButton]::Left)
+  $released.RoutedEvent=[Windows.UIElement]::PreviewMouseLeftButtonUpEvent
+  $script:sizeSlider.RaiseEvent($released)
+  Assert-Equal $script:context.Opacity 1 'Track release restores settings'
+  $script:sizeSlider.RaiseEvent($pressed)
+  $script:context.RaiseEvent([Windows.RoutedEventArgs]::new([Windows.Controls.ContextMenu]::ClosedEvent))
+  Assert-Equal $script:context.Opacity 1 'Closing the menu cannot leave it transparent'
+  Assert-Equal $appearancePopup.Child.Opacity 1 'Closing restores the independent popup too'
+  $script:collapsed=$false;Set-BubbleState
+  $script:bubbleSizeSlider.RaiseEvent($started)
+  $script:bubbleSizeSlider.RaiseEvent($completed)
+  Assert-Equal $script:ui.Bubble.Visibility Visible 'An originally open bubble remains open after preview'
+  Assert-Equal $script:collapsed $false 'Open preference stays open'
+  $script:collapsed=$true;Set-BubbleState
+  $script:bubbleSizeSlider.RaiseEvent($pressed)
+  Assert-Equal $script:ui.Bubble.Visibility Visible 'Clicking the bubble track previews a closed bubble'
+  $script:context.RaiseEvent([Windows.RoutedEventArgs]::new([Windows.Controls.ContextMenu]::ClosedEvent))
+  Assert-Equal $script:ui.Bubble.Visibility Hidden 'Closing the menu restores a temporary bubble'
   $script:settingsMenuUi.Sound.IsChecked=$false
   $script:settingsMenuUi.Sound.RaiseEvent([Windows.RoutedEventArgs]::new([Windows.Controls.MenuItem]::ClickEvent))
   Assert-Equal $script:settingsMenuUi.Volume.IsEnabled $false 'Muted sound disables volume control'
-  Write-Output 'PASS: menu modes, conditional topmost, shared row styling, presets and sound controls'
+  Write-Output 'PASS: menu modes, sizes, sound, real slider drag/track events, main/submenu preview opacity and recovery'
 }finally{
+  $poseWindow.Close()
   $script:window.Close()
   Assert-WidgetUpdateChildPath $script:dataDir ([IO.Path]::GetTempPath())
   Remove-Item -LiteralPath $script:dataDir -Recurse -Force

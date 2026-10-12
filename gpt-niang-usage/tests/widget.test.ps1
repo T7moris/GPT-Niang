@@ -131,6 +131,11 @@ try{
   Assert-Equal $script:resetTimeMode countdown 'Opening begins with relative time'
   Assert-Equal $script:ui.ShortReset.Text (Reset-Label ($short.resetsAt-[Math]::Floor($now/1000))) 'First half shows countdown'
   Assert-QuotaLayout;Save-Preview 'first-half-countdown'
+  $script:settingsBubblePreview=$true
+  Tick-Scene ($now+6000)
+  Assert-Equal $script:collapsed $false 'A bubble-size preview cannot auto-close during a long drag'
+  Assert-Equal $script:closeCount 0 'Preview does not invoke or save the close action'
+  $script:settingsBubblePreview=$false
   Tick-Scene ($now+1999)
   Assert-Equal $script:resetTimeMode countdown 'Countdown remains just before midpoint'
   Tick-Scene ($now+2000)
