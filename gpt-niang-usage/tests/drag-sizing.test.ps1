@@ -1,5 +1,6 @@
 param([string]$TestRoot=$PSScriptRoot,[string]$WidgetSource)
 $ErrorActionPreference='Stop'
+. (Join-Path (Split-Path $PSScriptRoot -Parent) 'runtime\movement.ps1')
 if(!$WidgetSource){$WidgetSource=Join-Path (Split-Path $TestRoot -Parent) 'widget.ps1'}
 $source=[IO.File]::ReadAllText($WidgetSource,[Text.Encoding]::UTF8)
 $tokens=$null;$errors=$null
@@ -15,9 +16,9 @@ public static class GptWidgetNative {
  public struct Point {public int X,Y;}
  public struct Rect {public int Left,Top,Right,Bottom;}
  public static Rect Frame(IntPtr h){return new Rect{Left=0,Top=0,Right=8000,Bottom=6000};}
- public static int X,Y,Width,Height,Calls;public static uint Flags;
+ public static int X,Y,PlacedX,PlacedY,Width,Height,Calls;public static uint Flags;
  public static bool GetCursorPos(out Point point){point=new Point{X=X,Y=Y};return true;}
- public static bool SetWindowPos(IntPtr h,IntPtr after,int x,int y,int width,int height,uint flags){Width=width;Height=height;Flags=flags;Calls++;return true;}
+ public static bool SetWindowPos(IntPtr h,IntPtr after,int x,int y,int width,int height,uint flags){PlacedX=x;PlacedY=y;Width=width;Height=height;Flags=flags;Calls++;return true;}
  public static IntPtr GetForegroundWindow(){return new IntPtr(1);}
  public static IntPtr GetAncestor(IntPtr h,uint flags){return h;}
  public static bool IsWindow(IntPtr h){return true;}
@@ -88,6 +89,27 @@ foreach($follow in @($true,$false)){
   }
 }
 Write-Output ('PASS: '+$cases+' host/desktop DPI cases preserve 100% size through 20 drags and 20 placement ticks each')
+foreach($follow in @($true,$false)){
+  foreach($dpi in @(1.0,1.5,2.0)){
+    $script:followHost=$follow;$script:testDpi=$dpi
+    $script:offsetLeft=20;$script:offsetRight=0;$script:offsetBottom=17;$script:anchor='right'
+    $script:desktopLeft=100;$script:desktopTop=200;$script:drag=$null
+    $height=$null;$positions=@()
+    foreach($seconds in @(0,2,4,8,12,16)){
+      $script:widgetMovement=@{Enabled=$true;Phase=0.0;Clock=@{Elapsed=@{TotalSeconds=$seconds}}}
+      $script:lastPosition=$null;Tick-Widget
+      if($null-eq $height){$height=[GptWidgetNative]::PlacedY}
+      if([GptWidgetNative]::PlacedY-ne $height){throw 'Horizontal movement changed the resting height'}
+      if([GptWidgetNative]::PlacedX-lt 0 -or [GptWidgetNative]::PlacedX-gt (8000-378*$dpi)){throw 'Movement escaped visible bounds'}
+      $positions += [GptWidgetNative]::PlacedX
+      Assert-SizeAfterNativeMove 'automatic horizontal movement'
+    }
+    if(@($positions|Select-Object -Unique).Count-lt 3){throw 'Placement did not move horizontally'}
+    if($script:offsetBottom-ne 17 -or $script:offsetLeft-ne 20 -or $script:anchor-ne 'right' -or $script:desktopLeft-ne 100 -or $script:desktopTop-ne 200){throw 'Movement modified saved placement'}
+    $script:widgetMovement=$null
+  }
+}
+Write-Output 'PASS: automatic movement preserves height, bounds, window size and saved placement in six host/desktop DPI cases'
 $script:followHost=$true;$script:testDpi=1.25
 $script:window|Add-Member ScriptMethod Hide {$this.IsVisible=$false}
 $script:window|Add-Member ScriptMethod Show {$this.IsVisible=$true}

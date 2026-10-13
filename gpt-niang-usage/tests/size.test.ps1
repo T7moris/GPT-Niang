@@ -1,5 +1,6 @@
 param([string]$TestRoot=$PSScriptRoot)
 $ErrorActionPreference='Stop'
+. (Join-Path (Split-Path $PSScriptRoot -Parent) 'runtime\movement.ps1')
 Add-Type -AssemblyName PresentationFramework,PresentationCore,WindowsBase,System.Windows.Forms,System.Drawing
 $appDir=Split-Path $TestRoot -Parent
 $source=[IO.File]::ReadAllText((Join-Path $appDir 'widget.ps1'),[Text.Encoding]::UTF8)
