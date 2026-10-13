@@ -133,7 +133,7 @@ try{$settings=Get-Content -LiteralPath $settingsFile -Raw -Encoding UTF8 | Conve
     if(@('left','right')-contains $settings.side){$script:side=$settings.side}
   }else{$script:offsetBottom=0;if($script:offsetRight-gt 18){$script:anchor='free'}}
   if($null-ne $settings.soundOn){$script:soundOn=[bool]$settings.soundOn}
-  if($null-ne $settings.soundVolume){$script:soundVolume=[Math]::Min(1,[Math]::Max(0,[double]$settings.soundVolume))}
+  if($null-ne $settings.soundVolume){$script:soundVolume=[Math]::Min(1.0,[Math]::Max(0.0,[double]$settings.soundVolume))}
   if($null-ne $settings.bubbleTapAdvance){$script:bubbleTapAdvance=[bool]$settings.bubbleTapAdvance}
   $script:completionNotificationsEnabled=Get-CompletionNotificationPreference $settings
   if($null-ne $settings.hideMenu){$script:hideMenu=[bool]$settings.hideMenu}
