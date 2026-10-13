@@ -36,6 +36,7 @@ $script:designWidth=378;$script:designHeight=378
 function Tick-Scene {}
 function Tick-WidgetUpdater {}
 function Ensure-QuotaWorker {}
+function Pump-CompletionNotifications([bool]$Visible) {}
 function Test-WidgetHostReady {return $true}
 function Set-WidgetAboveHost {}
 function Set-WidgetDesktopLayer {}

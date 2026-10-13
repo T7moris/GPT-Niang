@@ -79,7 +79,7 @@ function Fit-QuoteText {
 
 function Set-WidgetSceneLayout {
   $scene=$script:ui.SceneText
-  if($script:bubbleMode-eq 'quote' -and $script:quoteLayout){
+  if($script:bubbleMode-in @('quote','completion') -and $script:quoteLayout){
     [Windows.Controls.Canvas]::SetLeft($scene,155-$script:quoteLayout.width/2);[Windows.Controls.Canvas]::SetTop($scene,18)
     $scene.Width=$script:quoteLayout.width;$scene.Height=134
   }else{
