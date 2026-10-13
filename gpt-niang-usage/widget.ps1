@@ -9,6 +9,9 @@ $null=New-Item -ItemType Directory -Path $script:dataDir -Force
 . (Join-Path $script:appDir 'runtime\quotes.ps1')
 . ([ScriptBlock]::Create([IO.File]::ReadAllText((Join-Path $script:appDir 'runtime\ui-settings.ps1'),[Text.Encoding]::UTF8)))
 . (Join-Path $script:appDir 'runtime\audio.ps1')
+. ([ScriptBlock]::Create([IO.File]::ReadAllText((Join-Path $script:appDir 'runtime\audio-import.ps1'),[Text.Encoding]::UTF8)))
+. ([ScriptBlock]::Create([IO.File]::ReadAllText((Join-Path $script:appDir 'runtime\speaker.ps1'),[Text.Encoding]::UTF8)))
+. ([ScriptBlock]::Create([IO.File]::ReadAllText((Join-Path $script:appDir 'runtime\movement.ps1'),[Text.Encoding]::UTF8)))
 . (Join-Path $script:appDir 'runtime\host-layer.ps1')
 . (Join-Path $script:appDir 'runtime\host-follow.ps1')
 . (Join-Path $script:appDir 'runtime\host-ready.ps1')
@@ -113,6 +116,7 @@ $script:status=$null
 $script:statusStamp=0
 $script:offsetRight=0.0;$script:offsetBottom=0.0;$script:offsetLeft=$null;$script:anchor='right';$script:side='right';$script:scale=1.0;$script:collapsed=$true
 $script:soundOn=$true;$script:soundVolume=0.9;$script:bubbleTapAdvance=$false;$script:hideMenu=$false
+$script:soundPreset='classic'
 $script:followHost=$true;$script:desktopTopmost=$false;$script:desktopLeft=$null;$script:desktopTop=$null
 $script:hostReadiness=New-WidgetReadinessState
 $script:bubbleMode='quota';$script:sceneStartedAt=0;$script:sceneDeadline=0;$script:sceneTimer=$null;$script:sceneRevision=0
@@ -129,6 +133,7 @@ try{$settings=Get-Content -LiteralPath $settingsFile -Raw -Encoding UTF8 | Conve
     if(@('left','right')-contains $settings.side){$script:side=$settings.side}
   }else{$script:offsetBottom=0;if($script:offsetRight-gt 18){$script:anchor='free'}}
   if($null-ne $settings.soundOn){$script:soundOn=[bool]$settings.soundOn}
+  if($settings.soundPreset-in @('classic','custom')){$script:soundPreset=[string]$settings.soundPreset}
   if($null-ne $settings.soundVolume){$script:soundVolume=[Math]::Min(1,[Math]::Max(0,[double]$settings.soundVolume))}
   if($null-ne $settings.bubbleTapAdvance){$script:bubbleTapAdvance=[bool]$settings.bubbleTapAdvance}
   if($null-ne $settings.hideMenu){$script:hideMenu=[bool]$settings.hideMenu}
@@ -145,7 +150,7 @@ function Write-WidgetJson($file,$value){
   $temp=$file+'.tmp';[IO.File]::WriteAllText($temp,($value|ConvertTo-Json -Depth 6),[Text.UTF8Encoding]::new($false))
   if([IO.File]::Exists($file)){[IO.File]::Replace($temp,$file,($file+'.bak'),$true)}else{[IO.File]::Move($temp,$file)}
 }
-function Save-Settings {Write-WidgetJson $settingsFile @{layoutVersion=2;right=$script:offsetRight;left=$script:offsetLeft;bottom=$script:offsetBottom;anchor=$script:anchor;side=$script:side;scale=$script:scale;collapsed=$script:collapsed;soundOn=$script:soundOn;soundVolume=$script:soundVolume;bubbleTapAdvance=$script:bubbleTapAdvance;hideMenu=$script:hideMenu;colorMode=$script:colorMode;colorChance=$script:colorChance;colorTextChance=$script:colorTextChance;colorPaused=$script:colorPaused;followHost=$script:followHost;desktopTopmost=$script:desktopTopmost;desktopLeft=$script:desktopLeft;desktopTop=$script:desktopTop}}
+function Save-Settings {Write-WidgetJson $settingsFile @{layoutVersion=2;right=$script:offsetRight;left=$script:offsetLeft;bottom=$script:offsetBottom;anchor=$script:anchor;side=$script:side;scale=$script:scale;collapsed=$script:collapsed;soundOn=$script:soundOn;soundVolume=$script:soundVolume;soundPreset=$script:soundPreset;bubbleTapAdvance=$script:bubbleTapAdvance;hideMenu=$script:hideMenu;colorMode=$script:colorMode;colorChance=$script:colorChance;colorTextChance=$script:colorTextChance;colorPaused=$script:colorPaused;followHost=$script:followHost;desktopTopmost=$script:desktopTopmost;desktopLeft=$script:desktopLeft;desktopTop=$script:desktopTop}}
 function Get-WidgetPlacementFrame {
   if($script:followHost){return Get-WidgetVisibleFrame}
   $point=if($null-ne $script:desktopLeft -and $null-ne $script:desktopTop){[Drawing.Point]::new([int]$script:desktopLeft,[int]$script:desktopTop)}else{[Drawing.Point]::new(0,0)}
@@ -607,6 +612,7 @@ $pressMove={param($sender,$event)
   $cursor=New-Object GptWidgetNative+Point;[GptWidgetNative]::GetCursorPos([ref]$cursor)|Out-Null
   $dx=$cursor.X-$script:drag.x;$dy=$cursor.Y-$script:drag.y
   if($dx*$dx+$dy*$dy-lt 9 -and !$script:drag.moved){return}
+  Set-WidgetMovement $false -NoLayout
   $script:drag.moved=$true
   if($script:followHost -and $script:hostHandle-eq [IntPtr]::Zero){return}
   if(!$script:followHost){$script:desktopLeft=$script:drag.left+$dx;$script:desktopTop=$script:drag.top+$dy}
@@ -680,6 +686,8 @@ function Ensure-QuotaWorker([long]$now){
 }
 function Stop-WidgetRuntime {
   if($script:runtimeClosed){return};$script:runtimeClosed=$true
+  try{Set-WidgetMovement $false -NoLayout}catch{}
+  try{Set-WidgetSpeakerVisible $false}catch{}
   try{if($script:hostFollower){$script:hostFollower.Dispose()}}catch{}
   foreach($timer in @($script:timer,$script:hostEventTimer,$script:menuTimer,$script:sceneTimer,$script:resetPhaseTimer,$script:closeTimer)){try{if($timer){$timer.Stop()}}catch{}}
   try{Stop-WidgetAudio}catch{}
@@ -737,7 +745,10 @@ function Tick-Widget {
         if($null-eq $script:offsetLeft){$script:offsetLeft=[Math]::Max(0,($frame.Right-$frame.Left-$w)/$dpi-$script:offsetRight)}
         $x=[int]($frame.Left+$script:offsetLeft*$dpi)
       }else{$x=[int]($frame.Right-$w-$script:offsetRight*$dpi)}
+      $x=Get-WidgetMovementX $frame.Left ($frame.Right-$w) $x
       $x=[int][Math]::Max($frame.Left,[Math]::Min($frame.Right-$w,$x))
+      $placementLeft=$script:offsetLeft;$placementRight=$script:offsetRight;$placementAnchor=$script:anchor
+      if($script:widgetMovement -and $script:widgetMovement.Enabled){$placementLeft=($x-$frame.Left)/$dpi;$placementRight=($frame.Right-$w-$x)/$dpi;$placementAnchor='free'}
       $desiredY=if($script:followHost){$frame.Bottom-$h-$script:offsetBottom*$dpi}else{$script:desktopTop}
       $y=[int][Math]::Max($frame.Top,[Math]::Min($frame.Bottom-$h,$desiredY))
       $position="$($script:hostHandle):$x,$y,$w,$h"
@@ -746,7 +757,7 @@ function Tick-Widget {
         $script:lastPosition=$position
         if($script:context.IsOpen){Set-WidgetMenuBounds;Position-WidgetMenuToHost}
       }
-      if($script:followHost){$nativeFrame=[GptWidgetNative]::Frame($script:hostHandle);$script:hostFollower.Configure($script:hostHandle,$nativeFrame.Left,$nativeFrame.Top,$nativeFrame.Right,$nativeFrame.Bottom,$w,$h,[int]($script:offsetLeft*$dpi),[int]($script:offsetRight*$dpi),[int]($script:offsetBottom*$dpi),$script:anchor,$true)}
+      if($script:followHost){$nativeFrame=[GptWidgetNative]::Frame($script:hostHandle);$script:hostFollower.Configure($script:hostHandle,$nativeFrame.Left,$nativeFrame.Top,$nativeFrame.Right,$nativeFrame.Bottom,$w,$h,[int]($placementLeft*$dpi),[int]($placementRight*$dpi),[int]($script:offsetBottom*$dpi),$placementAnchor,$true)}
     }
     if($script:followHost){$layer=Set-WidgetAboveHost $script:widgetHandle $script:hostHandle}
     else{Set-WidgetDesktopLayer $script:widgetHandle $script:desktopTopmost}

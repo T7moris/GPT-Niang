@@ -33,6 +33,9 @@ required = {
     "检测套餐.cmd", "gpt-niang-usage/Detect-Plan.ps1",
     "gpt-niang-usage/runtime/plan.mjs", "gpt-niang-usage/runtime/detect-plan.mjs",
     "gpt-niang-usage/runtime/start-widget.ps1",
+    "gpt-niang-usage/runtime/audio-import.ps1",
+    "gpt-niang-usage/runtime/speaker.ps1",
+    "gpt-niang-usage/runtime/movement.ps1",
     "gpt-niang-usage/runtime/refresh-client.mjs",
     "gpt-niang-usage/runtime/worker-state.mjs",
     "gpt-niang-usage/runtime/update.mjs",
@@ -55,7 +58,7 @@ private_names = {
 }
 for name in files:
     path = Path(name)
-    if any(part in {"node_modules", ".test-state", "dist"} for part in path.parts):
+    if any(part in {"node_modules", ".test-state", "dist", "custom-sounds"} for part in path.parts):
         raise SystemExit(f"Unexpected generated directory: {name}")
     if path.name in private_names or path.suffix in {".flag", ".tmp", ".bak", ".zip"}:
         raise SystemExit(f"Unexpected local state: {name}")

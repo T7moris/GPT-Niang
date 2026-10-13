@@ -171,8 +171,15 @@ function Initialize-WidgetSettingsMenu {
   $script:settingsMenuUi.Volume=$volume.Slider;$script:settingsMenuUi.VolumeText=$volume.Value;$volume.Slider.Value=$script:soundVolume
   $volume.Slider.Add_ValueChanged({param($sender,$event)if($script:settingsMenuSync){return};$script:soundVolume=[Math]::Round($sender.Value,2);$script:settingsMenuUi.VolumeText.Text=([Math]::Round($sender.Value*100)).ToString()+'%';Set-WidgetAudioVolume;Save-Settings})
   Add-SettingsPanel $volume.Panel
+  $script:settingsMenuUi.SoundClassic=Add-SettingsAction '原版音效' {Set-WidgetSoundPreset 'classic'} -Checkable -ReturnItem
+  $script:settingsMenuUi.SoundCustom=Add-SettingsAction '本地音效' {Set-WidgetSoundPreset 'custom'} -Checkable -ReturnItem
+  $script:settingsMenuUi.SoundClassic.Uid='radio';$script:settingsMenuUi.SoundCustom.Uid='radio'
+  Add-SettingsAction '导入按下 / 松开音效…' {Open-WidgetSoundImport} -Description '两段 WAV，仅保存在本机；不会自动播放'
   Add-SettingsDivider
   $script:settingsMenuUi.Tap=Add-SettingsAction '点角色也切换内容' {param($sender,$event)$script:bubbleTapAdvance=$sender.IsChecked;Save-Settings} -Description '开启后，连续点角色就能看下一句' -Checkable -ReturnItem
+  Add-SettingsDivider
+  $script:settingsMenuUi.Movement=Add-SettingsAction 'GPT，移动' {param($sender,$event)Set-WidgetMovement ([bool]$sender.IsChecked)} -Description '保持高度左右跑；再次点击回到原位' -Checkable -ReturnItem
+  $script:settingsMenuUi.Speaker=Add-SettingsAction '搬出音响，一起 Q 弹' {param($sender,$event)Set-WidgetSpeakerVisible ([bool]$sender.IsChecked);Update-WidgetSettingsMenu} -Description '静音动画；再次点击收回' -Checkable -ReturnItem
   } -ReturnItem
   Add-SettingsDivider
   $script:settingsMenuUi.Updates=Add-SettingsSubmenu '更新' {
@@ -237,6 +244,12 @@ function Update-WidgetSettingsMenu{
     $script:settingsMenuUi.ColorTriggerList.IsEnabled=$script:colorMode-in @('special','surprise')
     $script:settingsMenuUi.ColorPause.IsChecked=$script:colorPaused;$script:settingsMenuUi.ColorPause.IsEnabled=$script:colorMode-ne 'original'
     $script:settingsMenuUi.Volume.Value=$script:soundVolume;$script:settingsMenuUi.Volume.IsEnabled=$script:soundOn;$script:settingsMenuUi.VolumeText.Text=([Math]::Round($script:soundVolume*100)).ToString()+'%'
+    $hasCustom=$null-ne (Get-WidgetCustomSoundPair $script:dataDir)
+    $script:settingsMenuUi.SoundCustom.IsEnabled=$hasCustom
+    $script:settingsMenuUi.SoundCustom.IsChecked=$hasCustom -and $script:soundPreset-eq 'custom'
+    $script:settingsMenuUi.SoundClassic.IsChecked=!$script:settingsMenuUi.SoundCustom.IsChecked
+    $script:settingsMenuUi.Speaker.IsChecked=[bool]$script:speakerRequested
+    $script:settingsMenuUi.Movement.IsChecked=[bool]($script:widgetMovement -and $script:widgetMovement.Enabled)
     $script:sizeSlider.Value=$script:scale;$script:settingsMenuUi.SizeText.Text=([Math]::Round($script:scale*100)).ToString()+'%';Update-WidgetSizePresets
   }finally{$script:settingsMenuSync=$false}
 }

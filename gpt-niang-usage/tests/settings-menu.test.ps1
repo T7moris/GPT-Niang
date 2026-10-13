@@ -3,6 +3,7 @@ $ErrorActionPreference='Stop'
 Add-Type -AssemblyName PresentationFramework,PresentationCore,WindowsBase
 $appDir=Split-Path $TestRoot -Parent
 . ([ScriptBlock]::Create([IO.File]::ReadAllText((Join-Path $appDir 'runtime\ui-settings.ps1'),[Text.Encoding]::UTF8)))
+. ([ScriptBlock]::Create([IO.File]::ReadAllText((Join-Path $appDir 'runtime\audio-import.ps1'),[Text.Encoding]::UTF8)))
 function Assert-Equal($actual,$expected,[string]$message){if($actual-ne $expected){throw "$message : expected '$expected', got '$actual'"}}
 function Save-Settings {}
 function Set-WidgetFollowHost([bool]$Follow){$script:followHost=$Follow}
@@ -21,6 +22,7 @@ Initialize-WidgetUpdater
 $script:window=New-Object Windows.Window
 $script:collapsed=$true;$script:bubbleMode='quota';$script:followHost=$true;$script:desktopTopmost=$true
 $script:scale=1.0;$script:soundOn=$true;$script:soundVolume=0.9;$script:bubbleTapAdvance=$false;$script:hideMenu=$false
+$script:soundPreset='classic';$script:speakerRequested=$false
 $script:colorMode='mixed';$script:colorChance=0.5;$script:colorTextChance=3;$script:colorPaused=$false
 try{
   Initialize-WidgetSettingsMenu
@@ -55,6 +57,9 @@ try{
   $script:settingsMenuUi.Sound.IsChecked=$false
   $script:settingsMenuUi.Sound.RaiseEvent([Windows.RoutedEventArgs]::new([Windows.Controls.MenuItem]::ClickEvent))
   Assert-Equal $script:settingsMenuUi.Volume.IsEnabled $false 'Muted sound disables volume control'
+  Assert-Equal $script:settingsMenuUi.SoundClassic.IsChecked $true 'Original sound remains the default'
+  Assert-Equal $script:settingsMenuUi.SoundCustom.IsEnabled $false 'No custom pair until imported'
+  Assert-Equal $script:settingsMenuUi.Speaker.IsChecked $false 'Speaker animation starts disabled'
   Write-Output 'PASS: menu modes, conditional topmost, shared row styling, presets and sound controls'
 }finally{
   $script:window.Close()
