@@ -2,6 +2,7 @@
 $script:widgetQuotesBuiltInPath=Join-Path $PSScriptRoot '..\assets\quotes.json'
 $script:widgetQuoteRandom=New-Object System.Random
 $script:widgetQuoteLastByDataDir=@{}
+$script:autoQuoteEnabled=$false;$script:autoQuoteIntervalSeconds=300;$script:autoQuoteNextAt=0;$script:autoQuoteDisplayCount=0
 
 function ConvertTo-WidgetQuoteRows($Value) {
   if($null-eq $Value){return}
@@ -88,4 +89,47 @@ function Reset-WidgetQuotes([string]$DataDir) {
     [IO.File]::Delete($file)
   }
   Get-WidgetQuoteSettings $DataDir
+}
+
+function ConvertTo-WidgetAutoQuoteSeconds([string]$Value,[string]$Unit='秒') {
+  $number=0.0
+  if(![double]::TryParse($Value.Trim(),[Globalization.NumberStyles]::Float,[Globalization.CultureInfo]::InvariantCulture,[ref]$number) -or [double]::IsNaN($number) -or [double]::IsInfinity($number)){throw '请输入有效的数字，例如 30 或 1.5。'}
+  $multiplier=switch($Unit){'秒'{1};'分钟'{60};'小时'{3600};default{throw '请选择秒、分钟或小时。'}}
+  $seconds=$number*$multiplier
+  if($seconds-lt 10 -or $seconds-gt 86400){throw '间隔须在 10 秒至 24 小时之间。'}
+  [int][Math]::Round($seconds)
+}
+
+function Initialize-WidgetAutoQuoteSettings($Settings) {
+  $script:autoQuoteEnabled=$false;$script:autoQuoteIntervalSeconds=300;$script:autoQuoteNextAt=0
+  if($Settings.autoQuoteEnabled-is [bool]){$script:autoQuoteEnabled=$Settings.autoQuoteEnabled}
+  if($null-ne $Settings.autoQuoteIntervalSeconds){
+    try{$script:autoQuoteIntervalSeconds=ConvertTo-WidgetAutoQuoteSeconds ([string]$Settings.autoQuoteIntervalSeconds)}catch{}
+  }
+}
+
+function Reset-WidgetAutoQuoteSchedule([long]$Now=[DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()) {
+  $script:autoQuoteNextAt=if($script:autoQuoteEnabled){$Now+[long]$script:autoQuoteIntervalSeconds*1000}else{0}
+}
+
+function Set-WidgetAutoQuoteSettings([bool]$Enabled,[int]$Seconds) {
+  $seconds=ConvertTo-WidgetAutoQuoteSeconds ([string]$Seconds)
+  $script:autoQuoteEnabled=$Enabled;$script:autoQuoteIntervalSeconds=$seconds
+  Reset-WidgetAutoQuoteSchedule
+  Save-Settings
+}
+
+function Test-WidgetAutoQuoteDue([long]$Now,[bool]$Visible,[bool]$Busy) {
+  # Count idle time only; hiding or interacting restarts the interval, with no catch-up burst.
+  if(!$script:autoQuoteEnabled -or !$Visible -or $Busy){Reset-WidgetAutoQuoteSchedule $Now;return $false}
+  if($script:autoQuoteNextAt-le 0){Reset-WidgetAutoQuoteSchedule $Now;return $false}
+  if($Now-lt $script:autoQuoteNextAt){return $false}
+  Reset-WidgetAutoQuoteSchedule $Now
+  return $true
+}
+
+function Get-WidgetAutoQuoteIntervalLabel([int]$Seconds) {
+  if($Seconds%3600-eq 0){return ([string]($Seconds/3600))+' 小时'}
+  if($Seconds%60-eq 0){return ([string]($Seconds/60))+' 分钟'}
+  ([string]$Seconds)+' 秒'
 }

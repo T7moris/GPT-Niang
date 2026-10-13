@@ -33,7 +33,7 @@ function Open-QuoteEditor {
         else{@{text=$text;weight=1}}
       })
       $saved=Save-WidgetQuotes $script:dataDir $rows
-      $script:quoteEditor.FindName('Feedback').Text="已保存 $($saved.quotes.Count) 句。下一次点击气泡时就会使用。"
+      $script:quoteEditor.FindName('Feedback').Text="已保存 $($saved.quotes.Count) 句。下一次显示语录时就会使用。"
     }catch{$script:quoteEditor.FindName('Feedback').Text=$_.Exception.Message}
   })
   $editor.FindName('Defaults').Add_Click({
@@ -116,6 +116,46 @@ function Initialize-WidgetSettingsMenu {
   $script:settingsMenuUi.Quote=Add-SettingsAction '换一句台词' {if($script:collapsed){Show-Quota};Switch-Scene 'quote'} -ReturnItem
   Add-SettingsAction '刷新额度' {Request-Refresh}
   Add-SettingsAction '编辑我的语录' {Open-QuoteEditor}
+  $script:settingsMenuUi.AutoQuotes=Add-SettingsSubmenu '自动弹出语录' {
+    $script:settingsMenuUi.AutoQuoteEnabled=Add-SettingsAction '开启自动弹出' {param($sender,$event)Set-WidgetAutoQuoteSettings ([bool]$sender.IsChecked) $script:autoQuoteIntervalSeconds;Update-WidgetSettingsMenu} -Checkable -ReturnItem
+    $status=New-SettingsText '' 12 '#927AAB'
+    $script:settingsMenuUi.AutoQuoteStatus=$status;Add-SettingsPanel $status -Passive
+    $caption=New-SettingsText '选择间隔' 12 '#927AAB';$caption.Margin=[Windows.Thickness]::new(0,8,0,4);Add-SettingsPanel $caption -Passive
+    $presets=New-Object Windows.Controls.ComboBox;$presets.Margin=[Windows.Thickness]::new(0,0,0,8);$presets.MinHeight=30
+    foreach($seconds in @(30,60,300,900,1800,3600)){
+      $choice=New-Object Windows.Controls.ComboBoxItem;$choice.Content=Get-WidgetAutoQuoteIntervalLabel $seconds;$choice.Tag=$seconds;$presets.Items.Add($choice)|Out-Null
+    }
+    $custom=New-Object Windows.Controls.ComboBoxItem;$custom.Content='自定义间隔';$custom.Tag=0;$presets.Items.Add($custom)|Out-Null
+    $script:settingsMenuUi.AutoQuotePresets=$presets
+    $presets.Add_SelectionChanged({param($sender,$event)
+      if($script:settingsMenuSync -or !$sender.SelectedItem -or [int]$sender.SelectedItem.Tag-le 0){return}
+      Set-WidgetAutoQuoteSettings $script:autoQuoteEnabled ([int]$sender.SelectedItem.Tag);Update-WidgetSettingsMenu
+      $script:settingsMenuUi.AutoQuoteFeedback.Text='间隔已保存。'
+    })
+    Add-SettingsPanel $presets
+    $caption=New-SettingsText '或输入自定义时间' 12 '#927AAB';$caption.Margin=[Windows.Thickness]::new(0,4,0,4);Add-SettingsPanel $caption -Passive
+    $row=New-Object Windows.Controls.Grid
+    for($i=0;$i-lt 2;$i++){$definition=New-Object Windows.Controls.RowDefinition;$definition.Height=[Windows.GridLength]::Auto;$row.RowDefinitions.Add($definition)|Out-Null}
+    $row.ColumnDefinitions.Add((New-Object Windows.Controls.ColumnDefinition))|Out-Null
+    $column=New-Object Windows.Controls.ColumnDefinition;$column.Width=[Windows.GridLength]::new(74);$row.ColumnDefinitions.Add($column)|Out-Null
+    $input=New-Object Windows.Controls.TextBox;$input.Padding=[Windows.Thickness]::new(6,4,6,4);$input.Margin=[Windows.Thickness]::new(0,0,6,0);$input.ToolTip='支持小数，例如 1.5 分钟；范围 10 秒至 24 小时。'
+    $unit=New-Object Windows.Controls.ComboBox;$unit.Margin=[Windows.Thickness]::new(0,0,6,0);foreach($label in @('秒','分钟','小时')){$unit.Items.Add($label)|Out-Null}
+    [Windows.Controls.Grid]::SetColumn($unit,1)
+    $apply=New-Object Windows.Controls.Button;$apply.Content='应用';$apply.Style=$script:settingsMenuResources['SettingsPreset'];$apply.HorizontalAlignment=[Windows.HorizontalAlignment]::Right;$apply.Margin=[Windows.Thickness]::new(0,6,0,0);[Windows.Controls.Grid]::SetRow($apply,1);[Windows.Controls.Grid]::SetColumnSpan($apply,2)
+    $script:settingsMenuUi.AutoQuoteInput=$input;$script:settingsMenuUi.AutoQuoteUnit=$unit;$script:settingsMenuUi.AutoQuoteApply=$apply
+    $apply.Add_Click({param($sender,$event)
+      try{
+        $seconds=ConvertTo-WidgetAutoQuoteSeconds $script:settingsMenuUi.AutoQuoteInput.Text ([string]$script:settingsMenuUi.AutoQuoteUnit.SelectedItem)
+        Set-WidgetAutoQuoteSettings $script:autoQuoteEnabled $seconds;Update-WidgetSettingsMenu
+        $script:settingsMenuUi.AutoQuoteFeedback.Text='间隔已保存。'
+      }catch{$script:settingsMenuUi.AutoQuoteFeedback.Text=$_.Exception.Message}
+      $event.Handled=$true
+    })
+    $row.Children.Add($input)|Out-Null;$row.Children.Add($unit)|Out-Null;$row.Children.Add($apply)|Out-Null;Add-SettingsPanel $row
+    $feedback=New-SettingsText '10 秒至 24 小时；可输入小数。' 11.5 '#927AAB';$feedback.Margin=[Windows.Thickness]::new(0,7,0,4);$feedback.TextWrapping=[Windows.TextWrapping]::Wrap
+    $script:settingsMenuUi.AutoQuoteFeedback=$feedback;Add-SettingsPanel $feedback -Passive
+    $hint=New-SettingsText '挂件可见且气泡收起后计时；拖动或打开设置时暂缓。语录显示约 5 秒后收起。' 11.5 '#927AAB';$hint.TextWrapping=[Windows.TextWrapping]::Wrap;Add-SettingsPanel $hint -Passive
+  } -ReturnItem
   Add-SettingsDivider
   $script:settingsMenuUi.Display=Add-SettingsSubmenu '显示与位置' {
   $script:settingsMenuUi.Follow=Add-SettingsAction '仅在 Codex 窗口内' {Set-WidgetFollowHost $true;Update-WidgetSettingsMenu;Set-WidgetMenuBounds;Position-WidgetMenuToHost} -Checkable -ReturnItem
@@ -223,6 +263,16 @@ function Update-WidgetSettingsMenu{
   $script:settingsMenuSync=$true
   try{
     Update-WidgetUpdateMenu
+    $script:settingsMenuUi.AutoQuoteEnabled.IsChecked=$script:autoQuoteEnabled
+    $mode=if($script:autoQuoteEnabled){'已开启'}else{'已关闭'}
+    $script:settingsMenuUi.AutoQuoteStatus.Text=$mode+' · 间隔 '+(Get-WidgetAutoQuoteIntervalLabel $script:autoQuoteIntervalSeconds)
+    $presetIndex=6
+    for($i=0;$i-lt 6;$i++){if([int]$script:settingsMenuUi.AutoQuotePresets.Items[$i].Tag-eq $script:autoQuoteIntervalSeconds){$presetIndex=$i;break}}
+    $script:settingsMenuUi.AutoQuotePresets.SelectedIndex=$presetIndex
+    $unit=if($script:autoQuoteIntervalSeconds%3600-eq 0){'小时'}elseif($script:autoQuoteIntervalSeconds%60-eq 0){'分钟'}else{'秒'}
+    $divisor=switch($unit){'小时'{3600};'分钟'{60};default{1}}
+    $script:settingsMenuUi.AutoQuoteUnit.SelectedItem=$unit
+    $script:settingsMenuUi.AutoQuoteInput.Text=([double]($script:autoQuoteIntervalSeconds/$divisor)).ToString([Globalization.CultureInfo]::InvariantCulture)
     $script:settingsMenuUi.Bubble.Header=if(!$script:collapsed -and $script:bubbleMode-eq 'quota'){'收起额度气泡'}else{'查看额度'}
     $script:settingsMenuUi.Follow.IsChecked=$script:followHost;$script:settingsMenuUi.Desktop.IsChecked=!$script:followHost
     $script:settingsMenuUi.Topmost.IsChecked=$script:desktopTopmost;$script:settingsMenuUi.Topmost.IsEnabled=!$script:followHost

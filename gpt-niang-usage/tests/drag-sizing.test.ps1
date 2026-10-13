@@ -35,6 +35,7 @@ $validFrame=$ast.Find({param($n)$n-is [Management.Automation.Language.FunctionDe
 $script:designWidth=378;$script:designHeight=378
 function Tick-Scene {}
 function Tick-WidgetUpdater {}
+function Tick-WidgetAutoQuote {}
 function Ensure-QuotaWorker {}
 function Test-WidgetHostReady {return $true}
 function Set-WidgetAboveHost {}

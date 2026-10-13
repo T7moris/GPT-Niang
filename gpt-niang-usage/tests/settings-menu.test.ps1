@@ -1,7 +1,8 @@
-param([string]$TestRoot=$PSScriptRoot)
+﻿param([string]$TestRoot=$PSScriptRoot)
 $ErrorActionPreference='Stop'
 Add-Type -AssemblyName PresentationFramework,PresentationCore,WindowsBase
 $appDir=Split-Path $TestRoot -Parent
+. (Join-Path $appDir 'runtime\quotes.ps1')
 . ([ScriptBlock]::Create([IO.File]::ReadAllText((Join-Path $appDir 'runtime\ui-settings.ps1'),[Text.Encoding]::UTF8)))
 function Assert-Equal($actual,$expected,[string]$message){if($actual-ne $expected){throw "$message : expected '$expected', got '$actual'"}}
 function Save-Settings {}
@@ -24,7 +25,7 @@ $script:scale=1.0;$script:soundOn=$true;$script:soundVolume=0.9;$script:bubbleTa
 $script:colorMode='mixed';$script:colorChance=0.5;$script:colorTextChance=3;$script:colorPaused=$false
 try{
   Initialize-WidgetSettingsMenu
-  $expected=@('查看额度','换一句台词','刷新额度','编辑我的语录','显示与位置','外观设置','声音与点击','更新','退出 GPT 娘')
+  $expected=@('查看额度','换一句台词','刷新额度','编辑我的语录','自动弹出语录','显示与位置','外观设置','声音与点击','更新','退出 GPT 娘')
   $actual=@($script:context.Items|Where-Object{$_.Header-is [string]}|ForEach-Object{$_.Header})
   Assert-Equal ($actual-join '|') ($expected-join '|') 'Menu entries and removed title block'
   Assert-Equal $script:settingsMenuUi.UpdateVersion.Header '当前版本：1.3.2' 'Update menu shows actual version'
@@ -55,6 +56,26 @@ try{
   $script:settingsMenuUi.Sound.IsChecked=$false
   $script:settingsMenuUi.Sound.RaiseEvent([Windows.RoutedEventArgs]::new([Windows.Controls.MenuItem]::ClickEvent))
   Assert-Equal $script:settingsMenuUi.Volume.IsEnabled $false 'Muted sound disables volume control'
+  Assert-Equal $script:settingsMenuUi.AutoQuoteEnabled.IsChecked $false 'Automatic quotes are initially off'
+  Assert-Equal $script:settingsMenuUi.AutoQuotePresets.SelectedIndex 2 'Five-minute initial preset'
+  $script:settingsMenuUi.AutoQuoteEnabled.IsChecked=$true
+  $script:settingsMenuUi.AutoQuoteEnabled.RaiseEvent([Windows.RoutedEventArgs]::new([Windows.Controls.MenuItem]::ClickEvent))
+  Assert-Equal $script:autoQuoteEnabled $true 'Menu enables automatic quotes'
+  $script:settingsMenuUi.AutoQuotePresets.SelectedIndex=1
+  Assert-Equal $script:autoQuoteIntervalSeconds 60 'Preset changes the real interval'
+  $script:settingsMenuUi.AutoQuoteInput.Text='1.5';$script:settingsMenuUi.AutoQuoteUnit.SelectedItem='分钟'
+  $script:settingsMenuUi.AutoQuoteApply.RaiseEvent([Windows.RoutedEventArgs]::new([Windows.Controls.Button]::ClickEvent))
+  Assert-Equal $script:autoQuoteIntervalSeconds 90 'Custom decimal minutes are applied'
+  Assert-Equal $script:settingsMenuUi.AutoQuotePresets.SelectedIndex 6 'Custom interval is marked'
+  $script:settingsMenuUi.AutoQuoteInput.Text='-1'
+  $script:settingsMenuUi.AutoQuoteApply.RaiseEvent([Windows.RoutedEventArgs]::new([Windows.Controls.Button]::ClickEvent))
+  Assert-Equal $script:autoQuoteIntervalSeconds 90 'Invalid input preserves previous interval'
+  Assert-Equal ([string]$script:settingsMenuUi.AutoQuoteFeedback.Text-match '10 秒') $true 'Invalid input explains bounds'
+  $form=$script:settingsMenuUi.AutoQuoteInput.Parent
+  $form.Measure([Windows.Size]::new(142,[double]::PositiveInfinity));$form.Arrange([Windows.Rect]::new(0,0,142,$form.DesiredSize.Height));$form.UpdateLayout()
+  Assert-Equal ($script:settingsMenuUi.AutoQuoteInput.ActualWidth-ge 50) $true 'Input remains usable in the narrowest settings submenu'
+  $applyOrigin=$script:settingsMenuUi.AutoQuoteApply.TranslatePoint([Windows.Point]::new(0,0),$form)
+  Assert-Equal ($applyOrigin.Y-ge $script:settingsMenuUi.AutoQuoteInput.ActualHeight) $true 'Apply button cannot overlap the input in a narrow submenu'
   Write-Output 'PASS: menu modes, conditional topmost, shared row styling, presets and sound controls'
 }finally{
   $script:window.Close()
