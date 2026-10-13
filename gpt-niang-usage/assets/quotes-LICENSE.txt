@@ -1,6 +1,6 @@
 GPT娘内置语录来源与许可
 
-内置33句由原创台词、用户提供台词和以下7句上游文本组成。
+内置45句由原创台词、用户提供台词和以下7句上游文本组成。
 上游来源：https://github.com/MeteorNOX/DeepSeek-Balance-Whale-Widget/blob/770d3f55ff40284eb244fff33fc9ed4654be8a45/assets/whale-widget.js
 
 真当我是便宜货啊...

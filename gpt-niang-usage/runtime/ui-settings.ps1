@@ -61,6 +61,7 @@ function Initialize-WidgetSettingsMenu {
      <ContentPresenter ContentSource="Header" RecognizesAccessKey="True" VerticalAlignment="Center"/>
      <TextBlock x:Name="CheckMark" Grid.Column="1" Text="✓" Foreground="#8461B0" FontSize="17" FontWeight="Bold" Visibility="Collapsed" VerticalAlignment="Center" HorizontalAlignment="Right"/>
      <TextBlock x:Name="SubmenuArrow" Grid.Column="1" Text="›" Foreground="#9C80B6" FontSize="22" Visibility="Collapsed" VerticalAlignment="Center" HorizontalAlignment="Right"/>
+     <Path x:Name="OpenWindowGlyph" Grid.Column="1" Data="M 4,3 L 1,3 L 1,13 L 11,13 L 11,10 M 7,1 L 13,1 L 13,7 M 13,1 L 6,8" Width="14" Height="14" Stretch="Uniform" Stroke="#9C80B6" StrokeThickness="1.4" StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Visibility="Collapsed" VerticalAlignment="Center" HorizontalAlignment="Right"/>
     </Grid>
    </Border>
    <Popup x:Name="PART_Popup" Placement="{Binding Tag, RelativeSource={RelativeSource TemplatedParent}, FallbackValue=Right, TargetNullValue=Right}" PlacementTarget="{Binding ElementName=ItemBody}" IsOpen="{Binding IsSubmenuOpen, RelativeSource={RelativeSource TemplatedParent}}" AllowsTransparency="True" Focusable="False" PopupAnimation="Fade">
@@ -73,6 +74,7 @@ function Initialize-WidgetSettingsMenu {
     <Trigger Property="IsChecked" Value="True"><Setter TargetName="CheckMark" Property="Visibility" Value="Visible"/></Trigger>
     <Trigger Property="Uid" Value="radio"><Setter TargetName="CheckMark" Property="Text" Value="●"/><Setter TargetName="CheckMark" Property="FontSize" Value="14"/></Trigger>
     <Trigger Property="HasItems" Value="True"><Setter TargetName="SubmenuArrow" Property="Visibility" Value="Visible"/></Trigger>
+    <Trigger Property="Uid" Value="open-window"><Setter TargetName="OpenWindowGlyph" Property="Visibility" Value="Visible"/></Trigger>
     <Trigger Property="IsEnabled" Value="False"><Setter Property="Opacity" Value="0.5"/></Trigger>
    </ControlTemplate.Triggers>
   </ControlTemplate></Setter.Value></Setter>
@@ -99,8 +101,29 @@ function Initialize-WidgetSettingsMenu {
   </Grid></ControlTemplate></Setter.Value></Setter>
   <Style.Triggers><Trigger Property="IsEnabled" Value="False"><Setter Property="Opacity" Value="0.4"/></Trigger></Style.Triggers>
  </Style>
+ <Style x:Key="LavenderScrollThumb" TargetType="Thumb">
+  <Setter Property="MinHeight" Value="28"/><Setter Property="Cursor" Value="Hand"/>
+  <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="Thumb">
+   <Border x:Name="ThumbBody" Background="#C6B0DD" CornerRadius="4" Margin="1,0"/>
+   <ControlTemplate.Triggers>
+    <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="ThumbBody" Property="Background" Value="#A98CC5"/></Trigger>
+    <Trigger Property="IsDragging" Value="True"><Setter TargetName="ThumbBody" Property="Background" Value="#9170B5"/></Trigger>
+   </ControlTemplate.Triggers>
+  </ControlTemplate></Setter.Value></Setter>
+ </Style>
+ <Style TargetType="ScrollBar">
+  <Setter Property="Width" Value="8"/><Setter Property="MinWidth" Value="8"/><Setter Property="MaxWidth" Value="8"/><Setter Property="Margin" Value="6,0,0,0"/>
+  <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ScrollBar">
+   <Border Background="#F0E8F6" CornerRadius="4"><Track x:Name="PART_Track" Orientation="Vertical" IsDirectionReversed="True" Minimum="{TemplateBinding Minimum}" Maximum="{TemplateBinding Maximum}" Value="{TemplateBinding Value}" ViewportSize="{TemplateBinding ViewportSize}">
+    <Track.DecreaseRepeatButton><RepeatButton Command="ScrollBar.PageUpCommand" Focusable="False"><RepeatButton.Template><ControlTemplate TargetType="RepeatButton"><Border Background="Transparent"/></ControlTemplate></RepeatButton.Template></RepeatButton></Track.DecreaseRepeatButton>
+    <Track.Thumb><Thumb Style="{StaticResource LavenderScrollThumb}"/></Track.Thumb>
+    <Track.IncreaseRepeatButton><RepeatButton Command="ScrollBar.PageDownCommand" Focusable="False"><RepeatButton.Template><ControlTemplate TargetType="RepeatButton"><Border Background="Transparent"/></ControlTemplate></RepeatButton.Template></RepeatButton></Track.IncreaseRepeatButton>
+   </Track></Border>
+  </ControlTemplate></Setter.Value></Setter>
+ </Style>
 </ResourceDictionary>
 '@)
+  $script:settingsMenuResources[[Windows.SystemParameters]::VerticalScrollBarWidthKey]=[double]8
   $script:settingsMenuSync=$false;$script:settingsMenuUi=@{};$script:settingsSubmenus=@()
   $script:context=New-Object Windows.Controls.ContextMenu
   $script:context.FontFamily=[Windows.Media.FontFamily]::new('Microsoft YaHei UI');$script:context.FontSize=14.5;$script:context.Width=328
@@ -128,6 +151,10 @@ function Initialize-WidgetSettingsMenu {
   Add-SettingsAction '恢复右下角位置' {if($script:followHost){$script:offsetRight=0;$script:offsetLeft=0;$script:offsetBottom=0;$script:anchor='right'}else{$script:desktopLeft=$null;$script:desktopTop=$null};$script:side='right';$script:lastPosition=$null;Set-Facing;Hide-Quota;Save-Settings;Tick-Widget} -StayOpen
   } -ReturnItem
   $script:settingsMenuUi.Appearance=Add-SettingsSubmenu '外观设置' {
+  $script:settingsMenuUi.Character=Add-SettingsAction '切换形象' {Open-WidgetCharacterGallery} -ReturnItem
+  $script:settingsMenuUi.Character.Uid='open-window'
+  $script:settingsMenuUi.Character.ToolTip='打开角色图库'
+  Add-SettingsDivider
   $presets=New-Object Windows.Controls.Primitives.UniformGrid;$presets.Columns=3;$presets.Margin=[Windows.Thickness]::new(0,1,0,2);$script:settingsMenuUi.SizeButtons=@()
   foreach($choice in @(@{label='小 · 80%';scale=0.8},@{label='标准 · 100%';scale=1.0},@{label='大 · 140%';scale=1.4})){
     $button=New-Object Windows.Controls.Button;$button.Content=$choice.label;$button.Tag=$choice.scale;$button.Margin=[Windows.Thickness]::new(0,0,5,0);$button.Style=$script:settingsMenuResources['SettingsPreset']
@@ -223,6 +250,7 @@ function Update-WidgetSettingsMenu{
   $script:settingsMenuSync=$true
   try{
     Update-WidgetUpdateMenu
+    if($script:settingsMenuUi.Character){$script:settingsMenuUi.Character.Header=if($script:activeCharacter){'形象：'+$script:activeCharacter.name}else{'切换形象'}}
     $script:settingsMenuUi.Bubble.Header=if(!$script:collapsed -and $script:bubbleMode-eq 'quota'){'收起额度气泡'}else{'查看额度'}
     $script:settingsMenuUi.Follow.IsChecked=$script:followHost;$script:settingsMenuUi.Desktop.IsChecked=!$script:followHost
     $script:settingsMenuUi.Topmost.IsChecked=$script:desktopTopmost;$script:settingsMenuUi.Topmost.IsEnabled=!$script:followHost
