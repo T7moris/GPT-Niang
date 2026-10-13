@@ -2,11 +2,12 @@
 $ErrorActionPreference='Stop'
 Add-Type -AssemblyName PresentationFramework,PresentationCore,WindowsBase
 $app=Split-Path $TestRoot -Parent
+. (Join-Path $app 'runtime\sharp-text.ps1')
 . ([ScriptBlock]::Create([IO.File]::ReadAllText((Join-Path $app 'runtime\quote-layout.ps1'),[Text.Encoding]::UTF8)))
 Initialize-WidgetQuoteLayouts $app
-$script:window=[Windows.Markup.XamlReader]::Parse([IO.File]::ReadAllText((Join-Path $app 'widget.xaml'),[Text.Encoding]::UTF8))
+$script:window=[Windows.Markup.XamlReader]::Parse((ConvertTo-SmoothWidgetXaml ([IO.File]::ReadAllText((Join-Path $app 'widget.xaml'),[Text.Encoding]::UTF8)) -AppDir $app))
 $script:ui=@{}
-foreach($name in @('Root','SceneText','QuoteText','QuotaText','Refresh','FacingScale','TextFacingScale')){$script:ui[$name]=$script:window.FindName($name)}
+foreach($name in @('Root','SceneText','QuoteText','QuotaText','Refresh','FacingScale','TextFacingScale','ShortRow','WeekRow')){$script:ui[$name]=$script:window.FindName($name)}
 $script:ui.QuotaText.Visibility=[Windows.Visibility]::Collapsed
 $script:ui.Refresh.Visibility=[Windows.Visibility]::Collapsed
 $script:ui.QuoteText.Visibility=[Windows.Visibility]::Visible
@@ -24,6 +25,9 @@ function Add-QuoteInk($drawing,[Windows.Media.Matrix]$matrix){
     foreach($child in $drawing.Children){Add-QuoteInk $child $next}
   }elseif($drawing-is [Windows.Media.GlyphRunDrawing]){
     $outline=$drawing.GlyphRun.BuildGeometry();$outline.Transform=[Windows.Media.MatrixTransform]::new($matrix)
+    $script:quoteInk.Children.Add($outline)
+  }elseif($drawing-is [Windows.Media.GeometryDrawing]){
+    $outline=$drawing.Geometry.Clone();$outline.Transform=[Windows.Media.MatrixTransform]::new($matrix)
     $script:quoteInk.Children.Add($outline)
   }
 }
@@ -56,6 +60,6 @@ try{
     if(![object]::ReferenceEquals($cached,(Get-WidgetQuoteLayout $script:ui.QuoteText.Text $script:ui.QuoteText))){throw 'Repeated layout did not use the cache'}
   }
   $script:bubbleMode='quota';Set-WidgetSceneLayout
-  if([Windows.Controls.Canvas]::GetLeft($script:ui.SceneText)-ne 63 -or [Windows.Controls.Canvas]::GetTop($script:ui.SceneText)-ne 22 -or $script:ui.SceneText.Width-ne 184 -or $script:ui.SceneText.Height-ne 115){throw 'Switching back to quota did not restore its layout'}
+  if([Windows.Controls.Canvas]::GetLeft($script:ui.SceneText)-ne 47 -or [Windows.Controls.Canvas]::GetTop($script:ui.SceneText)-ne 18 -or $script:ui.SceneText.Width-ne 216 -or $script:ui.SceneText.Height-ne 118){throw 'Switching back to quota did not restore its layout'}
   Write-Output ('PASS: '+$profiles.quotes.Count+' reviewed quotes, short and 200-character custom quotes; '+$checks+' native glyph checks across both orientations and four scales; quota restoration and layout cache')
 }finally{$script:window.Close()}

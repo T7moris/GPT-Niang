@@ -3,7 +3,7 @@
         Title="GPT 娘 · 额度用量" Width="350" Height="350" WindowStyle="None"
         ResizeMode="NoResize" AllowsTransparency="True" Background="{x:Null}"
         ShowInTaskbar="False" ShowActivated="False" Topmost="False"
-        FontFamily="Microsoft YaHei UI" UseLayoutRounding="True">
+        FontFamily="__GPTNIANG_FONT__" FontWeight="Medium" UseLayoutRounding="True" TextOptions.TextFormattingMode="Ideal" TextOptions.TextRenderingMode="Grayscale" TextOptions.TextHintingMode="Fixed">
   <Window.Resources>
     <Style TargetType="Button">
       <Setter Property="Background" Value="Transparent"/>
@@ -32,39 +32,56 @@
       <Path x:Name="BubbleShape" Fill="#FFFFFF" Stroke="#745A98" StrokeThickness="4"
             StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round"
             Data="M 283,85 A 128,79 0 1 0 27,85 A 128,79 0 0 0 114,160 A 20,10 0 0 0 149,164 A 128,79 0 0 0 283,85 Z"/>
-      <Grid x:Name="SceneText" Canvas.Left="63" Canvas.Top="22" Width="184" Height="115" RenderTransformOrigin="0.5,0.5">
+      <Grid x:Name="SceneText" Canvas.Left="47" Canvas.Top="18" Width="216" Height="118" RenderTransformOrigin="0.5,0.5">
         <Grid.RenderTransform><ScaleTransform x:Name="TextFacingScale"/></Grid.RenderTransform>
-      <StackPanel x:Name="QuotaText" VerticalAlignment="Center">
-        <Grid x:Name="HeaderRow" Height="16">
-          <Grid.ColumnDefinitions><ColumnDefinition Width="24"/><ColumnDefinition Width="*"/><ColumnDefinition Width="24"/></Grid.ColumnDefinitions>
-          <TextBlock x:Name="Header" Grid.Column="1" Text="剩余额度" HorizontalAlignment="Center" VerticalAlignment="Center" MaxWidth="136" TextAlignment="Center" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" FontSize="12" LineHeight="16" LineStackingStrategy="BlockLineHeight" FontWeight="SemiBold" Foreground="#7D6B91" IsHitTestVisible="False" ToolTip="重置时间按当前机器的本地时间显示"/>
-          <Button x:Name="Refresh" Grid.Column="2" HorizontalAlignment="Right" VerticalAlignment="Center" Width="20" Height="16" Content="↻" FontSize="12" ToolTip="立即刷新额度"/>
-        </Grid>
-        <StackPanel x:Name="ShortRow" Margin="0,1,0,0" IsHitTestVisible="False">
-        <Grid Height="25">
-          <TextBlock x:Name="ShortLabel" Text="5 小时" FontSize="13" VerticalAlignment="Center" Foreground="#76638D"/>
-          <TextBlock x:Name="ShortLeft" Text="—" HorizontalAlignment="Right" VerticalAlignment="Center" FontFamily="Segoe UI" FontSize="24" LineHeight="25" LineStackingStrategy="BlockLineHeight" FontWeight="Bold" Foreground="#745A98"/>
-        </Grid>
-        <Border Height="4" Background="#EAE4F3" CornerRadius="2" Margin="0,1,0,0">
-          <Border x:Name="ShortBar" Background="#AA95CD" CornerRadius="2" Width="0" HorizontalAlignment="Left"/>
-        </Border>
-        <TextBlock x:Name="ShortReset" Text="等待额度数据" Margin="0,1,0,0" FontSize="12" LineHeight="15" LineStackingStrategy="BlockLineHeight" Foreground="#7D6B91"/>
-        <TextBlock x:Name="ShortUsed" Visibility="Collapsed" Text="已用 —"/>
-        </StackPanel>
-        <StackPanel x:Name="WeekRow" Margin="0,4,0,0" IsHitTestVisible="False">
-        <Grid Height="25">
-          <TextBlock x:Name="WeekLabel" Text="每周" FontSize="13" VerticalAlignment="Center" Foreground="#76638D"/>
-          <TextBlock x:Name="WeekLeft" Text="—" HorizontalAlignment="Right" VerticalAlignment="Center" FontFamily="Segoe UI" FontSize="24" LineHeight="25" LineStackingStrategy="BlockLineHeight" FontWeight="Bold" Foreground="#745A98"/>
-        </Grid>
-        <Border Height="4" Background="#EAE4F3" CornerRadius="2" Margin="0,1,0,0">
-          <Border x:Name="WeekBar" Background="#AA95CD" CornerRadius="2" Width="0" HorizontalAlignment="Left"/>
-        </Border>
-        <TextBlock x:Name="WeekReset" Text="等待额度数据" Margin="0,1,0,0" FontSize="12" LineHeight="15" LineStackingStrategy="BlockLineHeight" Foreground="#7D6B91"/>
-        <TextBlock x:Name="WeekUsed" Visibility="Collapsed" Text="已用 —"/>
-        </StackPanel>
+      <Canvas x:Name="QuotaText" Width="216" Height="118" HorizontalAlignment="Center" VerticalAlignment="Center">
+        <Canvas x:Name="HeaderRow">
+          <TextBlock x:Name="Header" Canvas.Left="58" Canvas.Top="4" Width="100" Text="剩余额度" TextAlignment="Center" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" FontSize="17" FontWeight="Medium" Foreground="#745A98" IsHitTestVisible="False"/>
+          <Button x:Name="Refresh" Canvas.Left="158" Canvas.Top="8" Width="22" Height="22" Foreground="#A08CAF" ToolTip="立即刷新额度" Cursor="Hand" Focusable="False">
+  <Button.Style>
+    <Style TargetType="Button">
+      <Setter Property="Opacity" Value="0"/>
+      <Style.Triggers>
+        <DataTrigger Binding="{Binding IsMouseOver, ElementName=Bubble}" Value="True"><Setter Property="Opacity" Value="0.6"/></DataTrigger>
+        <Trigger Property="IsMouseOver" Value="True"><Setter Property="Opacity" Value="1"/><Setter Property="Foreground" Value="#745A98"/></Trigger>
+      </Style.Triggers>
+    </Style>
+  </Button.Style>
+  <Button.Template>
+    <ControlTemplate TargetType="Button">
+      <Grid Background="Transparent">
+        <Viewbox Width="14" Height="14" HorizontalAlignment="Center" VerticalAlignment="Center">
+          <Canvas Width="16" Height="16">
+            <Path Data="M 13,5.5 A 5.5,5.5 0 1 0 13.3,11 M 13,2 L 13,5.5 L 9.5,5.5" Stroke="{TemplateBinding Foreground}" StrokeThickness="1.15" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"/>
+          </Canvas>
+        </Viewbox>
+      </Grid>
+    </ControlTemplate>
+  </Button.Template>
+</Button>
+        </Canvas>
+        <Canvas x:Name="QuotaColumns" Canvas.Left="14" Canvas.Top="30" Width="188" Height="83">
+          <Canvas x:Name="ShortRow" Canvas.Top="0" Width="188" Height="37" IsHitTestVisible="False">
+            <TextBlock x:Name="ShortLabel" Canvas.Top="6" Width="53" Text="5小时" FontSize="15" FontWeight="Medium" Foreground="#806791" TextAlignment="Left" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis"/>
+            <TextBlock x:Name="ShortLeft" Canvas.Left="53" Canvas.Top="-2" Width="65" Text="—" FontFamily="Segoe UI" FontSize="25" FontWeight="SemiBold" Foreground="#745A98" TextAlignment="Center" TextWrapping="NoWrap"/>
+            <TextBlock x:Name="ShortReset" Canvas.Left="120" Canvas.Top="10" Width="68" Text="等待数据" FontSize="14" Foreground="#806E91" TextAlignment="Right" TextWrapping="NoWrap"/>
+            <Border Canvas.Top="33" Width="188" Height="4" Background="#EAE3F1" CornerRadius="2">
+              <Border x:Name="ShortBar" Background="#A184C1" CornerRadius="2" Width="0" HorizontalAlignment="Left"/>
+            </Border>
+            <TextBlock x:Name="ShortUsed" Visibility="Collapsed" Text="已用 —"/>
+          </Canvas>
+          <Canvas x:Name="WeekRow" Canvas.Top="46" Width="188" Height="37" IsHitTestVisible="False">
+            <TextBlock x:Name="WeekLabel" Canvas.Top="6" Width="53" Text="1周" FontSize="15" FontWeight="Medium" Foreground="#806791" TextAlignment="Left" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis"/>
+            <TextBlock x:Name="WeekLeft" Canvas.Left="53" Canvas.Top="-2" Width="65" Text="—" FontFamily="Segoe UI" FontSize="25" FontWeight="SemiBold" Foreground="#745A98" TextAlignment="Center" TextWrapping="NoWrap"/>
+            <TextBlock x:Name="WeekReset" Canvas.Left="120" Canvas.Top="10" Width="68" Text="等待数据" FontSize="14" Foreground="#806E91" TextAlignment="Right" TextWrapping="NoWrap"/>
+            <Border Canvas.Top="33" Width="188" Height="4" Background="#EAE3F1" CornerRadius="2">
+              <Border x:Name="WeekBar" Background="#A184C1" CornerRadius="2" Width="0" HorizontalAlignment="Left"/>
+            </Border>
+            <TextBlock x:Name="WeekUsed" Visibility="Collapsed" Text="已用 —"/>
+          </Canvas>        </Canvas>
         <TextBlock x:Name="Status" Visibility="Collapsed" Text="正在读取额度…"/>
-      </StackPanel>
-        <TextBlock x:Name="QuoteText" Visibility="Collapsed" HorizontalAlignment="Center" VerticalAlignment="Center" TextAlignment="Center" TextWrapping="Wrap" FontSize="20" FontWeight="Bold" LineHeight="25" Foreground="#745A98" IsHitTestVisible="False" Text="我在这儿，慢慢来就好。"/>
+      </Canvas>
+        <TextBlock x:Name="QuoteText" Visibility="Collapsed" HorizontalAlignment="Center" VerticalAlignment="Center" TextAlignment="Center" TextWrapping="NoWrap" FontFamily="__GPTNIANG_FONT__" FontWeight="Medium" FontSize="20" Foreground="#745A98" IsHitTestVisible="False" Text="我在这儿，慢慢来就好。"/>
       </Grid>
     <Ellipse x:Name="LiveDot" Visibility="Collapsed" Canvas.Left="134" Canvas.Top="17" Width="4" Height="4" Fill="#9B86C1" IsHitTestVisible="False"/>
     </Canvas>
@@ -74,10 +91,18 @@
     <Ellipse x:Name="TailNear" Canvas.Left="142" Canvas.Top="214" Width="17" Height="12" Fill="#FFFFFF" Stroke="#745A98" StrokeThickness="4" RenderTransformOrigin="0.5,0.5">
       <Ellipse.RenderTransform><ScaleTransform/></Ellipse.RenderTransform>
     </Ellipse>
-    <Image x:Name="Girl" Canvas.Left="142" Canvas.Top="142" Width="208" Height="208" Stretch="UniformToFill" Cursor="Hand"
+    <Image x:Name="Girl" Canvas.Left="142" Canvas.Top="142" Width="208" Height="208" Stretch="UniformToFill" Cursor="Hand" RenderOptions.BitmapScalingMode="HighQuality"
            ToolTip="点角色看额度；点气泡看语录，再点收起；拖动调整位置；右键设置"/>
-    <Button x:Name="MenuButton" Canvas.Left="320" Canvas.Top="162" Width="24" Height="24" Content="☰"
-            FontSize="15" Opacity="0" IsHitTestVisible="False" Background="#EDE7F6" ToolTip="挂件设置"/>
+    <Button x:Name="MenuButton" Canvas.Left="320" Canvas.Top="162" Width="24" Height="24"
+            FontSize="15" Opacity="0" IsHitTestVisible="False" Background="#EDE7F6" ToolTip="挂件设置">
+      <Viewbox Width="14" Height="14" Stretch="Uniform">
+        <Canvas Width="16" Height="16" UseLayoutRounding="False" SnapsToDevicePixels="False">
+          <Path x:Name="MenuIconLines" Data="M 2,4 L 14,4 M 2,8 L 14,8 M 2,12 L 14,12"
+                Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" StrokeThickness="1.4"
+                StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"/>
+        </Canvas>
+      </Viewbox>
+    </Button>
   </Canvas>
   </Canvas>
   </Viewbox>

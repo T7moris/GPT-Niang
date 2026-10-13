@@ -15,7 +15,8 @@ function Initialize-WidgetQuoteLayouts([string]$AppDir){
 
 function Measure-WidgetQuoteLayout([string]$Value,$TextBlock,$Typeface,[double]$Size,[double]$Width,[int]$ExpectedLines=0){
   $formatted=[Windows.Media.FormattedText]::new($Value,[Globalization.CultureInfo]::CurrentCulture,[Windows.FlowDirection]::LeftToRight,$Typeface,$Size,$TextBlock.Foreground)
-  $formatted.MaxTextWidth=$Width;$formatted.TextAlignment=[Windows.TextAlignment]::Center;$formatted.LineHeight=$Size*1.15
+  $lineHeight=$Size*[Math]::Max(1.3,$TextBlock.FontFamily.LineSpacing+0.05)
+  $formatted.MaxTextWidth=$Width;$formatted.TextAlignment=[Windows.TextAlignment]::Center;$formatted.LineHeight=$lineHeight
   if($formatted.Height-gt 134){return}
   $geometry=$formatted.BuildGeometry([Windows.Point]::new(155-$Width/2,85-$formatted.Height/2))
   if($geometry.Bounds.IsEmpty){return}
@@ -38,7 +39,7 @@ function Measure-WidgetQuoteLayout([string]$Value,$TextBlock,$Typeface,[double]$
   $maximum=($lengths|Measure-Object -Maximum).Maximum;$minimum=($lengths|Measure-Object -Minimum).Minimum
   $imbalance=if($maximum-gt 0){1-$minimum/$maximum}else{0}
   $score=$Size*10-[Math]::Max(0,$rows.Count-2)*26-($rows.Count-1)*8-$imbalance*55
-  [pscustomobject]@{fontSize=$Size;width=$Width;lineHeight=$Size*1.15;offsetX=$offsetX;offsetY=$offset;lines=$rows.Count;score=$score}
+  [pscustomobject]@{fontSize=$Size;width=$Width;lineHeight=$lineHeight;offsetX=$offsetX;offsetY=$offset;lines=$rows.Count;score=$score}
 }
 
 function Get-WidgetQuoteLayout([string]$Value,$TextBlock,[int]$ExpectedLines=0){
@@ -68,6 +69,7 @@ function Fit-QuoteText {
   $text=$script:ui.QuoteText;$full=$text.Text;$text.Tag=$full
   $text.HorizontalAlignment=[Windows.HorizontalAlignment]::Center;$text.VerticalAlignment=[Windows.VerticalAlignment]::Center
   $text.TextAlignment=[Windows.TextAlignment]::Center;$text.Margin=[Windows.Thickness]::new(0);$text.Padding=[Windows.Thickness]::new(0)
+  $text.TextWrapping=[Windows.TextWrapping]::Wrap
   $display=$full
   if($script:quoteLayoutMap.ContainsKey($full)){$display=$script:quoteLayoutMap[$full]}
   $expectedLines=if($display.Contains("`n")){($display-split "`n").Count}else{0}
@@ -83,7 +85,12 @@ function Set-WidgetSceneLayout {
     [Windows.Controls.Canvas]::SetLeft($scene,155-$script:quoteLayout.width/2);[Windows.Controls.Canvas]::SetTop($scene,18)
     $scene.Width=$script:quoteLayout.width;$scene.Height=134
   }else{
-    [Windows.Controls.Canvas]::SetLeft($scene,63);[Windows.Controls.Canvas]::SetTop($scene,22)
-    $scene.Width=184;$scene.Height=115
+    [Windows.Controls.Canvas]::SetLeft($scene,47);[Windows.Controls.Canvas]::SetTop($scene,18)
+    $scene.Width=216;$scene.Height=118
+    $script:window.FindName('QuotaColumns').Width=188
+    $rows=@($script:ui.ShortRow,$script:ui.WeekRow|Where-Object{$_.Visibility-ne [Windows.Visibility]::Collapsed})
+    [Windows.Controls.Canvas]::SetTop($script:ui.ShortRow,0)
+    [Windows.Controls.Canvas]::SetTop($script:ui.WeekRow,46)
+    if($rows.Count-eq 1){[Windows.Controls.Canvas]::SetTop($rows[0],23)}
   }
 }

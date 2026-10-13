@@ -2,6 +2,7 @@ param([string]$TestRoot=$PSScriptRoot)
 $ErrorActionPreference='Stop'
 Add-Type -AssemblyName PresentationFramework,PresentationCore,WindowsBase,System.Windows.Forms,System.Drawing
 $appDir=Split-Path $TestRoot -Parent
+. (Join-Path $appDir 'runtime\sharp-text.ps1')
 . (Join-Path $appDir 'runtime\host-layer.ps1')
 . (Join-Path $appDir 'runtime\host-follow.ps1')
 # Save preferences through the real widget code, including existing color and sound settings.

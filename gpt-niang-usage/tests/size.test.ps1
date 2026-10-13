@@ -2,6 +2,8 @@ param([string]$TestRoot=$PSScriptRoot)
 $ErrorActionPreference='Stop'
 Add-Type -AssemblyName PresentationFramework,PresentationCore,WindowsBase,System.Windows.Forms,System.Drawing
 $appDir=Split-Path $TestRoot -Parent
+. (Join-Path $appDir 'runtime\sharp-text.ps1')
+$script:ui=@{}
 $source=[IO.File]::ReadAllText((Join-Path $appDir 'widget.ps1'),[Text.Encoding]::UTF8)
 $native=[regex]::Match($source,"(?s)Add-Type -TypeDefinition @'\r?\n(.*?)\r?\n'@")
 if(!$native.Success){throw 'Missing widget native API definition.'}
@@ -35,7 +37,7 @@ $checks=0
 # Run the production resize expressions against a real invisible WPF HWND.
 # Its mutable Width/Height must never become the next update's size baseline.
 foreach($layout in @(@{width=378;height=378},@{width=480;height=300})){
-  $script:window=[Windows.Markup.XamlReader]::Parse([IO.File]::ReadAllText((Join-Path $appDir 'widget.xaml'),[Text.Encoding]::UTF8))
+  $script:window=[Windows.Markup.XamlReader]::Parse((ConvertTo-SmoothWidgetXaml ([IO.File]::ReadAllText((Join-Path $appDir 'widget.xaml'),[Text.Encoding]::UTF8)) -AppDir $appDir))
   $stage=$script:window.FindName('AnimationStage')
   $stage.Width=$layout.width;$stage.Height=$layout.height
   $script:designWidth=$null;$script:designHeight=$null
