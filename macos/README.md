@@ -75,13 +75,34 @@ refresh and supports `GPT_NIANG_CODEX_APP` for a nonstandard Codex app location.
   foremost Codex window. Presence heartbeats are written once per second (and
   immediately when visibility changes), and optional diagnostics four times per
   second. Timing depends on main-thread and WindowServer availability; this is
-  polling, not a guarantee of zero-lag attachment. There is a 0.75-second grace
-  period for transient missing metadata; this differs from the
-  Windows version's native movement hooks. The panel stays at normal window level
-  in following mode so other apps can cover it.
+  polling, not a guarantee of zero-lag attachment. Missing hosts are hidden
+  immediately. Stage Manager and Space changes invalidate cached window ordering;
+  the active companion uses floating level to prevent a click from covering it,
+  and returns to normal level when another app becomes active.
 - Login launch is opt-in through macOS `SMAppService`. Enable it only after moving
   the app to its permanent location; macOS may request approval in Login Items.
 - **聊天速度** in the menu bar opens a separate thread performance panel.
+
+### Stage Manager and full-screen Spaces
+
+In following mode the companion joins other applications' Stage Manager sets and
+full-screen Spaces. It stays above the active Codex window; when another app
+becomes active, it returns to normal window ordering. Switching to another app
+on the same display in Stage Manager hides it immediately. Activating an app on
+a different display keeps it with the still-visible Codex window.
+If that display's Stage Manager windows retract to reveal the desktop, Finder
+may have no ordinary visible window. In that case the companion uses the display
+of the last click or app activation, so the fullscreen companion on the other
+display remains visible. Moving the pointer alone does not change this fallback.
+
+Mouse dragging follows immediately. During other geometry changes, such as a
+full-screen Space swipe, the companion hides until the host is stable. A paused
+full-screen slide does not move the companion onto an adjacent physical display.
+This uses WindowServer metadata and the read-only Stage Manager preference; it
+does not request accessibility or screen-recording permission. The window
+geometry classification is heuristic, so third-party window managers and
+keyboard-driven transfers of an unchanged, screen-filling window need additional
+validation.
 
 ## Thread speed: interpretation and privacy
 
@@ -133,6 +154,16 @@ swift test --package-path macos
 codesign --verify --deep --strict dist/GPTNiangMac.app
 ```
 
+The window-following regression assertions also run without XCTest on a
+CommandLineTools-only installation:
+
+```sh
+./script/test_window_follow.sh
+```
+
+The same assertions are included in `swift test --package-path macos`. The
+standalone script accepts `GPT_NIANG_SDK` to select an installed macOS SDK.
+
 `--diagnostics /absolute/path.json` after the run mode enables a local development
 snapshot of frame/visibility, gesture-event counts and quota readiness; it omits
 account details and thread titles. Do not include local state in source archives.
@@ -156,6 +187,6 @@ No Windows updater or PowerShell is shipped in the Mac app. Node.js 20+ remains 
 
 ## 1.3.4 interaction alignment
 
-Windows defines shared interaction behavior. Every left click, including double and rapid clicks, performs the normal quota/quote action and press/rebound feedback. Right-click opens an AppKit menu; the hover button and menu bar provide native settings. The scale range is 60–250% with 80/100/140% presets. Desktop mode supports cross-screen dragging, a remembered topmost switch (off by default), and a separately saved position. Returning to host mode immediately returns to the normal window level. Refresh does not open the bubble. Weighted quotes round-trip and custom quotes are backed up before reset.
+Windows defines shared interaction behavior. Every left click, including double and rapid clicks, performs the normal quota/quote action and press/rebound feedback. Right-click opens an AppKit menu; the hover button and menu bar provide native settings. The scale range is 60–250% with 80/100/140% presets. Desktop mode supports cross-screen dragging, a remembered topmost switch (off by default), and a separately saved position. Returning to host mode uses the host's activation and visibility policy instead of the desktop topmost preference. Refresh does not open the bubble. Weighted quotes round-trip and custom quotes are backed up before reset.
 
 Business `individualLimit` windows with null minutes decode alongside timed windows. Two compact rows show the personal limit and shortest time window, while hover details retain all valid windows. Interface language follows the system or an explicit Simplified/Traditional choice; authored quotes and backend data remain untouched. UI, menus, drag capture and updates remain native SwiftUI/AppKit implementations.

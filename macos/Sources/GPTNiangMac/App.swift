@@ -36,7 +36,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     private var hostApplication: NSRunningApplication?
     private var cadence = WindowFollowCadence()
     private var wasCodexFrontmost = false
-    private var missingHostSince: Date?
+    private var followPolicy = WindowFollowPolicy()
+    private var hostGeometry = HostGeometryStability()
+    private var frontmostScreen: CGRect?
+    private var focusDisplay = FocusDisplayTracker()
+    private var focusMouseMonitor: Any?
+    private var forceHostDiscovery = true
+    private var needsHostOrder = true
+    private var stageManagerEnabled = false
     private var dragOrigin: CGPoint?
     private var previousFollow: Bool?
     private var dragEvents = 0
@@ -75,7 +82,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         panel.title = model.text("GPT 娘額度掛件")
         panel.backgroundColor = .clear; panel.isOpaque = false; panel.hasShadow = false
         panel.isFloatingPanel = false; panel.hidesOnDeactivate = false
-        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle]
+        // Join the host's Stage Manager set/fullscreen space without becoming a
+        // separate managed window that slides through the switching animation.
+        panel.collectionBehavior = WindowFollowPolicy.collectionBehavior
+        panel.animationBehavior = .none
         panel.isReleasedWhenClosed = false
         panel.contentView = NSHostingView(rootView: WidgetView(model: model, onDrag: { [weak self] in self?.drag($0) }, onSettings: { [weak self] in self?.showSettings() }, onContextMenu: { [weak self] event, view in self?.showContextMenu(event, view: view) }))
         buildMenu()
@@ -83,6 +93,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
             Task { @MainActor in self?.buildMenu(); self?.localizeWindowTitles() }
         }
         model.start()
+        observeWorkspace()
         updateWindow()
         let followTimer = Timer(timeInterval: 1.0 / 60, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.updateWindow() }
@@ -98,6 +109,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         logger.info("macOS widget launched")
     }
     func applicationWillTerminate(_ notification: Notification) {
+        if let focusMouseMonitor { NSEvent.removeMonitor(focusMouseMonitor) }
+        NSWorkspace.shared.notificationCenter.removeObserver(self)
+        NotificationCenter.default.removeObserver(self)
         timer?.invalidate(); updater?.stop(); model?.stop(); speedStore.stop()
         if lockDescriptor >= 0 { Darwin.close(lockDescriptor) }
     }
@@ -177,16 +191,93 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         NSApp.setActivationPolicy(.regular); NSApp.activate(ignoringOtherApps: true)
         speedWindow?.makeKeyAndOrderFront(nil)
     }
+    private func observeWorkspace() {
+        recordFocusDisplay()
+        // Desktop clicks can switch Stage Manager sets without activating a
+        // different app. Mouse-only monitoring needs no keyboard/accessibility
+        // access and does not consume or alter the user's click.
+        focusMouseMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] _ in
+            self?.recordFocusDisplay()
+        }
+        let center = NSWorkspace.shared.notificationCenter
+        center.addObserver(self, selector: #selector(spaceChanged(_:)), name: NSWorkspace.activeSpaceDidChangeNotification, object: nil)
+        for name in [NSWorkspace.didActivateApplicationNotification, NSWorkspace.didDeactivateApplicationNotification,
+                     NSWorkspace.didHideApplicationNotification, NSWorkspace.didUnhideApplicationNotification,
+                     NSWorkspace.didTerminateApplicationNotification] {
+            center.addObserver(self, selector: #selector(applicationChanged(_:)), name: name, object: nil)
+        }
+        NotificationCenter.default.addObserver(self, selector: #selector(spaceChanged(_:)), name: NSApplication.didChangeScreenParametersNotification, object: nil)
+    }
+    private func recordFocusDisplay() {
+        focusDisplay.recordInteraction(at: NSEvent.mouseLocation, screens: NSScreen.screens.map(\.frame))
+        forceHostDiscovery = true
+    }
+    private func readStageManager() {
+        // Read the system setting; never change Stage Manager or the user's Spaces.
+        stageManagerEnabled = (CFPreferencesCopyAppValue("GloballyEnabled" as CFString,
+            "com.apple.WindowManager" as CFString) as? Bool) ?? false
+    }
+    private func hideFollowingPanel() {
+        if panel.isVisible { panel.orderOut(nil) }
+        selectedHostNumber = nil; lastHostNumber = nil; hostRect = nil
+        needsHostOrder = true; forceHostDiscovery = true
+        let now = ProcessInfo.processInfo.systemUptime
+        if cadence.presence(now: now, visible: false) { model.writePresence(visible: false) }
+    }
+    @objc private func spaceChanged(_ notification: Notification) {
+        guard model.followCodex else { return }
+        // The notification covers every display. A Space change on another
+        // monitor must not hide an unchanged host on this one.
+        forceHostDiscovery = true; needsHostOrder = true
+        updateWindow()
+    }
+    @objc private func applicationChanged(_ notification: Notification) {
+        if notification.name == NSWorkspace.didActivateApplicationNotification { recordFocusDisplay() }
+        guard model.followCodex else { return }
+        forceHostDiscovery = true; needsHostOrder = true
+        readStageManager()
+        let changed = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication
+        let isHost = changed?.bundleIdentifier == "com.openai.codex"
+        let hostUnavailable = isHost && [NSWorkspace.didHideApplicationNotification,
+            NSWorkspace.didTerminateApplicationNotification].contains(notification.name)
+        if hostUnavailable {
+            hideFollowingPanel()
+        } else {
+            // Check the newly active window's display, instead of treating any
+            // application deactivation as a reason to hide all companions.
+            updateWindow()
+        }
+    }
     private func codexWindow(now: TimeInterval, frontmost: Bool) -> (CGRect, Int)? {
-        let discover = cadence.discover(now: now, force: frontmost && !wasCodexFrontmost)
+        let discover = cadence.discover(now: now, force: forceHostDiscovery || (frontmost && !wasCodexFrontmost))
         if discover {
+            forceHostDiscovery = false
+            readStageManager()
             hostApplication = NSRunningApplication.runningApplications(withBundleIdentifier: "com.openai.codex").first
         }
+        let activeApp = NSWorkspace.shared.frontmostApplication
+        let companionActive = activeApp?.processIdentifier == ProcessInfo.processInfo.processIdentifier
         guard let app = hostApplication, !app.isTerminated, !app.isHidden else { return nil }
         let options: CGWindowListOption = discover ? [.optionOnScreenOnly, .excludeDesktopElements] : [.optionIncludingWindow]
         let windowID: CGWindowID? = discover ? kCGNullWindowID : selectedHostNumber.map { CGWindowID($0) }
         guard let windowID,
               let windows = CGWindowListCopyWindowInfo(options, windowID) as? [[String: Any]] else { return nil }
+        let screens = NSScreen.screens.map(\.frame)
+        if discover {
+            var frontmostFrame: CGRect?
+            for window in windows {
+                guard (window[kCGWindowOwnerPID as String] as? Int32) == activeApp?.processIdentifier,
+                      (window[kCGWindowLayer as String] as? Int) == 0,
+                      let bounds = window[kCGWindowBounds as String] as? [String: CGFloat],
+                      let width = bounds["Width"], let height = bounds["Height"], width >= 200, height >= 120 else { continue }
+                let frame = WidgetPlacement.appKitRect(quartz: CGRect(x: bounds["X"] ?? 0, y: bounds["Y"] ?? 0,
+                    width: width, height: height), mainDisplayHeight: CGDisplayBounds(CGMainDisplayID()).height)
+                if WindowFollowPolicy.screen(for: frame, screens: screens) != nil {
+                    frontmostFrame = frame; break
+                }
+            }
+            frontmostScreen = focusDisplay.resolve(window: frontmostFrame, screens: screens)
+        }
         for window in windows {
             guard (window[kCGWindowOwnerPID as String] as? Int32) == app.processIdentifier,
                   (window[kCGWindowLayer as String] as? Int) == 0,
@@ -196,6 +287,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
                   let number = window[kCGWindowNumber as String] as? Int else { continue }
             let quartz = CGRect(x: bounds["X"] ?? 0, y: bounds["Y"] ?? 0, width: width, height: height)
             let frame = WidgetPlacement.appKitRect(quartz: quartz, mainDisplayHeight: CGDisplayBounds(CGMainDisplayID()).height)
+            guard WindowFollowPolicy.usableHost(frame, screens: screens) else { continue }
+            let hostScreen = WindowFollowPolicy.screen(for: frame, screens: screens)
+            let otherScreenActive = frontmostScreen != nil && hostScreen != nil && frontmostScreen != hostScreen
+            guard followPolicy.mayFollow(stageManager: stageManagerEnabled, hostActive: frontmost,
+                companionActive: companionActive, frontmostOnAnotherScreen: otherScreenActive) else { continue }
+            selectedHostNumber = number
+            guard hostGeometry.accept(number: number, frame: frame, screens: screens, now: now,
+                mouseDraggingHost: frontmost && (NSEvent.pressedMouseButtons & 1) != 0) else { return nil }
+            if discover {
+                let order = windows.compactMap { $0[kCGWindowNumber as String] as? Int }
+                if WindowFollowPolicy.needsOrdering(host: number, panel: panel.windowNumber, frontToBack: order) {
+                    needsHostOrder = true
+                }
+            }
             // A full list is front-to-back: choose the current foremost Codex
             // window rather than retaining an older, still-visible window.
             selectedHostNumber = number
@@ -211,6 +316,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
                 model.desktopLeft = panel.frame.minX; model.desktopBottom = panel.frame.minY
             }
             dragOrigin = nil; model.savePreferences()
+            forceHostDiscovery = true; needsHostOrder = true
         }
         previousFollow = model.followCodex
         var size = CGSize(width: 378 * model.scale, height: 378 * model.scale)
@@ -219,9 +325,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         let host = model.followCodex ? codexWindow(now: now, frontmost: codexFrontmost) : nil
         var visible = false
         if model.followCodex {
-            panel.level = .normal
+            let companionActive = NSWorkspace.shared.frontmostApplication?.processIdentifier == ProcessInfo.processInfo.processIdentifier
+            let level = WindowFollowPolicy.level(hostActive: codexFrontmost, companionActive: companionActive)
+            if panel.level != level { panel.level = level; needsHostOrder = true }
             if let (rect, number) = host {
-                missingHostSince = nil
                 let candidate = WidgetPlacement.frame(host: rect, visibleScreen: rect, size: size, x: model.x, y: model.y)
                 let center = CGPoint(x: candidate.midX, y: candidate.midY)
                 let screen = NSScreen.screens.first { $0.frame.contains(center) } ?? NSScreen.screens.max { $0.frame.intersection(rect).area < $1.frame.intersection(rect).area } ?? NSScreen.main!
@@ -231,20 +338,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
                 if abs(model.displayScale - fitted) > 0.001 { model.displayScale = fitted }
                 size = CGSize(width: 378 * fitted, height: 378 * fitted)
                 if dragOrigin == nil { let frame = WidgetPlacement.frame(host: rect, visibleScreen: screen.visibleFrame, size: size, x: model.x, y: model.y); if panel.frame != frame { panel.setFrame(frame, display: true) } }
-                if !panel.isVisible || lastHostNumber != number || (codexFrontmost && !wasCodexFrontmost) {
+                if dragOrigin == nil && (!panel.isVisible || !panel.isOnActiveSpace || needsHostOrder || lastHostNumber != number || (codexFrontmost && !wasCodexFrontmost)) {
                     panel.order(.above, relativeTo: number)
+                    needsHostOrder = false
                 }
-                visible = true; lastHostNumber = number; if model.trackingNote != nil { model.trackingNote = nil }
+                visible = panel.isVisible && panel.isOnActiveSpace
+                lastHostNumber = number; if model.trackingNote != nil { model.trackingNote = nil }
             } else {
-                if missingHostSince == nil { missingHostSince = Date() }
-                let appHidden = hostApplication?.isHidden ?? true
-                if !appHidden && Date().timeIntervalSince(missingHostSince!) < 0.75 {
-                    visible = panel.isVisible
-                } else {
-                    if panel.isVisible { panel.orderOut(nil) }; lastHostNumber = nil; hostRect = nil
-                    let note = model.text("未找到可見的 Codex 主視窗。你仍可關閉跟隨，在桌面顯示掛件。")
-                    if model.trackingNote != note { model.trackingNote = note }
-                }
+                // Never carry a stale panel into the next Stage Manager set or
+                // Space. The former 0.75s grace period caused traveling flashes.
+                if panel.isVisible { panel.orderOut(nil) }
+                lastHostNumber = nil; hostRect = nil; needsHostOrder = true
+                let note = model.text("未找到可見的 Codex 主視窗。你仍可關閉跟隨，在桌面顯示掛件。")
+                if model.trackingNote != note { model.trackingNote = note }
             }
         } else {
             let level: NSWindow.Level = model.desktopTopmost ? .floating : .normal
@@ -275,6 +381,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         if cadence.presence(now: now, visible: visible) { model.writePresence(visible: visible) }
         if let diagnosticsURL, cadence.diagnostics(now: now) {
             let values: [String: Any] = ["visible": panel.isVisible, "followCodex": model.followCodex, "hostFound": host != nil,
+                "panelWindow": panel.windowNumber, "onActiveSpace": panel.isOnActiveSpace, "stageManager": stageManagerEnabled,
+                "geometryTransition": hostGeometry.transitioning, "windowLevel": panel.level.rawValue,
+                "focusScreen": frontmostScreen.map { NSStringFromRect($0) } ?? "",
+                "hostFrontmost": codexFrontmost, "collectionBehavior": panel.collectionBehavior.rawValue,
                 "hostWindow": host?.1 ?? 0, "frame": NSStringFromRect(panel.frame), "quotaOK": model.snapshot.ok,
                 "queryOK": model.snapshot.queryOk ?? false, "quotaWindowCount": model.snapshot.windows.count,
                 "hasMessage": model.message != nil, "bubbleVisible": model.bubble, "scale": model.scale,
