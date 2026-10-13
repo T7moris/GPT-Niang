@@ -7,6 +7,7 @@ $script:config=Get-Content -LiteralPath $script:configPath -Raw -Encoding UTF8 |
 $script:dataDir=$script:config.dataDir
 $null=New-Item -ItemType Directory -Path $script:dataDir -Force
 . (Join-Path $script:appDir 'runtime\quotes.ps1')
+. (Join-Path $script:appDir 'runtime\completion-notifications.ps1')
 . ([ScriptBlock]::Create([IO.File]::ReadAllText((Join-Path $script:appDir 'runtime\ui-settings.ps1'),[Text.Encoding]::UTF8)))
 . (Join-Path $script:appDir 'runtime\audio.ps1')
 . (Join-Path $script:appDir 'runtime\host-layer.ps1')
@@ -113,11 +114,14 @@ $script:status=$null
 $script:statusStamp=0
 $script:offsetRight=0.0;$script:offsetBottom=0.0;$script:offsetLeft=$null;$script:anchor='right';$script:side='right';$script:scale=1.0;$script:collapsed=$true
 $script:soundOn=$true;$script:soundVolume=0.9;$script:bubbleTapAdvance=$false;$script:hideMenu=$false
+$script:completionNotificationsEnabled=$true
+$script:completionQueue=$null;$script:completionPendingMessage=$null;$script:completionActiveMessage=$null
 $script:followHost=$true;$script:desktopTopmost=$false;$script:desktopLeft=$null;$script:desktopTop=$null
 $script:hostReadiness=New-WidgetReadinessState
 $script:bubbleMode='quota';$script:sceneStartedAt=0;$script:sceneDeadline=0;$script:sceneTimer=$null;$script:sceneRevision=0
 $script:resetTimeMode='countdown';$script:resetPhaseTimer=$null
 $script:displayRequestToken=$null
+Initialize-CompletionNotificationState
 $settingsFile=Join-Path $script:dataDir 'settings.json'
 try{$settings=Get-Content -LiteralPath $settingsFile -Raw -Encoding UTF8 | ConvertFrom-Json
   if($null-ne $settings.right){$script:offsetRight=[Math]::Max(0,[double]$settings.right)}
@@ -131,6 +135,7 @@ try{$settings=Get-Content -LiteralPath $settingsFile -Raw -Encoding UTF8 | Conve
   if($null-ne $settings.soundOn){$script:soundOn=[bool]$settings.soundOn}
   if($null-ne $settings.soundVolume){$script:soundVolume=[Math]::Min(1,[Math]::Max(0,[double]$settings.soundVolume))}
   if($null-ne $settings.bubbleTapAdvance){$script:bubbleTapAdvance=[bool]$settings.bubbleTapAdvance}
+  $script:completionNotificationsEnabled=Get-CompletionNotificationPreference $settings
   if($null-ne $settings.hideMenu){$script:hideMenu=[bool]$settings.hideMenu}
   if(@('original','linked','rainbow','surprise','rare','special','mixed')-contains $settings.colorMode){$script:colorMode=$settings.colorMode}
   if($null-ne $settings.colorChance){try{$chance=[double]$settings.colorChance;if(![double]::IsNaN($chance) -and $chance-ge 0 -and $chance-le 30){$script:colorChance=$chance}}catch{}}
@@ -145,7 +150,7 @@ function Write-WidgetJson($file,$value){
   $temp=$file+'.tmp';[IO.File]::WriteAllText($temp,($value|ConvertTo-Json -Depth 6),[Text.UTF8Encoding]::new($false))
   if([IO.File]::Exists($file)){[IO.File]::Replace($temp,$file,($file+'.bak'),$true)}else{[IO.File]::Move($temp,$file)}
 }
-function Save-Settings {Write-WidgetJson $settingsFile @{layoutVersion=2;right=$script:offsetRight;left=$script:offsetLeft;bottom=$script:offsetBottom;anchor=$script:anchor;side=$script:side;scale=$script:scale;collapsed=$script:collapsed;soundOn=$script:soundOn;soundVolume=$script:soundVolume;bubbleTapAdvance=$script:bubbleTapAdvance;hideMenu=$script:hideMenu;colorMode=$script:colorMode;colorChance=$script:colorChance;colorTextChance=$script:colorTextChance;colorPaused=$script:colorPaused;followHost=$script:followHost;desktopTopmost=$script:desktopTopmost;desktopLeft=$script:desktopLeft;desktopTop=$script:desktopTop}}
+function Save-Settings {Write-WidgetJson $settingsFile @{layoutVersion=2;right=$script:offsetRight;left=$script:offsetLeft;bottom=$script:offsetBottom;anchor=$script:anchor;side=$script:side;scale=$script:scale;collapsed=$script:collapsed;soundOn=$script:soundOn;soundVolume=$script:soundVolume;bubbleTapAdvance=$script:bubbleTapAdvance;taskCompletionBubble=$script:completionNotificationsEnabled;hideMenu=$script:hideMenu;colorMode=$script:colorMode;colorChance=$script:colorChance;colorTextChance=$script:colorTextChance;colorPaused=$script:colorPaused;followHost=$script:followHost;desktopTopmost=$script:desktopTopmost;desktopLeft=$script:desktopLeft;desktopTop=$script:desktopTop}}
 function Get-WidgetPlacementFrame {
   if($script:followHost){return Get-WidgetVisibleFrame}
   $point=if($null-ne $script:desktopLeft -and $null-ne $script:desktopTop){[Drawing.Point]::new([int]$script:desktopLeft,[int]$script:desktopTop)}else{[Drawing.Point]::new(0,0)}
@@ -291,13 +296,14 @@ function Apply-Scene {
   Set-WidgetSceneLayout
   if($script:widgetColors){Update-WidgetColorScene}
   $quota=$script:bubbleMode-eq 'quota'
+  $quote=$script:bubbleMode-in @('quote','completion')
   $script:ui.QuotaText.Visibility=if($quota){[Windows.Visibility]::Visible}else{[Windows.Visibility]::Collapsed}
-  $script:ui.QuoteText.Visibility=if($quota){[Windows.Visibility]::Collapsed}else{[Windows.Visibility]::Visible}
+  $script:ui.QuoteText.Visibility=if($quote){[Windows.Visibility]::Visible}else{[Windows.Visibility]::Collapsed}
   $script:ui.Refresh.Visibility=$script:ui.QuotaText.Visibility;$script:ui.LiveDot.Visibility=[Windows.Visibility]::Collapsed
   Update-BubbleTooltip
 }
 function Update-BubbleTooltip {
-  $copy=if($script:bubbleMode-eq 'quote'){$script:ui.QuoteText.Tag}else{
+  $copy=if($script:bubbleMode-in @('quote','completion')){$script:ui.QuoteText.Tag}else{
     $parts=@()
     if($script:status.planLabel){$parts+='当前套餐：'+$script:status.planLabel}
     foreach($row in (Get-QuotaRows)){
@@ -337,6 +343,7 @@ function Switch-Scene([string]$mode){
   if($script:collapsed){return}
   $script:sceneRevision++;$script:bubbleMode=$mode
   if($mode-eq 'quote'){$script:ui.QuoteText.Text=Get-WidgetBubbleQuote $script:dataDir;Fit-QuoteText}
+  if($mode-eq 'completion'){$script:ui.QuoteText.Text=[string]$script:completionActiveMessage;Fit-QuoteText}
   if($script:sceneTimer){$script:sceneTimer.Stop()}
   Animate-Value $script:ui.SceneText ([Windows.UIElement]::OpacityProperty) 0 120
   $script:sceneTimer=New-Object Windows.Threading.DispatcherTimer
@@ -360,10 +367,12 @@ function Click-Character {
   elseif($script:bubbleMode-ne 'quota'){Switch-Scene 'quota'}
   else{Restart-SceneTtl}
 }
-function Show-Quota {
-  if(!$script:collapsed){if($script:bubbleMode-ne 'quota'){Switch-Scene 'quota'}else{Restart-SceneTtl};return}
+function Open-Bubble([string]$Mode){
+  if(!$script:collapsed){return}
   $script:bubbleEpoch++;$script:collapsed=$false
-  $script:bubbleMode='quota';Apply-Scene
+  $script:bubbleMode=$Mode
+  if($Mode-eq 'completion'){$script:ui.QuoteText.Text=[string]$script:completionActiveMessage;Fit-QuoteText}
+  Apply-Scene
   if($script:sceneTimer){$script:sceneTimer.Stop()}
   if($script:closeTimer){$script:closeTimer.Stop();$script:closeTimer=$null}
   foreach($stage in @(@{name='TailNear';delay=0},@{name='Tail';delay=130},@{name='Bubble';delay=260})){
@@ -378,7 +387,19 @@ function Show-Quota {
   Set-AnimatedValue $script:ui.SceneText ([Windows.UIElement]::OpacityProperty) 0
   Animate-Value $script:ui.SceneText ([Windows.UIElement]::OpacityProperty) 1 160 360
   $script:ui.Bubble.IsHitTestVisible=$true
-  Restart-SceneTtl 520;Request-Refresh;Save-Settings
+  Restart-SceneTtl 520
+  if($Mode-eq 'quota'){Request-Refresh}
+  Save-Settings
+}
+function Show-Quota {
+  if(!$script:collapsed){if($script:bubbleMode-ne 'quota'){Switch-Scene 'quota'}else{Restart-SceneTtl};return}
+  Open-Bubble 'quota'
+}
+function Show-CompletionBubble([string]$Message){
+  if(!$script:completionNotificationsEnabled -or [string]::IsNullOrWhiteSpace($Message)){return}
+  $script:completionActiveMessage=$Message
+  $script:ui.QuoteText.Text=$Message;Fit-QuoteText
+  if($script:collapsed){Open-Bubble 'completion'}else{Switch-Scene 'completion'}
 }
 function Hide-Quota {
   if($script:collapsed){return}
@@ -400,7 +421,7 @@ function Hide-Quota {
   $script:closeTimer.Interval=[TimeSpan]::FromMilliseconds(510)
   $script:closeTimer.Add_Tick({param($timer,$event)
     $timer.Stop()
-    if($script:collapsed -and $timer-eq $script:closeTimer){Set-BubbleState}
+    if($script:collapsed -and $timer-eq $script:closeTimer){Set-BubbleState;if($script:completionNotificationsEnabled){Pump-CompletionNotifications ([bool]$script:window.IsVisible)}}
   })
   $script:closeTimer.Start();Save-Settings
 }
@@ -680,6 +701,7 @@ function Ensure-QuotaWorker([long]$now){
 }
 function Stop-WidgetRuntime {
   if($script:runtimeClosed){return};$script:runtimeClosed=$true
+  try{Stop-CompletionMonitor;Clear-CompletionNotifications}catch{}
   try{if($script:hostFollower){$script:hostFollower.Dispose()}}catch{}
   foreach($timer in @($script:timer,$script:hostEventTimer,$script:menuTimer,$script:sceneTimer,$script:resetPhaseTimer,$script:closeTimer)){try{if($timer){$timer.Stop()}}catch{}}
   try{Stop-WidgetAudio}catch{}
@@ -758,6 +780,7 @@ function Tick-Widget {
     [GptWidgetNative]::SetWindowPos($script:widgetHandle,[IntPtr](-2),0,0,0,0,0x13)|Out-Null
     $script:window.Hide()
   }
+  Pump-CompletionNotifications ([bool]$visible)
   if($now-$script:lastPresence-ge 1000){
     Write-WidgetJson (Join-Path $script:dataDir 'presence.json') @{visible=[bool]$visible;at=$now;host=$script:hostHandle.ToInt64();widget=$script:widgetHandle.ToInt64();pid=$PID;followHost=$script:followHost;follow=@{ready=$script:hostFollower.Ready;events=$script:hostFollower.MovementEvents;mode='native-immediate';animationPaddingDip=14};scene=@{open=!$script:collapsed;mode=$script:bubbleMode;resetTimeMode=$script:resetTimeMode;startedAt=$script:sceneStartedAt;closesAt=$script:sceneDeadline;shortReset=$script:ui.ShortReset.Text;weekReset=$script:ui.WeekReset.Text}}
     Update-Quota;$script:lastPresence=$now
@@ -792,6 +815,7 @@ $script:window.Add_Closed({
 })
 try{
   Save-Settings
+  Start-CompletionMonitor
   Ensure-QuotaWorker ([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds())
   $widgetProcess=Get-Process -Id $PID
   try{$processStartedAt=$widgetProcess.StartTime.ToUniversalTime().ToString('o')}finally{$widgetProcess.Dispose()}

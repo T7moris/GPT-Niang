@@ -8,7 +8,7 @@ $tokens=$null;$parseErrors=$null
 $source=[IO.File]::ReadAllText((Join-Path $appDir 'widget.ps1'),[Text.Encoding]::UTF8)
 $ast=[Management.Automation.Language.Parser]::ParseInput($source,[ref]$tokens,[ref]$parseErrors)
 if($parseErrors.Count){throw ($parseErrors|Out-String)}
-foreach($name in @('Set-Facing','Reset-Label','Format-ResetTime','Format-ResetDisplay','Get-QuotaWindowLabel','Get-QuotaRows','Set-ResetTimeMode','Restart-SceneTtl','Tick-Scene','Apply-Scene','Update-BubbleTooltip','Update-Quota')){
+foreach($name in @('Set-Facing','Reset-Label','Format-ResetTime','Format-ResetDisplay','Get-QuotaWindowLabel','Get-QuotaRows','Set-ResetTimeMode','Set-AnimatedValue','Set-BubbleState','Open-Bubble','Restart-SceneTtl','Tick-Scene','Apply-Scene','Update-BubbleTooltip','Show-CompletionBubble','Switch-Scene','Update-Quota')){
   $definition=$ast.Find({param($node)$node-is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name-eq $name},$true)
   . ([ScriptBlock]::Create($definition.Extent.Text))
 }
@@ -17,9 +17,12 @@ $script:dataDir=Join-Path ([IO.Path]::GetTempPath()) ('gpt-niang-widget-test-'+[
 $null=New-Item -ItemType Directory -Path $script:dataDir
 $script:window=[Windows.Markup.XamlReader]::Parse([IO.File]::ReadAllText((Join-Path $appDir 'widget.xaml'),[Text.Encoding]::UTF8))
 $script:ui=@{}
-foreach($name in @('Root','Girl','Bubble','SceneText','QuotaText','Refresh','ShortRow','WeekRow','ShortLabel','WeekLabel','ShortUsed','ShortLeft','ShortReset','ShortBar','WeekUsed','WeekLeft','WeekReset','WeekBar','Status','LiveDot','Header','QuoteText')){$script:ui[$name]=$script:window.FindName($name)}
+foreach($name in @('Root','Girl','Bubble','Tail','TailNear','SceneText','QuotaText','Refresh','ShortRow','WeekRow','ShortLabel','WeekLabel','ShortUsed','ShortLeft','ShortReset','ShortBar','WeekUsed','WeekLeft','WeekReset','WeekBar','Status','LiveDot','Header','QuoteText')){$script:ui[$name]=$script:window.FindName($name)}
 foreach($name in @('FacingScale','TextFacingScale','MenuButton')){$script:ui[$name]=$script:window.FindName($name)}
 $script:ui.Girl.Source=[Windows.Media.Imaging.BitmapImage]::new([Uri](Join-Path $appDir 'assets\gpt-dragon-niang-bust.png'))
+$script:completionNotificationsEnabled=$true;$script:completionActiveMessage=$null
+function Save-Settings {}
+function Animate-Value($target,$property,[double]$to,[int]$duration,[int]$delay=0,[bool]$rebound=$false){$target.BeginAnimation($property,$null);$target.SetValue($property,$to)}
 $script:bubbleMode='quota';$script:status=$null;$script:statusStamp=0
 $script:resetTimeMode='fixed';$script:resetPhaseTimer=$null;$script:collapsed=$true;$script:closeCount=0
 function Hide-Quota {
@@ -70,7 +73,8 @@ function Assert-QuotaLayout {
     $formatted=[Windows.Media.FormattedText]::new($reset.Text,[Globalization.CultureInfo]::InvariantCulture,[Windows.FlowDirection]::LeftToRight,$typeface,$reset.FontSize,$reset.Foreground)
     if($formatted.Width-gt $reset.ActualWidth){throw "Reset time is horizontally clipped: $($reset.Text)"}
     $bottom=$reset.TranslatePoint([Windows.Point]::new(0,$reset.ActualHeight),$root).Y
-    if($bottom-gt [Windows.Controls.Canvas]::GetTop($script:ui.Girl)-2){throw 'Reset time overlaps the character'}
+    $characterTop=[Windows.Controls.Canvas]::GetTop($script:ui.Girl)
+    if($bottom-gt $characterTop-2){throw "Reset time overlaps the character: $($reset.Name) bottom=$bottom character=$characterTop text=$($reset.Text) mode=$script:bubbleMode"}
   }
 }
 try{
@@ -330,9 +334,27 @@ try{
   Update-Quota
   Assert-Equal $script:status $null 'Removed snapshot is cleared'
   Assert-Equal $script:ui.ShortRow.Visibility Visible 'Loading is not treated as unsupported'
-  Write-Output 'PASS: two reset phases, native midpoint timer, restart and close timing, local dates, five timezones, daylight saving, layout and quota edge cases'
+  $completionText='Codex 已完成：已更新任务完成提醒'
+  $script:completionNotificationsEnabled=$true;$script:completionActiveMessage=$null
+  $script:collapsed=$true;$script:bubbleMode='quota';$script:sceneDeadline=0
+  Show-CompletionBubble $completionText
+  Assert-Equal $script:collapsed $false 'A completion notice opens the bubble'
+  Assert-Equal $script:bubbleMode 'completion' 'A new notice uses the completion scene'
+  Assert-Equal $script:ui.QuoteText.Tag $completionText 'Completion text is retained without modification'
+  Assert-Equal $script:ui.QuoteText.Visibility Visible 'Completion content is visible'
+  Assert-Equal $script:ui.QuotaText.Visibility Collapsed 'Completion replaces quota content'
+  Assert-Equal $script:ui.Refresh.Visibility Collapsed 'Completion hides the quota refresh button'
+  Assert-Equal $script:bubbleTooltipText.Text $completionText 'Completion tooltip matches the bubble text'
+  if([Math]::Abs($script:sceneDeadline-([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()+5520))-gt 100){throw 'Completion bubble does not retain the five-second display after opening animation'}
+  $script:collapsed=$false;$script:bubbleMode='quote'
+  $replacement='Codex 已完成：替换语录气泡'
+  Show-CompletionBubble $replacement
+  Assert-Equal $script:bubbleMode 'completion' 'A completion notice replaces an open quote bubble'
+  Assert-Equal $script:ui.QuoteText.Tag $replacement 'Replacement notice is shown immediately'
+  if($script:sceneTimer){$script:sceneTimer.Stop();$script:sceneTimer=$null}
+  Write-Output 'PASS: two reset phases, native midpoint timer, restart and close timing, local dates, five timezones, daylight saving, layout, quota edge cases and completion bubble'
 }finally{
-  foreach($timer in @($script:resetPhaseTimer,$finishTimer)){if($timer){$timer.Stop()}}
+  foreach($timer in @($script:resetPhaseTimer,$sceneTimer,$finishTimer)){if($timer){$timer.Stop()}}
   $script:window.Close()
   if([IO.Path]::GetFullPath($script:dataDir).StartsWith([IO.Path]::GetFullPath([IO.Path]::GetTempPath()),[StringComparison]::OrdinalIgnoreCase)){
     Remove-Item -LiteralPath $script:dataDir -Recurse -Force
