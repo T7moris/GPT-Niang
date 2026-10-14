@@ -51,8 +51,12 @@ function Assert-SizeAfterNativeMove([string]$Context){
   if($script:scale-ne 1){throw 'Placement changed the user scale.'}
 }
 $script:hostHandle=[IntPtr](1);$script:widgetHandle=[IntPtr](2)
+$interop=[pscustomobject]@{Owner=$script:hostHandle}
 $script:hostReadiness=[pscustomobject]@{desktopStarted=$true}
 $script:context=[pscustomobject]@{IsOpen=$false}
+# This geometry-only fixture uses synthetic HWNDs. Native recovery is tested separately.
+$script:occlusionRecovery=[pscustomobject]@{OwnedCloak=$false}
+$script:occlusionRecovery|Add-Member ScriptMethod Configure {}
 $script:hostFollower=New-Object PSObject
 $script:hostFollower|Add-Member ScriptMethod Configure {}
 $script:hostFollower|Add-Member ScriptMethod Suspend {}

@@ -2,7 +2,7 @@
   "widget.ps1", "widget.xaml", "launch.vbs", "supervisor.vbs", "Detect-Plan.ps1",
   "assets/gpt-dragon-niang-bust.png", "assets/quotes.json", "assets/quote-layouts.json", "assets/press.wav", "assets/release.wav",
   "runtime/quotes.ps1", "runtime/ui-settings.ps1", "runtime/color-theme.ps1", "runtime/quote-layout.ps1", "runtime/audio.ps1",
-  "runtime/host-layer.ps1", "runtime/host-follow.ps1", "runtime/host-ready.ps1", "runtime/supervisor.ps1", "runtime/supervisor-task.ps1",
+  "runtime/host-layer.ps1", "runtime/host-follow.ps1", "runtime/host-ready.ps1", "runtime/host-occlusion.ps1", "runtime/supervisor.ps1", "runtime/supervisor-task.ps1",
   "runtime/start-supervisor.ps1", "runtime/start-widget.ps1", "runtime/metadata.mjs", "runtime/mcp.mjs", "runtime/usage.mjs", "runtime/plan.mjs",
   "runtime/detect-plan.mjs", "runtime/watch.mjs", "runtime/control.mjs", "runtime/refresh-queue.mjs", "runtime/refresh-client.mjs",
   "runtime/worker-state.mjs", "runtime/worker-ipc.mjs", "runtime/update.mjs", "runtime/update-ui.ps1", "runtime/update-helper.ps1",

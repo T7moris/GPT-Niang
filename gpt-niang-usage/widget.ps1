@@ -12,6 +12,7 @@ $null=New-Item -ItemType Directory -Path $script:dataDir -Force
 . (Join-Path $script:appDir 'runtime\host-layer.ps1')
 . (Join-Path $script:appDir 'runtime\host-follow.ps1')
 . (Join-Path $script:appDir 'runtime\host-ready.ps1')
+. (Join-Path $script:appDir 'runtime\host-occlusion.ps1')
 . (Join-Path $script:appDir 'runtime\supervisor-task.ps1')
 . (Join-Path $script:appDir 'runtime\update-common.ps1')
 . ([ScriptBlock]::Create([IO.File]::ReadAllText((Join-Path $script:appDir 'runtime\update-ui.ps1'),[Text.Encoding]::UTF8)))
@@ -560,12 +561,14 @@ $script:lastForeground=[IntPtr](-1);$script:foregroundHost=[IntPtr]::Zero;$scrip
 $script:lastPosition=$null;$script:attachedHost=[IntPtr]::Zero;$script:updating=$false
 $interop=New-Object Windows.Interop.WindowInteropHelper($script:window)
 $script:widgetHandle=$interop.EnsureHandle()
+$script:occlusionRecovery=[GptWidgetOcclusionRecovery]::new($script:widgetHandle)
 $script:hostFollower=[GptWidgetHostFollower]::new($script:widgetHandle)
 $script:hostFollower.LayoutRequested=[Action]{if(!$script:hostEventTimer.IsEnabled){$script:hostEventTimer.Start()}}
 $ex=[GptWidgetNative]::GetWindowLongPtr($script:widgetHandle,-20).ToInt64()
 [GptWidgetNative]::SetWindowLongPtr($script:widgetHandle,-20,[IntPtr]($ex-bor 0x08000000-bor 0x80))|Out-Null
 $source=[Windows.Interop.HwndSource]::FromHwnd($script:widgetHandle)
 $script:messageHook=[Windows.Interop.HwndSourceHook]{param($hwnd,$msg,$w,$l,[ref]$handled)
+  if($msg-eq 0x47){$script:occlusionRecovery.OnPositionChanged($l)}
   if($msg-eq 0x02E0 -or $msg-eq 0x007E -or $msg-eq 0x001A){
     $script:lastPosition=$null
     if($script:hostEventTimer -and !$script:hostEventTimer.IsEnabled){$script:hostEventTimer.Start()}
@@ -680,6 +683,7 @@ function Ensure-QuotaWorker([long]$now){
 }
 function Stop-WidgetRuntime {
   if($script:runtimeClosed){return};$script:runtimeClosed=$true
+  try{if($script:occlusionRecovery){$script:occlusionRecovery.Dispose()}}catch{}
   try{if($script:hostFollower){$script:hostFollower.Dispose()}}catch{}
   foreach($timer in @($script:timer,$script:hostEventTimer,$script:menuTimer,$script:sceneTimer,$script:resetPhaseTimer,$script:closeTimer)){try{if($timer){$timer.Stop()}}catch{}}
   try{Stop-WidgetAudio}catch{}
@@ -720,6 +724,8 @@ function Tick-Widget {
     if($script:attachedHost-ne $script:hostHandle){
       $script:attachedHost=$script:hostHandle;$script:lastPosition=$null
     }
+    # Keep WPF's owner state aligned with the native attachment before showing.
+    if($script:followHost -and $interop.Owner-ne $script:hostHandle){$interop.Owner=$script:hostHandle}
     $showWidget=!$script:window.IsVisible
     if(!$script:drag){
       $frame=$placementFrame;$dpi=$placementDpi
@@ -748,7 +754,7 @@ function Tick-Widget {
       }
       if($script:followHost){$nativeFrame=[GptWidgetNative]::Frame($script:hostHandle);$script:hostFollower.Configure($script:hostHandle,$nativeFrame.Left,$nativeFrame.Top,$nativeFrame.Right,$nativeFrame.Bottom,$w,$h,[int]($script:offsetLeft*$dpi),[int]($script:offsetRight*$dpi),[int]($script:offsetBottom*$dpi),$script:anchor,$true)}
     }
-    if($script:followHost){$layer=Set-WidgetAboveHost $script:widgetHandle $script:hostHandle}
+    if($script:followHost){if(!$script:occlusionRecovery.OwnedCloak){$layer=Set-WidgetAboveHost $script:widgetHandle $script:hostHandle}}
     else{Set-WidgetDesktopLayer $script:widgetHandle $script:desktopTopmost}
     if($showWidget){$script:window.Show();$script:lastPosition=$null;Request-Refresh}
   }elseif($script:window.IsVisible){
@@ -758,14 +764,16 @@ function Tick-Widget {
     [GptWidgetNative]::SetWindowPos($script:widgetHandle,[IntPtr](-2),0,0,0,0,0x13)|Out-Null
     $script:window.Hide()
   }
+  $script:occlusionRecovery.Configure($script:hostHandle,[bool]($script:followHost -and $visible -and !$script:drag))
   if($now-$script:lastPresence-ge 1000){
-    Write-WidgetJson (Join-Path $script:dataDir 'presence.json') @{visible=[bool]$visible;at=$now;host=$script:hostHandle.ToInt64();widget=$script:widgetHandle.ToInt64();pid=$PID;followHost=$script:followHost;follow=@{ready=$script:hostFollower.Ready;events=$script:hostFollower.MovementEvents;mode='native-immediate';animationPaddingDip=14};scene=@{open=!$script:collapsed;mode=$script:bubbleMode;resetTimeMode=$script:resetTimeMode;startedAt=$script:sceneStartedAt;closesAt=$script:sceneDeadline;shortReset=$script:ui.ShortReset.Text;weekReset=$script:ui.WeekReset.Text}}
+    Write-WidgetJson (Join-Path $script:dataDir 'presence.json') @{visible=[bool]$visible;at=$now;host=$script:hostHandle.ToInt64();widget=$script:widgetHandle.ToInt64();pid=$PID;followHost=$script:followHost;recovery=@{checks=$script:occlusionRecovery.Checks;totalCheckMs=$script:occlusionRecovery.TotalCheckMs;maxCheckMs=$script:occlusionRecovery.MaxCheckMs;toggles=$script:occlusionRecovery.Toggles;pending=$script:occlusionRecovery.Pending;cloaked=$script:occlusionRecovery.OwnedCloak;failed=$script:occlusionRecovery.Failed;hresult=$script:occlusionRecovery.LastHresult;toggleQpc=$script:occlusionRecovery.LastToggleQpc};follow=@{ready=$script:hostFollower.Ready;events=$script:hostFollower.MovementEvents;mode='native-immediate';animationPaddingDip=14};scene=@{open=!$script:collapsed;mode=$script:bubbleMode;resetTimeMode=$script:resetTimeMode;startedAt=$script:sceneStartedAt;closesAt=$script:sceneDeadline;shortReset=$script:ui.ShortReset.Text;weekReset=$script:ui.WeekReset.Text}}
     Update-Quota;$script:lastPresence=$now
     Read-DisplayRequest
   }
   }finally{$script:updating=$false}
 }
 $script:winEventCallback=[GptWidgetNative+WinEventProc]{param($hook,$ev,$hwnd,$objectId,$childId,$threadId,$time)
+  if($objectId-eq 0 -and $childId-eq 0 -and $ev-in @(3,17,22,23,0x800A)){$script:occlusionRecovery.OnWindowEvent($hwnd)}
   if($hwnd-eq $script:hostHandle -and $objectId-eq 0 -and $childId-eq 0){
     if($ev-eq 16){$script:context.IsOpen=$false}
   }
@@ -781,7 +789,8 @@ $script:hostEventTimer.Add_Tick({$script:hostEventTimer.Stop();try{Tick-Widget}c
 $script:eventHooks=@(
   [GptWidgetNative]::Hook(3,3,$script:winEventCallback),
   [GptWidgetNative]::Hook(16,23,$script:winEventCallback),
-  [GptWidgetNative]::Hook(0x8000,0x8003,$script:winEventCallback)
+  [GptWidgetNative]::Hook(0x8000,0x8003,$script:winEventCallback),
+  [GptWidgetNative]::Hook(0x800A,0x800A,$script:winEventCallback)
 )
 $script:timer=New-Object Windows.Threading.DispatcherTimer
 $script:timer.Interval=[TimeSpan]::FromMilliseconds(1000)

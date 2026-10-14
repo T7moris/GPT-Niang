@@ -54,7 +54,9 @@ function Set-WidgetAboveHost([IntPtr]$Widget,[IntPtr]$HostWindowHandle){
   $widgetBand=[GptWidgetZOrderNative]::Topmost($Widget)
   if(!$script:gptZOrderBands.ContainsKey($key) -or $script:gptZOrderBands[$key]-ne $hostBand -or $widgetBand-ne $hostBand){
     $band=if($hostBand){[IntPtr](-1)}else{[IntPtr](-2)}
-    if(![GptWidgetZOrderNative]::SetWindowPos($Widget,$band,0,0,0,0,0x13)){
+    # SWP_NOOWNERZORDER keeps this overlay correction from synchronously
+    # reordering its foreign owner. This flag alone did not resolve stale occlusion.
+    if(![GptWidgetZOrderNative]::SetWindowPos($Widget,$band,0,0,0,0,0x213)){
       return [pscustomobject]@{ok=$false;changed=$false;reason='band-change-failed'}
     }
     $script:gptZOrderBands[$key]=$hostBand;$changed=$true
@@ -65,7 +67,7 @@ function Set-WidgetAboveHost([IntPtr]$Widget,[IntPtr]$HostWindowHandle){
   if($previous-eq $Widget){return [pscustomobject]@{ok=$true;changed=$changed;adjacent=$true;hostTopmost=$hostBand}}
   $after=$previous
   if($after-eq [IntPtr]::Zero -or (!$hostBand -and [GptWidgetZOrderNative]::Topmost($after))){$after=[IntPtr]::Zero}
-  if(![GptWidgetZOrderNative]::SetWindowPos($Widget,$after,0,0,0,0,0x13)){
+  if(![GptWidgetZOrderNative]::SetWindowPos($Widget,$after,0,0,0,0,0x213)){
     return [pscustomobject]@{ok=$false;changed=$changed;reason='placement-failed'}
   }
   $adjacent=[GptWidgetZOrderNative]::PreviousVisible($HostWindowHandle)-eq $Widget
