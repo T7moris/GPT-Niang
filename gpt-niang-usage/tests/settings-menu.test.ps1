@@ -11,6 +11,9 @@ function Position-WidgetMenuToHost {}
 function Set-Appearance {}
 function Set-WidgetAudioVolume {}
 function Stop-WidgetAudio {}
+function Set-WidgetQuotaPreview([bool]$Enabled){$script:quotaPreview=$Enabled;Update-WidgetSettingsMenu}
+function Show-Quota {$script:collapsed=$false}
+function Switch-Scene([string]$Mode){$script:bubbleMode=$Mode}
 . (Join-Path $appDir 'runtime\supervisor-task.ps1')
 . (Join-Path $appDir 'runtime\update-common.ps1')
 . ([ScriptBlock]::Create([IO.File]::ReadAllText((Join-Path $appDir 'runtime\update-ui.ps1'),[Text.Encoding]::UTF8)))
@@ -27,6 +30,14 @@ try{
   $expected=@('查看额度','换一句台词','刷新额度','编辑我的语录','显示与位置','外观设置','声音与点击','更新','退出 GPT 娘')
   $actual=@($script:context.Items|Where-Object{$_.Header-is [string]}|ForEach-Object{$_.Header})
   Assert-Equal ($actual-join '|') ($expected-join '|') 'Menu entries and removed title block'
+  $preview=$script:settingsMenuUi.QuotaPreview
+  Assert-Equal $script:settingsMenuUi.Appearance.Items.Contains($preview) $true 'Quota preview lives in Appearance'
+  Assert-Equal $script:context.Items.Contains($preview) $false 'Quota preview is not duplicated in the root menu'
+  $preview.IsChecked=$true;$preview.RaiseEvent([Windows.RoutedEventArgs]::new([Windows.Controls.MenuItem]::ClickEvent))
+  Assert-Equal $script:quotaPreview $true 'Quota preview action enables preview'
+  Assert-Equal $script:bubbleMode 'quote' 'Quota preview opens exclusive quotes'
+  $preview.IsChecked=$false;$preview.RaiseEvent([Windows.RoutedEventArgs]::new([Windows.Controls.MenuItem]::ClickEvent))
+  Assert-Equal $script:quotaPreview $false 'Quota preview action returns to automatic detection'
   Assert-Equal $script:settingsMenuUi.UpdateVersion.Header '当前版本：1.3.2' 'Update menu shows actual version'
   Assert-Equal $script:settingsMenuUi.AutoUpdate.IsChecked $true 'Automatic updates are on initially'
   $script:settingsMenuUi.AutoUpdate.IsChecked=$false

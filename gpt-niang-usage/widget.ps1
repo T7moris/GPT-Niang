@@ -7,6 +7,9 @@ $script:config=Get-Content -LiteralPath $script:configPath -Raw -Encoding UTF8 |
 $script:dataDir=$script:config.dataDir
 $null=New-Item -ItemType Directory -Path $script:dataDir -Force
 . (Join-Path $script:appDir 'runtime\quotes.ps1')
+. (Join-Path $script:appDir 'runtime\quota-character.ps1')
+. (Join-Path $script:appDir 'runtime\quota-mood.ps1')
+$script:quotaMood='normal';$script:quotaMoodAccount=''
 . ([ScriptBlock]::Create([IO.File]::ReadAllText((Join-Path $script:appDir 'runtime\ui-settings.ps1'),[Text.Encoding]::UTF8)))
 . (Join-Path $script:appDir 'runtime\audio.ps1')
 . (Join-Path $script:appDir 'runtime\host-layer.ps1')
@@ -102,13 +105,7 @@ $script:designWidth=[double]$script:window.FindName('AnimationStage').Width
 $script:designHeight=[double]$script:window.FindName('AnimationStage').Height
 $script:ui=@{}
 foreach($name in @('Root','Bubble','Tail','TailNear','SceneText','QuotaText','QuoteText','BubbleShape','Girl','PressScale','FacingScale','TextFacingScale','Header','Refresh','MenuButton','Status','LiveDot','ShortRow','WeekRow','ShortLabel','WeekLabel','ShortUsed','ShortLeft','ShortReset','ShortBar','WeekUsed','WeekLeft','WeekReset','WeekBar')){$script:ui[$name]=$script:window.FindName($name)}
-$bitmap=New-Object Windows.Media.Imaging.BitmapImage
-$bitmap.BeginInit();$bitmap.CacheOption=[Windows.Media.Imaging.BitmapCacheOption]::OnLoad
-$bitmap.UriSource=[Uri](Join-Path $script:appDir 'assets\gpt-dragon-niang-bust.png');$bitmap.EndInit();$bitmap.Freeze()
-$script:ui.Girl.Source=$bitmap
-$script:alphaBitmap=New-Object Windows.Media.Imaging.FormatConvertedBitmap($bitmap,[Windows.Media.PixelFormats]::Bgra32,$null,0)
-$script:alphaStride=$bitmap.PixelWidth*4;$script:alphaPixels=New-Object byte[] ($script:alphaStride*$bitmap.PixelHeight)
-$script:alphaBitmap.CopyPixels($script:alphaPixels,$script:alphaStride,0)
+Set-WidgetQuotaCharacter 'normal'
 $script:status=$null
 $script:statusStamp=0
 $script:offsetRight=0.0;$script:offsetBottom=0.0;$script:offsetLeft=$null;$script:anchor='right';$script:side='right';$script:scale=1.0;$script:collapsed=$true
@@ -493,6 +490,7 @@ function Update-Quota {
     elseif($stamp-ne $script:statusStamp){$script:status=Get-Content -LiteralPath $file -Raw -Encoding UTF8 | ConvertFrom-Json;$script:statusStamp=$stamp}
   }catch{$script:status=$null;$script:statusStamp=0}
   $now=[DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+  Update-WidgetQuotaMood
   foreach($row in (Get-QuotaRows)){
     $prefix=$row.prefix;$q=$row.window
     $script:ui[$prefix+'Label'].Text=$row.label
@@ -537,7 +535,7 @@ function Update-Quota {
   if($script:widgetColors){Update-WidgetColorScene}
 }
 Set-Appearance;Set-BubbleState;Initialize-WidgetColors;Update-Quota
-if($CheckOnly){$hostWindow=[GptWidgetNative]::FindCodex();$foregroundWindow=[GptWidgetNative]::GetAncestor([GptWidgetNative]::GetForegroundWindow(),2);@{ok=$true;imageLoaded=$bitmap.PixelWidth-gt 0;host=$hostWindow.ToInt64();hostTitle=[GptWidgetNative]::Title($hostWindow);foreground=$foregroundWindow.ToInt64();foregroundTitle=[GptWidgetNative]::Title($foregroundWindow);dataDir=$script:dataDir}|ConvertTo-Json;return}
+if($CheckOnly){$hostWindow=[GptWidgetNative]::FindCodex();$foregroundWindow=[GptWidgetNative]::GetAncestor([GptWidgetNative]::GetForegroundWindow(),2);@{ok=$true;imageLoaded=$script:bitmap.PixelWidth-gt 0;quotaMood=$script:quotaMood;characterSize=$script:ui.Girl.Width;host=$hostWindow.ToInt64();hostTitle=[GptWidgetNative]::Title($hostWindow);foreground=$foregroundWindow.ToInt64();foregroundTitle=[GptWidgetNative]::Title($foregroundWindow);dataDir=$script:dataDir}|ConvertTo-Json;return}
 if($Preview){
   $script:collapsed=$false;Set-Appearance;Set-BubbleState;Apply-Scene
   $script:ui.Root.LayoutTransform=[Windows.Media.Transform]::Identity
@@ -682,7 +680,7 @@ function Stop-WidgetRuntime {
   if($script:runtimeClosed){return};$script:runtimeClosed=$true
   try{if($script:hostFollower){$script:hostFollower.Dispose()}}catch{}
   foreach($timer in @($script:timer,$script:hostEventTimer,$script:menuTimer,$script:sceneTimer,$script:resetPhaseTimer,$script:closeTimer)){try{if($timer){$timer.Stop()}}catch{}}
-  try{Stop-WidgetAudio}catch{}
+  try{Close-WidgetAudio}catch{}
   foreach($hook in $script:eventHooks){try{if($hook-ne [IntPtr]::Zero){[GptWidgetNative]::UnhookWinEvent($hook)|Out-Null}}catch{}}
   if($script:worker){try{if(!$script:worker.HasExited){$script:worker.Kill()}}catch{}; $script:worker.Dispose();$script:worker=$null}
   foreach($name in @('runtime.json','presence.json')){

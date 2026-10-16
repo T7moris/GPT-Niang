@@ -1,5 +1,6 @@
 [
   "widget.ps1", "widget.xaml", "launch.vbs", "supervisor.vbs", "Detect-Plan.ps1",
+  "assets/gpt-dragon-low-quota.png", "assets/quotes-low-quota.json", "runtime/quota-character.ps1", "runtime/quota-mood.ps1",
   "assets/gpt-dragon-niang-bust.png", "assets/quotes.json", "assets/quote-layouts.json", "assets/press.wav", "assets/release.wav",
   "runtime/quotes.ps1", "runtime/ui-settings.ps1", "runtime/color-theme.ps1", "runtime/quote-layout.ps1", "runtime/audio.ps1",
   "runtime/host-layer.ps1", "runtime/host-follow.ps1", "runtime/host-ready.ps1", "runtime/supervisor.ps1", "runtime/supervisor-task.ps1",

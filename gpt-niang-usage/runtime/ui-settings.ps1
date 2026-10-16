@@ -1,5 +1,6 @@
-function Open-QuoteEditor {
-  if($script:quoteEditor -and $script:quoteEditor.IsVisible){$script:quoteEditor.Activate()|Out-Null;return}
+function Open-QuoteEditor([switch]$LowQuota) {
+  $existing=if($LowQuota){$script:lowQuoteEditor}else{$script:quoteEditor}
+  if($existing -and $existing.IsVisible){$existing.Activate()|Out-Null;return}
   $editor=[Windows.Markup.XamlReader]::Parse(@'
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
  Title="GPT 娘 · 我的语录" Width="540" Height="480" MinWidth="440" MinHeight="340" ShowInTaskbar="False"
@@ -10,8 +11,11 @@ function Open-QuoteEditor {
   <TextBox x:Name="Lines" Grid.Row="1" AcceptsReturn="True" AcceptsTab="True" VerticalScrollBarVisibility="Auto" TextWrapping="Wrap" FontSize="16" Padding="12" Background="White" BorderBrush="#DDD4EA"/>
   <TextBlock x:Name="Feedback" Grid.Row="2" Margin="0,12,0,10" Foreground="#745A98" TextWrapping="Wrap"/>
   <Grid Grid.Row="3">
-   <Button x:Name="Defaults" Content="恢复内置语录" Padding="12,6" HorizontalAlignment="Left"/>
-   <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+   <StackPanel HorizontalAlignment="Left">
+    <Button x:Name="Defaults" Content="恢复内置语录" Padding="12,6" HorizontalAlignment="Left"/>
+    <Button x:Name="LowQuotaManager" Content="管理额度耗尽语录" Padding="12,6" Margin="0,8,0,0" HorizontalAlignment="Left"/>
+   </StackPanel>
+   <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Bottom">
     <Button x:Name="Save" Content="保存" Padding="20,6" Margin="0,0,10,0"/>
     <Button x:Name="Done" Content="关闭" Padding="20,6"/>
    </StackPanel>
@@ -19,31 +23,36 @@ function Open-QuoteEditor {
  </Grid>
 </Window>
 '@)
-  $script:quoteEditor=$editor
+  if($LowQuota){$script:lowQuoteEditor=$editor;$editor.Title='GPT 娘 · 额度耗尽语录';$editor.FindName('LowQuotaManager').Visibility=[Windows.Visibility]::Collapsed}
+  else{$script:quoteEditor=$editor}
+  $editor.Tag=[pscustomobject]@{lowQuota=[bool]$LowQuota}
   $editor.Owner=$script:window
   $lines=$editor.FindName('Lines');$feedback=$editor.FindName('Feedback')
-  $current=Get-WidgetQuoteSettings $script:dataDir
+  $current=Get-WidgetQuoteSettings $script:dataDir -LowQuota:$LowQuota
   $lines.Text=($current.quotes|ForEach-Object{if($_.weight-eq 1){$_.text}else{([string]$_.weight)+' | '+$_.text}})-join [Environment]::NewLine
   $feedback.Text=if($current.error){$current.error}else{'每条最多 200 字。语录在你的电脑上保存。'}
-  $editor.FindName('Save').Add_Click({
+  $editor.FindName('Save').Add_Click({param($sender,$event)
+    $editing=[Windows.Window]::GetWindow($sender)
     try{
-      $rows=@(foreach($line in ($script:quoteEditor.FindName('Lines').Text -split '\r?\n')){
+      $rows=@(foreach($line in ($editing.FindName('Lines').Text -split '\r?\n')){
         $text=$line.Trim();if(!$text){continue}
         if($text-match '^\s*(\d+(?:\.\d+)?)\s*\|\s*(.+)$'){@{text=$Matches[2].Trim();weight=[double]::Parse($Matches[1],[Globalization.CultureInfo]::InvariantCulture)}}
         else{@{text=$text;weight=1}}
       })
-      $saved=Save-WidgetQuotes $script:dataDir $rows
-      $script:quoteEditor.FindName('Feedback').Text="已保存 $($saved.quotes.Count) 句。下一次点击气泡时就会使用。"
-    }catch{$script:quoteEditor.FindName('Feedback').Text=$_.Exception.Message}
+      $saved=Save-WidgetQuotes $script:dataDir $rows -LowQuota:([bool]$editing.Tag.lowQuota)
+      $editing.FindName('Feedback').Text="已保存 $($saved.quotes.Count) 句。下一次点击气泡时就会使用。"
+    }catch{$editing.FindName('Feedback').Text=$_.Exception.Message}
   })
-  $editor.FindName('Defaults').Add_Click({
+  $editor.FindName('Defaults').Add_Click({param($sender,$event)
+    $editing=[Windows.Window]::GetWindow($sender)
     try{
-      $restored=Reset-WidgetQuotes $script:dataDir
-      $script:quoteEditor.FindName('Lines').Text=($restored.quotes|ForEach-Object{$_.text})-join [Environment]::NewLine
-      $script:quoteEditor.FindName('Feedback').Text='已恢复内置语录，你的旧列表已备份。'
-    }catch{$script:quoteEditor.FindName('Feedback').Text=$_.Exception.Message}
+      $restored=Reset-WidgetQuotes $script:dataDir -LowQuota:([bool]$editing.Tag.lowQuota)
+      $editing.FindName('Lines').Text=($restored.quotes|ForEach-Object{if($_.weight-eq 1){$_.text}else{([string]$_.weight)+' | '+$_.text}})-join [Environment]::NewLine
+      $editing.FindName('Feedback').Text='已恢复内置语录，你的旧列表已备份。'
+    }catch{$editing.FindName('Feedback').Text=$_.Exception.Message}
   })
-  $editor.FindName('Done').Add_Click({$script:quoteEditor.Close()})
+  $editor.FindName('LowQuotaManager').Add_Click({Open-QuoteEditor -LowQuota})
+  $editor.FindName('Done').Add_Click({param($sender,$event)[Windows.Window]::GetWindow($sender).Close()})
   $editor.Add_KeyDown({param($sender,$event)if($event.Key-eq [Windows.Input.Key]::Escape){$sender.Close();$event.Handled=$true}})
   $editor.Show()
 }
@@ -128,6 +137,12 @@ function Initialize-WidgetSettingsMenu {
   Add-SettingsAction '恢复右下角位置' {if($script:followHost){$script:offsetRight=0;$script:offsetLeft=0;$script:offsetBottom=0;$script:anchor='right'}else{$script:desktopLeft=$null;$script:desktopTop=$null};$script:side='right';$script:lastPosition=$null;Set-Facing;Hide-Quota;Save-Settings;Tick-Widget} -StayOpen
   } -ReturnItem
   $script:settingsMenuUi.Appearance=Add-SettingsSubmenu '外观设置' {
+  $script:settingsMenuUi.QuotaPreview=Add-SettingsAction '额度耗尽形象（测试）' {
+    param($sender,$event)
+    Set-WidgetQuotaPreview ([bool]$sender.IsChecked)
+    if($script:quotaPreview){if($script:collapsed){Show-Quota};Switch-Scene 'quote'}
+  } -Description '预览形象与语录；再点一次恢复自动判断' -Checkable -ReturnItem
+  Add-SettingsDivider
   $presets=New-Object Windows.Controls.Primitives.UniformGrid;$presets.Columns=3;$presets.Margin=[Windows.Thickness]::new(0,1,0,2);$script:settingsMenuUi.SizeButtons=@()
   foreach($choice in @(@{label='小 · 80%';scale=0.8},@{label='标准 · 100%';scale=1.0},@{label='大 · 140%';scale=1.4})){
     $button=New-Object Windows.Controls.Button;$button.Content=$choice.label;$button.Tag=$choice.scale;$button.Margin=[Windows.Thickness]::new(0,0,5,0);$button.Style=$script:settingsMenuResources['SettingsPreset']
@@ -222,6 +237,8 @@ function Update-WidgetSizePresets{
 function Update-WidgetSettingsMenu{
   $script:settingsMenuSync=$true
   try{
+    if($script:settingsMenuUi.QuotaPreview){$script:settingsMenuUi.QuotaPreview.IsChecked=[bool]$script:quotaPreview}
+
     Update-WidgetUpdateMenu
     $script:settingsMenuUi.Bubble.Header=if(!$script:collapsed -and $script:bubbleMode-eq 'quota'){'收起额度气泡'}else{'查看额度'}
     $script:settingsMenuUi.Follow.IsChecked=$script:followHost;$script:settingsMenuUi.Desktop.IsChecked=!$script:followHost

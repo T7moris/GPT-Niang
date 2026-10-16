@@ -9,6 +9,10 @@ $script:colorSpecialQuotes=@('Token来，Token来')
 $script:colorSceneScope='none';$script:colorSceneKey='';$script:colorSpecialLast=''
 
 function Get-WidgetBubbleQuote([string]$DataDir){
+  if($script:quotaMood-eq 'low'){
+    $script:colorSceneScope='none';$script:colorSceneKey=''
+    return Get-WidgetQuote $DataDir -LowQuota
+  }
   # Choose the text from its own pool before drawing an unrelated appearance.
   $text=Get-WidgetQuote $DataDir
   if($script:colorMode-ne 'mixed'){return $text}

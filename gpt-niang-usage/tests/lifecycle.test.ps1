@@ -63,7 +63,8 @@ setInterval(heartbeat,100);
   $script:mutexOwned=$true
   $script:timer=[pscustomobject]@{}
   $script:timer|Add-Member -MemberType ScriptMethod -Name Stop -Value {throw 'Injected timer stop failure.'}
-  function Stop-WidgetAudio {throw 'Injected audio stop failure.'}
+  $script:audioCloses=0
+  function Close-WidgetAudio {$script:audioCloses++;throw 'Injected audio close failure.'}
 
   Ensure-QuotaWorker ([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds())
   if(!$script:worker){throw 'The dummy quota worker was not launched.'}
@@ -87,6 +88,7 @@ setInterval(heartbeat,100);
   [IO.File]::WriteAllText((Join-Path $script:dataDir 'presence.json'),'{"pid":2147483647}')
   Stop-WidgetRuntime
   Stop-WidgetRuntime
+  Assert-Lifecycle ($script:audioCloses-eq 1) 'Shutdown did not close audio exactly once.'
   $deadline=[DateTime]::UtcNow.AddSeconds(2)
   do{
     $remaining=Get-Process -Id $restartedPid -ErrorAction SilentlyContinue

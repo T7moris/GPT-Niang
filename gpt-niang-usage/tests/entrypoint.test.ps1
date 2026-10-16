@@ -5,6 +5,7 @@ $testRoot=Join-Path ([IO.Path]::GetTempPath()) ('gpt-niang-entrypoint-'+[Guid]::
 $testApp=Join-Path $testRoot 'app'
 $testData=Join-Path $testRoot 'state'
 $files=@('widget.ps1','widget.xaml','runtime\start-widget.ps1','runtime\quotes.ps1','runtime\ui-settings.ps1','runtime\update-ui.ps1','runtime\update-common.ps1','runtime\color-theme.ps1','runtime\quote-layout.ps1','runtime\audio.ps1','runtime\host-layer.ps1','runtime\host-follow.ps1','runtime\host-ready.ps1','runtime\supervisor-task.ps1','assets\quotes.json','assets\quote-layouts.json','assets\gpt-dragon-niang-bust.png')
+$files+=@('runtime\quota-character.ps1','runtime\quota-mood.ps1','assets\gpt-dragon-low-quota.png','assets\quotes-low-quota.json')
 $directories=@($testRoot,$testApp,$testData,(Join-Path $testApp 'runtime'),(Join-Path $testApp 'assets'))
 try{
   foreach($directory in $directories){$null=New-Item -ItemType Directory -Path $directory}
@@ -18,6 +19,13 @@ try{
   if($LASTEXITCODE-ne 0){throw 'The full WPF entry point failed.'}
   $preview=Join-Path $testApp 'preview.png'
   if(!(Test-Path -LiteralPath $preview) -or [IO.File]::ReadAllBytes($preview).Length-lt 1000){throw 'The WPF preview is missing or empty.'}
+  foreach($edge in @(@{short=5;week=80;want='low';size=228},@{short=80;week=5;want='low';size=228},@{short=5.01;week=5.01;want='normal';size=208})){
+    $snapshot.observedAt=[DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+    $snapshot.windows[0].remaining=$edge.short;$snapshot.windows[1].remaining=$edge.week
+    [IO.File]::WriteAllText((Join-Path $testData 'status.json'),($snapshot|ConvertTo-Json -Depth 8),[Text.UTF8Encoding]::new($false))
+    $result=(& $powerShell -NoProfile -STA -ExecutionPolicy Bypass -File (Join-Path $testApp 'runtime\start-widget.ps1') -WidgetPath (Join-Path $testApp 'widget.ps1') -CheckOnly)|ConvertFrom-Json
+    if($LASTEXITCODE-ne 0 -or !$result.imageLoaded -or $result.quotaMood-ne $edge.want -or $result.characterSize-ne $edge.size){throw 'Full startup did not apply quota state at the inclusive five-percent boundary'}
+  }
   if($PreviewDirectory){
     $null=New-Item -ItemType Directory -Path $PreviewDirectory -Force
     Copy-Item -LiteralPath $preview -Destination (Join-Path $PreviewDirectory 'quota-aligned.png')

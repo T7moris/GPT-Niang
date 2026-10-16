@@ -2,13 +2,19 @@ param([string]$PreviewDirectory,[string]$TestRoot=$PSScriptRoot)
 $ErrorActionPreference='Stop'
 Add-Type -AssemblyName PresentationFramework,PresentationCore,WindowsBase
 $appDir=Split-Path $TestRoot -Parent
+$script:appDir=$appDir
+. (Join-Path $appDir 'runtime\quotes.ps1')
+. (Join-Path $appDir 'runtime\quota-character.ps1')
+. (Join-Path $appDir 'runtime\quota-mood.ps1')
+. ([ScriptBlock]::Create([IO.File]::ReadAllText((Join-Path $appDir 'runtime\color-theme.ps1'),[Text.Encoding]::UTF8)))
+$script:quotaMood='normal';$script:quotaMoodAccount=''
 . ([ScriptBlock]::Create([IO.File]::ReadAllText((Join-Path $appDir 'runtime\quote-layout.ps1'),[Text.Encoding]::UTF8)))
 Initialize-WidgetQuoteLayouts $appDir
 $tokens=$null;$parseErrors=$null
 $source=[IO.File]::ReadAllText((Join-Path $appDir 'widget.ps1'),[Text.Encoding]::UTF8)
 $ast=[Management.Automation.Language.Parser]::ParseInput($source,[ref]$tokens,[ref]$parseErrors)
 if($parseErrors.Count){throw ($parseErrors|Out-String)}
-foreach($name in @('Set-Facing','Reset-Label','Format-ResetTime','Format-ResetDisplay','Get-QuotaWindowLabel','Get-QuotaRows','Set-ResetTimeMode','Restart-SceneTtl','Tick-Scene','Apply-Scene','Update-BubbleTooltip','Update-Quota')){
+foreach($name in @('Test-GirlAlpha','Set-Facing','Reset-Label','Format-ResetTime','Format-ResetDisplay','Get-QuotaWindowLabel','Get-QuotaRows','Set-ResetTimeMode','Restart-SceneTtl','Tick-Scene','Apply-Scene','Update-BubbleTooltip','Update-Quota')){
   $definition=$ast.Find({param($node)$node-is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name-eq $name},$true)
   . ([ScriptBlock]::Create($definition.Extent.Text))
 }
@@ -70,7 +76,19 @@ function Assert-QuotaLayout {
     $formatted=[Windows.Media.FormattedText]::new($reset.Text,[Globalization.CultureInfo]::InvariantCulture,[Windows.FlowDirection]::LeftToRight,$typeface,$reset.FontSize,$reset.Foreground)
     if($formatted.Width-gt $reset.ActualWidth){throw "Reset time is horizontally clipped: $($reset.Text)"}
     $bottom=$reset.TranslatePoint([Windows.Point]::new(0,$reset.ActualHeight),$root).Y
-    if($bottom-gt [Windows.Controls.Canvas]::GetTop($script:ui.Girl)-2){throw 'Reset time overlaps the character'}
+    if($bottom-gt [Windows.Controls.Canvas]::GetTop($script:ui.Girl)-2){
+      if($script:quotaMood-ne 'low'){throw 'Reset time overlaps the character'}
+      # A full-body image has transparent corners. Compare actual text ink to
+      # actual sprite alpha rather than treating its rectangle as fully opaque.
+      $origin=$reset.TranslatePoint([Windows.Point]::new(0,0),$root)
+      $ink=$formatted.BuildGeometry([Windows.Point]::new(0,0));$bounds=$ink.Bounds
+      for($y=[int][Math]::Floor($bounds.Top);$y-le [Math]::Ceiling($bounds.Bottom);$y++){
+        for($x=[int][Math]::Floor($bounds.Left);$x-le [Math]::Ceiling($bounds.Right);$x++){
+          $point=[Windows.Point]::new($x+0.5,$y+0.5)
+          if($ink.FillContains($point) -and (Test-GirlAlpha ([Windows.Point]::new($origin.X+$point.X,$origin.Y+$point.Y)))){throw 'Character obscures reset time glyphs'}
+        }
+      }
+    }
   }
 }
 try{
@@ -324,6 +342,8 @@ try{
     }
   }
   [IO.File]::WriteAllText((Join-Path $script:dataDir 'status.json'),'broken',[Text.UTF8Encoding]::new($false))
+  # Force parsing even if rapid fixture rewrites share a filesystem timestamp.
+  $script:statusStamp=0
   Update-Quota
   Assert-Equal $script:status $null 'Malformed snapshot cannot retain the previous account'
   Remove-Item -LiteralPath (Join-Path $script:dataDir 'status.json')
