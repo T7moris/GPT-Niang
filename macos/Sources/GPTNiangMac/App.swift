@@ -36,7 +36,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     private var hostApplication: NSRunningApplication?
     private var cadence = WindowFollowCadence()
     private var wasCodexFrontmost = false
-    private var missingHostSince: Date?
+    private var followPolicy = WindowFollowPolicy()
+    private let stageManagerPreferences = UserDefaults(suiteName: "com.apple.WindowManager")
     private var dragOrigin: CGPoint?
     private var previousFollow: Bool?
     private var dragEvents = 0
@@ -75,7 +76,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         panel.title = model.text("GPT 娘額度掛件")
         panel.backgroundColor = .clear; panel.isOpaque = false; panel.hasShadow = false
         panel.isFloatingPanel = false; panel.hidesOnDeactivate = false
-        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle]
+        panel.collectionBehavior = panelBehavior(following: model.followCodex)
+        panel.animationBehavior = .none
         panel.isReleasedWhenClosed = false
         panel.contentView = NSHostingView(rootView: WidgetView(model: model, onDrag: { [weak self] in self?.drag($0) }, onSettings: { [weak self] in self?.showSettings() }, onContextMenu: { [weak self] event, view in self?.showContextMenu(event, view: view) }))
         buildMenu()
@@ -191,6 +193,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
             guard (window[kCGWindowOwnerPID as String] as? Int32) == app.processIdentifier,
                   (window[kCGWindowLayer as String] as? Int) == 0,
                   (window[kCGWindowIsOnscreen as String] as? Bool) == true,
+                  (window[kCGWindowAlpha as String] as? Double ?? 1) >= 0.95,
                   let bounds = window[kCGWindowBounds as String] as? [String: CGFloat],
                   let width = bounds["Width"], let height = bounds["Height"], width >= 480, height >= 300,
                   let number = window[kCGWindowNumber as String] as? Int else { continue }
@@ -198,11 +201,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
             let frame = WidgetPlacement.appKitRect(quartz: quartz, mainDisplayHeight: CGDisplayBounds(CGMainDisplayID()).height)
             // A full list is front-to-back: choose the current foremost Codex
             // window rather than retaining an older, still-visible window.
+            // Stage Manager can report the backing window while it is in a
+            // thumbnail/offscreen transition. Never attach to a screen sliver.
+            guard followTarget(frame: frame, number: number) != nil else { continue }
             selectedHostNumber = number
             return (frame, number)
         }
         selectedHostNumber = nil
         return nil
+    }
+    private func panelBehavior(following: Bool) -> NSWindow.CollectionBehavior {
+        var behavior: NSWindow.CollectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle]
+        if following { behavior.formUnion([.canJoinAllApplications, .transient]) }
+        return behavior
+    }
+    private func followTarget(frame: CGRect, number: Int) -> FollowWindowTarget? {
+        let size = CGSize(width: 378 * model.scale, height: 378 * model.scale)
+        let candidate = WidgetPlacement.frame(host: frame, visibleScreen: frame, size: size, x: model.x, y: model.y)
+        let center = CGPoint(x: candidate.midX, y: candidate.midY)
+        guard let screen = NSScreen.screens.first(where: { $0.frame.contains(center) }) ??
+            NSScreen.screens.max(by: { $0.frame.intersection(frame).area < $1.frame.intersection(frame).area }) else { return nil }
+        return WindowFollowPolicy.target(number: number, frame: frame, visibleScreen: screen.visibleFrame, requestedScale: model.scale)
     }
     private func updateWindow() {
         guard model != nil, panel != nil else { return }
@@ -210,41 +229,44 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
             if !model.followCodex && model.desktopLeft == nil {
                 model.desktopLeft = panel.frame.minX; model.desktopBottom = panel.frame.minY
             }
-            dragOrigin = nil; model.savePreferences()
+            dragOrigin = nil; followPolicy = WindowFollowPolicy(); lastHostNumber = nil; model.savePreferences()
         }
         previousFollow = model.followCodex
+        let behavior = panelBehavior(following: model.followCodex)
+        if panel.collectionBehavior != behavior { panel.collectionBehavior = behavior }
         var size = CGSize(width: 378 * model.scale, height: 378 * model.scale)
         let now = ProcessInfo.processInfo.systemUptime
         let codexFrontmost = NSWorkspace.shared.frontmostApplication?.bundleIdentifier == "com.openai.codex"
-        let host = model.followCodex ? codexWindow(now: now, frontmost: codexFrontmost) : nil
+        // WindowServer's "onscreen" bit alone does not identify the active
+        // Stage Manager set. Do not leave an overlay on another app/the desktop.
+        let stageManagerEnabled = stageManagerPreferences?.bool(forKey: "GloballyEnabled") == true
+        let followAllowed = !stageManagerEnabled || codexFrontmost
+        let host = model.followCodex && followAllowed ? codexWindow(now: now, frontmost: codexFrontmost) : nil
         var visible = false
         if model.followCodex {
             panel.level = .normal
-            if let (rect, number) = host {
-                missingHostSince = nil
-                let candidate = WidgetPlacement.frame(host: rect, visibleScreen: rect, size: size, x: model.x, y: model.y)
-                let center = CGPoint(x: candidate.midX, y: candidate.midY)
-                let screen = NSScreen.screens.first { $0.frame.contains(center) } ?? NSScreen.screens.max { $0.frame.intersection(rect).area < $1.frame.intersection(rect).area } ?? NSScreen.main!
-                let area = WidgetPlacement.usableArea(host: rect, visibleScreen: screen.visibleFrame)
+            let target = host.flatMap { followTarget(frame: $0.0, number: $0.1) }
+            if let target = followPolicy.update(target: target, now: now, allowed: followAllowed) {
+                let area = target.area
                 hostRect = area
-                let fitted = min(model.scale, area.width / 378, area.height / 378)
-                if abs(model.displayScale - fitted) > 0.001 { model.displayScale = fitted }
-                size = CGSize(width: 378 * fitted, height: 378 * fitted)
-                if dragOrigin == nil { let frame = WidgetPlacement.frame(host: rect, visibleScreen: screen.visibleFrame, size: size, x: model.x, y: model.y); if panel.frame != frame { panel.setFrame(frame, display: true) } }
-                if !panel.isVisible || lastHostNumber != number || (codexFrontmost && !wasCodexFrontmost) {
-                    panel.order(.above, relativeTo: number)
+                if abs(model.displayScale - target.scale) > 0.001 { model.displayScale = target.scale }
+                size = CGSize(width: 378 * target.scale, height: 378 * target.scale)
+                if dragOrigin == nil {
+                    let frame = WidgetPlacement.frame(host: area, visibleScreen: area, size: size, x: model.x, y: model.y)
+                    if panel.frame != frame { panel.setFrame(frame, display: true) }
                 }
-                visible = true; lastHostNumber = number; if model.trackingNote != nil { model.trackingNote = nil }
+                if !panel.isVisible || lastHostNumber != target.number || (codexFrontmost && !wasCodexFrontmost) {
+                    panel.order(.above, relativeTo: target.number)
+                }
+                visible = panel.isVisible; lastHostNumber = target.number
+                if model.trackingNote != nil { model.trackingNote = nil }
             } else {
-                if missingHostSince == nil { missingHostSince = Date() }
-                let appHidden = hostApplication?.isHidden ?? true
-                if !appHidden && Date().timeIntervalSince(missingHostSince!) < 0.75 {
-                    visible = panel.isVisible
-                } else {
-                    if panel.isVisible { panel.orderOut(nil) }; lastHostNumber = nil; hostRect = nil
-                    let note = model.text("未找到可見的 Codex 主視窗。你仍可關閉跟隨，在桌面顯示掛件。")
-                    if model.trackingNote != note { model.trackingNote = note }
-                }
+                // Hide immediately on a missing/invalid host or leaving the
+                // current stage. Reappearing requires a stable valid target.
+                if panel.isVisible { panel.orderOut(nil) }
+                lastHostNumber = nil; hostRect = nil; dragOrigin = nil
+                let note = model.text("未找到可見的 Codex 主視窗。你仍可關閉跟隨，在桌面顯示掛件。")
+                if model.trackingNote != note { model.trackingNote = note }
             }
         } else {
             let level: NSWindow.Level = model.desktopTopmost ? .floating : .normal
@@ -276,6 +298,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         if let diagnosticsURL, cadence.diagnostics(now: now) {
             let values: [String: Any] = ["visible": panel.isVisible, "followCodex": model.followCodex, "hostFound": host != nil,
                 "hostWindow": host?.1 ?? 0, "frame": NSStringFromRect(panel.frame), "quotaOK": model.snapshot.ok,
+                "stageManagerEnabled": stageManagerEnabled, "codexFrontmost": codexFrontmost, "followAllowed": followAllowed,
+                "panelOnActiveSpace": panel.isOnActiveSpace, "panelOcclusionVisible": panel.occlusionState.contains(.visible),
+                "collectionBehavior": panel.collectionBehavior.rawValue,
+                "hostArea": hostRect.map { NSStringFromRect($0) } ?? "",
                 "queryOK": model.snapshot.queryOk ?? false, "quotaWindowCount": model.snapshot.windows.count,
                 "hasMessage": model.message != nil, "bubbleVisible": model.bubble, "scale": model.scale,
                 "settingsVisible": settingsWindow?.isVisible ?? false, "speedVisible": speedWindow?.isVisible ?? false, "speedRows": speedStore.rows.count, "dragEvents": dragEvents, "displayScale": model.displayScale, "at": Date().timeIntervalSince1970]
