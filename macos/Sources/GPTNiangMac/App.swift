@@ -27,16 +27,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     private var settingsWindow: NSWindow?
     private var speedWindow: NSWindow?
     private let speedStore = ThreadSpeedStore()
+    private let completionPopup = CompletionPopupController()
     private var statusItem: NSStatusItem?
     private var timer: Timer?
     private var lockDescriptor: Int32 = -1
     private var hostRect: CGRect?
     private var lastHostNumber: Int?
     private var selectedHostNumber: Int?
+    private var hostNeedsOrdering = false
+    private var desktopNeedsOrdering = false
     private var hostApplication: NSRunningApplication?
     private var cadence = WindowFollowCadence()
     private var wasCodexFrontmost = false
-    private var missingHostSince: Date?
+    private var missingHostSince: TimeInterval?
+    private var hostConfirmedMissing = false
+    private var hostOrderCount = 0
+    private var hostHideCount = 0
+    private var lastHostOrderReason = "none"
     private var dragOrigin: CGPoint?
     private var previousFollow: Bool?
     private var dragEvents = 0
@@ -78,10 +85,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle]
         panel.isReleasedWhenClosed = false
         panel.contentView = NSHostingView(rootView: WidgetView(model: model, onDrag: { [weak self] in self?.drag($0) }, onSettings: { [weak self] in self?.showSettings() }, onContextMenu: { [weak self] event, view in self?.showContextMenu(event, view: view) }))
+        model.alerts.presentCompletionPopup = { [weak self] count in
+            guard let self else { return false }
+            return self.completionPopup.present(count: count, model: self.model)
+        }
+        model.alerts.dismissCompletionPopup = { [weak self] in self?.completionPopup.dismiss() }
         buildMenu()
         languageSubscription = model.$language.dropFirst().sink { [weak self] _ in
             Task { @MainActor in self?.buildMenu(); self?.localizeWindowTitles() }
         }
+        for name in [NSWorkspace.activeSpaceDidChangeNotification, NSWorkspace.didWakeNotification] {
+            NSWorkspace.shared.notificationCenter.addObserver(self, selector: #selector(restoreWindowOrdering), name: name, object: nil)
+        }
+        NotificationCenter.default.addObserver(self, selector: #selector(restoreWindowOrdering),
+            name: NSApplication.didChangeScreenParametersNotification, object: nil)
         model.start()
         updateWindow()
         let followTimer = Timer(timeInterval: 1.0 / 60, repeats: true) { [weak self] _ in
@@ -97,10 +114,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         }
         logger.info("macOS widget launched")
     }
+    @objc private func restoreWindowOrdering() {
+        hostNeedsOrdering = true; desktopNeedsOrdering = true
+    }
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        restoreWindowOrdering(); updateWindow(); return true
+    }
     func applicationWillTerminate(_ notification: Notification) {
+        NSWorkspace.shared.notificationCenter.removeObserver(self)
+        NotificationCenter.default.removeObserver(self)
         timer?.invalidate(); updater?.stop(); model?.stop(); speedStore.stop()
         if lockDescriptor >= 0 { Darwin.close(lockDescriptor) }
     }
+    func applicationDidBecomeActive(_ notification: Notification) { model?.alerts.refreshPermission() }
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
     func menuWillOpen(_ menu: NSMenu) {
         trackingMenus += 1
@@ -177,16 +203,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         NSApp.setActivationPolicy(.regular); NSApp.activate(ignoringOtherApps: true)
         speedWindow?.makeKeyAndOrderFront(nil)
     }
-    private func codexWindow(now: TimeInterval, frontmost: Bool) -> (CGRect, Int)? {
-        let discover = cadence.discover(now: now, force: frontmost && !wasCodexFrontmost)
+    private func codexWindow(now: TimeInterval, frontmost: Bool, forceDiscovery: Bool = false) -> (CGRect, Int)? {
+        hostConfirmedMissing = false
+        let discover = cadence.discover(now: now, force: forceDiscovery || (frontmost && !wasCodexFrontmost))
         if discover {
             hostApplication = NSRunningApplication.runningApplications(withBundleIdentifier: "com.openai.codex").first
         }
-        guard let app = hostApplication, !app.isTerminated, !app.isHidden else { return nil }
+        guard let app = hostApplication, !app.isTerminated, !app.isHidden else {
+            hostConfirmedMissing = true; return nil
+        }
         let options: CGWindowListOption = discover ? [.optionOnScreenOnly, .excludeDesktopElements] : [.optionIncludingWindow]
         let windowID: CGWindowID? = discover ? kCGNullWindowID : selectedHostNumber.map { CGWindowID($0) }
-        guard let windowID,
-              let windows = CGWindowListCopyWindowInfo(options, windowID) as? [[String: Any]] else { return nil }
+        guard let windowID else { hostConfirmedMissing = true; return nil }
+        // A failed query is uncertain; an empty successful reply is not.
+        guard let windows = CGWindowListCopyWindowInfo(options, windowID) as? [[String: Any]] else { return nil }
         for window in windows {
             guard (window[kCGWindowOwnerPID as String] as? Int32) == app.processIdentifier,
                   (window[kCGWindowLayer as String] as? Int) == 0,
@@ -199,9 +229,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
             // A full list is front-to-back: choose the current foremost Codex
             // window rather than retaining an older, still-visible window.
             selectedHostNumber = number
+            if discover {
+                let orderedNumbers = windows.compactMap { $0[kCGWindowNumber as String] as? Int }
+                hostNeedsOrdering = WindowFollowOrdering.needsOrdering(
+                    frontToBack: orderedNumbers, host: number, panel: panel.windowNumber)
+            }
             return (frame, number)
         }
-        selectedHostNumber = nil
+        if !discover {
+            // The cached window may have been minimized or closed. Look for
+            // another eligible Codex window now, rather than hiding for a tick.
+            return codexWindow(now: now, frontmost: frontmost, forceDiscovery: true)
+        }
+        selectedHostNumber = nil; hostConfirmedMissing = true
         return nil
     }
     private func updateWindow() {
@@ -219,7 +259,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         let host = model.followCodex ? codexWindow(now: now, frontmost: codexFrontmost) : nil
         var visible = false
         if model.followCodex {
-            panel.level = .normal
+            // Clicking/selecting in the host can raise its normal-level window
+            // above a peer panel before the next discovery. Keep the pet one
+            // level above only while Codex is frontmost; other apps can still
+            // cover both after focus moves away. This never activates the pet.
+            let level: NSWindow.Level = codexFrontmost ? .floating : .normal
+            let levelChanged = panel.level != level
+            if levelChanged { panel.level = level }
             if let (rect, number) = host {
                 missingHostSince = nil
                 let candidate = WidgetPlacement.frame(host: rect, visibleScreen: rect, size: size, x: model.x, y: model.y)
@@ -231,17 +277,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
                 if abs(model.displayScale - fitted) > 0.001 { model.displayScale = fitted }
                 size = CGSize(width: 378 * fitted, height: 378 * fitted)
                 if dragOrigin == nil { let frame = WidgetPlacement.frame(host: rect, visibleScreen: screen.visibleFrame, size: size, x: model.x, y: model.y); if panel.frame != frame { panel.setFrame(frame, display: true) } }
-                if !panel.isVisible || lastHostNumber != number || (codexFrontmost && !wasCodexFrontmost) {
+                if !panel.isVisible || lastHostNumber != number || levelChanged || hostNeedsOrdering || (codexFrontmost && !wasCodexFrontmost) {
+                    lastHostOrderReason = !panel.isVisible ? "show" : lastHostNumber != number ? "hostChanged" : levelChanged ? "levelChanged" : "repair"
                     panel.order(.above, relativeTo: number)
+                    hostOrderCount += 1; hostNeedsOrdering = false
                 }
                 visible = true; lastHostNumber = number; if model.trackingNote != nil { model.trackingNote = nil }
             } else {
-                if missingHostSince == nil { missingHostSince = Date() }
+                if missingHostSince == nil { missingHostSince = now }
                 let appHidden = hostApplication?.isHidden ?? true
-                if !appHidden && Date().timeIntervalSince(missingHostSince!) < 0.75 {
+                if WindowFollowVisibility.keepDuringMissingHost(appHidden: appHidden, confirmedMissing: hostConfirmedMissing, missingFor: now - missingHostSince!) {
                     visible = panel.isVisible
                 } else {
-                    if panel.isVisible { panel.orderOut(nil) }; lastHostNumber = nil; hostRect = nil
+                    if panel.isVisible { panel.orderOut(nil); hostHideCount += 1 }; lastHostNumber = nil; hostRect = nil
                     let note = model.text("未找到可見的 Codex 主視窗。你仍可關閉跟隨，在桌面顯示掛件。")
                     if model.trackingNote != note { model.trackingNote = note }
                 }
@@ -265,19 +313,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
                     origin: CGPoint(x: model.desktopLeft ?? defaultFrame.minX, y: model.desktopBottom ?? defaultFrame.minY))
                 if panel.frame != frame { panel.setFrame(frame, display: true) }
             }
-            if !panel.isVisible || levelChanged { panel.orderFrontRegardless() }; visible = true; hostRect = area
+            if !panel.isVisible || levelChanged || desktopNeedsOrdering {
+                panel.orderFrontRegardless(); desktopNeedsOrdering = false
+            }
+            visible = true; hostRect = area
         }
         if let area = hostRect {
             let left = panel.frame.midX < area.midX
             if model.facingLeft != left { model.facingLeft = left }
         }
+        model.alerts.hostFrontmost = codexFrontmost
+        if completionPopup.isVisible && (!model.followCodex || !model.alertPreferences.completionEnabled ||
+            !model.alertPreferences.completionPopupEnabled || (codexFrontmost && panel.isVisible)) {
+            completionPopup.dismiss()
+        }
+        model.alerts.windowVisible = panel.isVisible
+        model.alerts.windowBusy = dragOrigin != nil || trackingMenus > 0
         wasCodexFrontmost = codexFrontmost
         if cadence.presence(now: now, visible: visible) { model.writePresence(visible: visible) }
         if let diagnosticsURL, cadence.diagnostics(now: now) {
             let values: [String: Any] = ["visible": panel.isVisible, "followCodex": model.followCodex, "hostFound": host != nil,
-                "hostWindow": host?.1 ?? 0, "frame": NSStringFromRect(panel.frame), "quotaOK": model.snapshot.ok,
+                "hostOrderCount": hostOrderCount, "hostHideCount": hostHideCount, "lastHostOrderReason": lastHostOrderReason, "windowLevel": panel.level.rawValue,
+                "hostConfirmedMissing": hostConfirmedMissing, "hostWindow": host?.1 ?? 0, "frame": NSStringFromRect(panel.frame), "quotaOK": model.snapshot.ok,
                 "queryOK": model.snapshot.queryOk ?? false, "quotaWindowCount": model.snapshot.windows.count,
                 "hasMessage": model.message != nil, "bubbleVisible": model.bubble, "scale": model.scale,
+                "alertShortEnabled": model.alertPreferences.shortEnabled, "alertWeekEnabled": model.alertPreferences.weekEnabled,
+                "alertCompletionEnabled": model.alertPreferences.completionEnabled,
+                "alertCompletionPopupEnabled": model.alertPreferences.completionPopupEnabled,
+                "alertPopupVisible": completionPopup.isVisible, "alertPopupCount": completionPopup.count,
+                "alertPopupPresentations": model.alerts.popupPresentations, "alertMonitorRunning": model.alerts.monitorRunning,
+                "alertSoundSignals": model.alerts.soundSignals, "alertPermissionDenied": model.alertPermissionDenied, "alertMonitorError": model.alertMonitorError != nil,
+                "alertCompletionSessions": model.alerts.completionSessions, "alertCompletionFrames": model.alerts.completionFrames, "alertCompletionEvents": model.alerts.completionEvents,
+                "alertWindowBusy": model.alerts.windowBusy, "alertInteractionBusy": model.interactionActive,
                 "settingsVisible": settingsWindow?.isVisible ?? false, "speedVisible": speedWindow?.isVisible ?? false, "speedRows": speedStore.rows.count, "dragEvents": dragEvents, "displayScale": model.displayScale, "at": Date().timeIntervalSince1970]
             if let data = try? JSONSerialization.data(withJSONObject: values, options: [.prettyPrinted, .sortedKeys]) { try? data.write(to: diagnosticsURL, options: .atomic) }
         }

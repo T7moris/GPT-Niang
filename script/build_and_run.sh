@@ -35,6 +35,7 @@ cp "$ROOT_DIR/gpt-niang-usage/assets/gpt-dragon-niang-bust.png" "$ROOT_DIR/gpt-n
 cp "$ROOT_DIR/LICENSE" "$APP_BUNDLE/Contents/Resources/LICENSE"
 cp "$ROOT_DIR/gpt-niang-usage/assets/quotes-LICENSE.txt" "$APP_BUNDLE/Contents/Resources/quotes-LICENSE.txt"
 cp "$ROOT_DIR/gpt-niang-usage/assets/CHARACTER-NOTICE.txt" "$APP_BUNDLE/Contents/Resources/CHARACTER-NOTICE.txt"
+cp "$ROOT_DIR/macos/GPTNiang.icns" "$APP_BUNDLE/Contents/Resources/GPTNiang.icns"
 cat > "$APP_BUNDLE/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -44,6 +45,7 @@ cat > "$APP_BUNDLE/Contents/Info.plist" <<PLIST
 <key>CFBundleName</key><string>GPT 娘</string>
 <key>CFBundleDisplayName</key><string>GPT 娘</string>
 <key>CFBundlePackageType</key><string>APPL</string>
+<key>CFBundleIconFile</key><string>GPTNiang.icns</string>
 <key>CFBundleShortVersionString</key><string>$VERSION</string>
 <key>CFBundleVersion</key><string>$VERSION</string>
 <key>LSMinimumSystemVersion</key><string>13.0</string>

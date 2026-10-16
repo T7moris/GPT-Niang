@@ -5,6 +5,11 @@ import os
 
 @MainActor
 final class WidgetModel: ObservableObject {
+    @Published var alertPreferences = AlertPreferences()
+    @Published var alertPermissionDenied = false
+    @Published var alertMonitorError: String?
+    @Published var alertStorageError: String?
+    lazy var alerts = AlertCoordinator(model: self)
     @Published var snapshot = UsageSnapshot()
     @Published var message: String?
     @Published var bubble = false
@@ -65,6 +70,10 @@ final class WidgetModel: ObservableObject {
         // Keep preferences together with quota state; no shared Codex config edits.
         let prefs = dataDirectory.appendingPathComponent("preferences.json")
         let values = (try? Data(contentsOf: prefs)).flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] } ?? [:]
+        if let raw = values["alerts"], let data = try? JSONSerialization.data(withJSONObject: raw),
+           var decoded = try? JSONDecoder().decode(AlertPreferences.self, from: data) {
+            decoded.validate(); alertPreferences = decoded
+        }
         language = InterfaceLanguage(rawValue: values["language"] as? String ?? "system") ?? .system
         defaults = .standard
         colorMode = ColorMode(rawValue: values["colorMode"] as? String ?? "mixed") ?? .mixed
@@ -98,11 +107,13 @@ final class WidgetModel: ObservableObject {
 
     func start() {
         startWorker()
+        alerts.configure()
         timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.tick() }
         }
     }
     func stop() {
+        alerts.stop()
         timer?.invalidate(); timer = nil
         writePresence(visible: false)
         worker?.terminate(); worker = nil
@@ -117,6 +128,7 @@ final class WidgetModel: ObservableObject {
         }
         if Date() > refreshUntil { refreshing = false }
         if worker?.isRunning != true { startWorker() }
+        alerts.tick()
     }
     func readSnapshot(_ data: Data) {
             if data != lastStatusData {
@@ -173,7 +185,7 @@ final class WidgetModel: ObservableObject {
         hideBubble(); savePreferences()
     }
     func writePresence(visible: Bool) {
-        try? writeJSON(["visible": visible, "at": Date().timeIntervalSince1970 * 1000,
+        try? writeJSON(["visible": visible, "backgroundQuota": alertPreferences.quotaEnabled, "at": Date().timeIntervalSince1970 * 1000,
                         "pid": ProcessInfo.processInfo.processIdentifier], to: dataDirectory.appendingPathComponent("presence.json"))
     }
     func savePreferences() {
@@ -183,6 +195,8 @@ final class WidgetModel: ObservableObject {
             "colorMode": colorMode.rawValue, "fullChance": fullChance, "textChance": textChance, "colorPaused": colorPaused,
             "specialQuotes": specialQuotes, "bubbleTapAdvance": bubbleTapAdvance, "language": language.rawValue,
             "desktopTopmost": desktopTopmost, "soundOn": soundOn, "hideMenu": hideMenu]
+        if let data = try? JSONEncoder().encode(alertPreferences),
+           let raw = try? JSONSerialization.jsonObject(with: data) { values["alerts"] = raw }
         values.merge(current) { _, new in new }
         values["desktopLeft"] = desktopLeft; values["desktopBottom"] = desktopBottom
         try? writeJSON(values, to: file)
@@ -206,6 +220,17 @@ final class WidgetModel: ObservableObject {
     }
     private func requestRefreshFlag() {
         try? Data(UUID().uuidString.utf8).write(to: dataDirectory.appendingPathComponent("refresh.flag"), options: .atomic)
+    }
+    func showAlert(_ text: String) {
+        message = text; bubble = true
+        updateAppearance(); restartTTL(delay: 0.52)
+    }
+    func playAlertSound() {
+        if alertPreferences.soundEnabled, volume > 0,
+           let sound = NSSound(contentsOf: resources.appendingPathComponent("release.wav"), byReference: false) {
+            sounds.removeAll { !$0.isPlaying }; sounds.append(sound)
+            sound.volume = Float(volume); sound.play()
+        }
     }
     func showQuote() {
         let opening = !bubble

@@ -28,3 +28,22 @@ public struct WindowFollowCadence {
         return true
     }
 }
+
+// isVisible stays true when a panel slips behind its host (for example after
+// switching Spaces or closing settings). Repair that ordering on discovery.
+public enum WindowFollowOrdering {
+    public static func needsOrdering(frontToBack: [Int], host: Int, panel: Int) -> Bool {
+        guard let hostIndex = frontToBack.firstIndex(of: host) else { return false }
+        guard let panelIndex = frontToBack.firstIndex(of: panel) else { return true }
+        return panelIndex > hostIndex
+    }
+}
+
+// Only an unavailable WindowServer reply gets a short anti-flicker grace.
+// A successful snapshot showing no eligible host (minimized/closed/off-Space)
+// is authoritative and must not leave the pet floating after its host is gone.
+public enum WindowFollowVisibility {
+    public static func keepDuringMissingHost(appHidden: Bool, confirmedMissing: Bool, missingFor: TimeInterval) -> Bool {
+        !appHidden && !confirmedMissing && missingFor >= 0 && missingFor < 0.75
+    }
+}

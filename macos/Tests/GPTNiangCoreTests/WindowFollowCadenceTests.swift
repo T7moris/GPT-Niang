@@ -2,6 +2,13 @@ import XCTest
 @testable import GPTNiangCore
 
 final class WindowFollowCadenceTests: XCTestCase {
+    func testPanelBehindHostIsRecoveredWithoutRaisingAboveOtherApps() {
+        XCTAssertTrue(WindowFollowOrdering.needsOrdering(frontToBack: [90, 10, 20], host: 10, panel: 20))
+        XCTAssertFalse(WindowFollowOrdering.needsOrdering(frontToBack: [90, 20, 10], host: 10, panel: 20))
+        XCTAssertTrue(WindowFollowOrdering.needsOrdering(frontToBack: [90, 10], host: 10, panel: 20))
+        XCTAssertFalse(WindowFollowOrdering.needsOrdering(frontToBack: [90, 20], host: 10, panel: 20))
+    }
+
     func testFastPositionTicksDoNotRepeatFullDiscovery() {
         var cadence = WindowFollowCadence()
         XCTAssertTrue(cadence.discover(now: 0))
@@ -29,4 +36,13 @@ final class WindowFollowCadenceTests: XCTestCase {
         XCTAssertTrue(cadence.diagnostics(now: 0.25))
         XCTAssertFalse(cadence.presence(now: 0.25, visible: true))
     }
+    func testMinimizedOrClosedHostDoesNotReceiveTransientMetadataGrace() {
+        XCTAssertFalse(WindowFollowVisibility.keepDuringMissingHost(appHidden: false, confirmedMissing: true, missingFor: 0))
+        XCTAssertFalse(WindowFollowVisibility.keepDuringMissingHost(appHidden: true, confirmedMissing: false, missingFor: 0))
+        XCTAssertTrue(WindowFollowVisibility.keepDuringMissingHost(appHidden: false, confirmedMissing: false, missingFor: 0))
+        XCTAssertTrue(WindowFollowVisibility.keepDuringMissingHost(appHidden: false, confirmedMissing: false, missingFor: 0.74))
+        XCTAssertFalse(WindowFollowVisibility.keepDuringMissingHost(appHidden: false, confirmedMissing: false, missingFor: 0.75))
+        XCTAssertFalse(WindowFollowVisibility.keepDuringMissingHost(appHidden: false, confirmedMissing: false, missingFor: -1))
+    }
+
 }

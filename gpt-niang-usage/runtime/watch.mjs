@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {readUsage,atomicJson,resolveCodexExecutable} from './usage.mjs';
 import {createRefreshQueue,mergeUsageSnapshot,readRefreshRequest} from './refresh-queue.mjs';
-import {acquireWorkerLock,processAlive,readJson} from './worker-state.mjs';
+import {acquireWorkerLock,processAlive,readJson,quotaPresenceActive} from './worker-state.mjs';
 import {readPendingRequests,completeRequests,cleanRefreshResults,widgetUpdating,updatingSnapshot} from './refresh-client.mjs';
 
 import {createPipeRefreshHandler} from './worker-ipc.mjs';
@@ -64,9 +64,9 @@ heartbeat=setInterval(()=>{
   if(widgetUpdating(config.dataDir)){completeRequests(config.dataDir,readPendingRequests(config.dataDir),updatingSnapshot());ipc.complete(ipc.takeBatch(),updatingSnapshot());process.exit(0);}
   const stop=readRefreshRequest(path.join(config.dataDir,'stop.flag'));
   if((parentPid && (!processAlive(parentPid) || stop!==null)) || (stop!==null && stop!==initialStop))process.exit(0);
-  // No background queries while Codex is not visible; a fresh query on return.
+  // macOS may opt into background quota alerts. Other clients keep visibility gating.
   const now=Date.now(),presence=readJson(path.join(config.dataDir,'presence.json'));
-  const active=presence?.visible && now-presence.at>=0 && now-presence.at<5000 && processAlive(presence.pid);
+  const active=quotaPresenceActive(presence,now);
   if(active)lastActivity=now;
   const request=readRefreshRequest(path.join(config.dataDir,'refresh.flag'));
   const requested=request!==null && request!==requestToken;

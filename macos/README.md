@@ -76,9 +76,14 @@ refresh and supports `GPT_NIANG_CODEX_APP` for a nonstandard Codex app location.
   immediately when visibility changes), and optional diagnostics four times per
   second. Timing depends on main-thread and WindowServer availability; this is
   polling, not a guarantee of zero-lag attachment. There is a 0.75-second grace
-  period for transient missing metadata; this differs from the
-  Windows version's native movement hooks. The panel stays at normal window level
-  in following mode so other apps can cover it.
+  period only for failed WindowServer metadata reads; a successful snapshot
+  confirming no visible host (including minimization/closure) hides the pet
+  immediately. Losing the cached host triggers an immediate full lookup for
+  another visible Codex window before hiding; this differs from the
+  Windows version's native movement hooks. In following mode the panel uses floating level only while Codex is frontmost,
+  preventing host mouse-down/text-selection raises from briefly covering the pet.
+  It returns to normal level as soon as another app is frontmost so other apps
+  can cover it. Minimize/close handling is unchanged.
 - Login launch is opt-in through macOS `SMAppService`. Enable it only after moving
   the app to its permanent location; macOS may request approval in Login Items.
 - **聊天速度** in the menu bar opens a separate thread performance panel.
@@ -156,6 +161,109 @@ No Windows updater or PowerShell is shipped in the Mac app. Node.js 20+ remains 
 
 ## 1.3.4 interaction alignment
 
-Windows defines shared interaction behavior. Every left click, including double and rapid clicks, performs the normal quota/quote action and press/rebound feedback. Right-click opens an AppKit menu; the hover button and menu bar provide native settings. The scale range is 60–250% with 80/100/140% presets. Desktop mode supports cross-screen dragging, a remembered topmost switch (off by default), and a separately saved position. Returning to host mode immediately returns to the normal window level. Refresh does not open the bubble. Weighted quotes round-trip and custom quotes are backed up before reset.
+Windows defines shared interaction behavior. Every left click, including double and rapid clicks, performs the normal quota/quote action and press/rebound feedback. Right-click opens an AppKit menu; the hover button and menu bar provide native settings. The scale range is 60–250% with 80/100/140% presets. Desktop mode supports cross-screen dragging, a remembered topmost switch (off by default), and a separately saved position. Returning to host mode uses the foreground-host window-level policy described above. Refresh does not open the bubble. Weighted quotes round-trip and custom quotes are backed up before reset.
 
 Business `individualLimit` windows with null minutes decode alongside timed windows. Two compact rows show the personal limit and shortest time window, while hover details retain all valid windows. Interface language follows the system or an explicit Simplified/Traditional choice; authored quotes and backend data remain untouched. UI, menus, drag capture and updates remain native SwiftUI/AppKit implementations.
+
+## Local quota and turn-completion alerts
+
+This source build adds **额度与完成提醒** to native Settings. Both quota switches,
+completion bubbles, background completion popups, and alert sounds default off; existing preferences and quotes
+are preserved. The feature monitors **Codex**, not ordinary ChatGPT conversations.
+Use ChatGPT's own Settings → Notifications for ChatGPT completion notifications.
+
+- Short-window and weekly quota switches each have an independent integer
+  remaining-percentage threshold (1–99%, initially 20%). Short means the shortest
+  actual returned period below one day; weekly means exactly 10080 minutes.
+  Other periods and Business personal caps are not mislabeled as either.
+- Fresh, successfully verified account snapshots trigger a system notification
+  and queued pet bubble at or below the threshold, then one more at exhaustion.
+  Anonymous account fingerprints isolate persistent latches in `alert-state.json`.
+  Recovery above the threshold or an observed reset rollover rearms alerts;
+  changing the threshold reevaluates against that new threshold. Failed, expired,
+  stale, or unidentified snapshots never trigger quota notifications.
+- While quota alerts are enabled, the existing single quota worker keeps its
+  60-second automatic polling cadence even with a hidden pet. This is a macOS
+  heartbeat opt-in; Windows keeps its existing visibility behavior. Manual
+  refresh remains available. No additional quota worker or model call is created.
+- First enabling quota alerts (or selecting **测试提醒**) requests macOS alert
+  authorization. If refused, bubbles still work; **打开系统通知设置** opens the
+  notification settings. Permission state refreshes on app activation and every
+  minute while quota alerts are enabled. System notification delivery is subject
+  to macOS notification and Focus settings.
+- Completion monitoring has a separate helper, independent of the speed window,
+  reading the newest twelve local unarchived Codex sessions every three seconds.
+  Only a start followed by an explicit matching `task_complete` creates an alert.
+  Cancellations, errors, token counters and inactivity do not mean completion.
+  Existing history is skipped; new sessions are read with an enable-time cutoff.
+  A turn begun before monitoring was enabled is not announced. No cloud or ordinary
+  ChatGPT sessions are monitored. Local session formats may change: index failures
+  show a status and retry, never guessed completions.
+- Completion events contain only thread/event identifiers and timestamps, never
+  titles or conversation text. The speed-panel protocol keeps its existing
+  fields; a cancelled turn is now labeled `cancelled` rather than completed.
+- Completion alerts are bubbles only, leaving system completion notifications to
+  Codex. User gestures, menus and an existing bubble defer new bubbles; up to four
+  unique messages merge. The main hidden window is not raised. Each pending message
+  expires after two minutes. Optional local audio uses the current volume and is
+  played on event receipt even when the pet is hidden or busy, independently of
+  the click-sound switch. Revealing a queued bubble does not replay audio; signals
+  within one second coalesce to avoid overlapping sounds.
+
+Developer verification:
+
+```sh
+node --test gpt-niang-usage/tests/*.test.mjs
+swift test --package-path macos
+GPT_NIANG_SDK=/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk ./script/verify_alert_core.sh
+GPT_NIANG_SDK=/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk ./script/verify_alert_coordinator.sh
+```
+
+The last two commands compile actual production sources and run standalone
+regression checks when XCTest is unavailable. The coordinator check injects
+authorization results and notification delivery; it never sends OS notifications. The SDK override is specific to a machine
+with that SDK installed. Full native XCTest and platform UI tests remain needed
+on a full-Xcode machine. Local ad-hoc builds are not notarized releases, and an
+upstream automatic update can replace local feature changes.
+
+### Independent background completion popup
+
+**后台短暂显示桌宠（仅跟随模式）** is independent of the sound switch. Its new
+`completionPopupEnabled` preference defaults off when upgrading older settings;
+all existing toggles and thresholds decode with their previous values intact.
+Completion alerts only observe interactive Codex desktop/CLI sessions (`vscode`/`cli`).
+Internal guardian reviews, delegated agents and unknown session sources are excluded
+before the recent-session limit, so their task completions cannot announce that
+a user reply has ended. The completion monitor remains the master switch. Enabling the popup does not
+enable sound or change the desktop-mode preference.
+
+In following mode, if the host is in the background or the main pet is hidden,
+this option shows a separate character/bubble panel at the lower-right of the
+screen containing the pointer. It uses the current scale, fits inside the screen's
+visible frame with a 16-point margin, and lasts six seconds after the latest
+completion. Consecutive completions reuse the panel and merge counts. It never
+becomes key/main or activates the app, and it ignores mouse events. The main
+widget's geometry, quoted text, and stored desktop coordinates are untouched.
+
+Sound is emitted independently on receipt; silent-popup and audio-only operation
+both work. A popup-presented completion is not queued again for the main bubble
+or a second sound on return. In desktop mode, or with the main host foreground
+and the main pet visible, completions keep the original main-bubble behavior.
+Disabling completion/popup, switching to desktop mode, or returning to a visible
+foreground host dismisses an existing transient panel. Displaying over other
+apps' full-screen Spaces depends on macOS WindowServer rules and needs separate
+manual verification; no application activation or Space switch is attempted.
+
+Native panel verification (requires access to a logged-in GUI session):
+
+```sh
+GPT_NIANG_SDK=/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk ./script/verify_completion_popup.sh
+```
+
+This compiles and runs the actual production controller, checking mouse
+transparency, non-key/non-main status, foreground-app preservation, visible-screen
+bounds, event merging, expiry and unchanged placement preferences. It briefly
+shows the test panel. Optional `GPT_NIANG_POPUP_PREVIEW=/absolute/path.png` renders
+only its own view to a PNG for layout inspection. The core verifier also checks
+negative-origin and small-screen geometry; that does not substitute for physical
+multi-monitor or full-screen Spaces testing.

@@ -18,6 +18,7 @@ struct SettingsView: View {
             section1
             section2
             section3
+            AlertSettingsView(model: model)
             section4
             section5
             if let error = model.settingsError { Text(error).font(.caption).foregroundStyle(.orange) }
@@ -27,10 +28,11 @@ struct SettingsView: View {
                 Button(model.text("重設位置")) { model.resetPosition() }
                 Button(model.text("刷新額度")) { model.refresh() }
             }
-            Text(model.text("額度可見時每 60 秒更新。使用目前 Codex 登入，不建立聊天或呼叫模型。"))
+            Text(model.text("额度可见或启用额度提醒时每 60 秒更新。使用目前 Codex 登录，不建立聊天或调用模型。"))
                 .font(.caption).foregroundStyle(.secondary)
         }
         .padding(24) }.frame(width: 500, height: 700)
+        .onChange(of: model.alertPreferences) { _ in model.savePreferences(); model.alerts.configure() }
         .onChange(of: model.language) { _ in model.savePreferences() }
         .onChange(of: model.desktopTopmost) { _ in model.savePreferences() }
         .onChange(of: model.soundOn) { _ in model.savePreferences() }

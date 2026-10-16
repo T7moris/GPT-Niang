@@ -99,6 +99,14 @@ export function resolveCodexExecutable(configuredPath,{env=process.env,platform=
     const file=path.join(trimmed,executable);
     if(isFile(file))return file;
   }
+  if(platform==='darwin' && env.HOME){
+    // Finder does not inherit shell startup files. The standalone installer
+    // exposes Codex in ~/.local/bin, which may be absent from the GUI PATH.
+    for(const relative of ['.local/bin/codex','.codex/packages/standalone/current/bin/codex']){
+      const file=path.join(env.HOME,relative);
+      if(isFile(file))return file;
+    }
+  }
   return configuredPath;
 }
 
