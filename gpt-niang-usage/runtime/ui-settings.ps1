@@ -242,6 +242,7 @@ function Update-WidgetSettingsMenu{
 }
 
 function Open-WidgetMenu {
+  if($script:lowPower){Set-LowPowerReveal 'expanded' -Immediate}
   Set-WidgetMenuBounds
   Update-WidgetSettingsMenu
   $script:context.IsOpen=$true

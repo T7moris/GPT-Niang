@@ -200,6 +200,7 @@ function Initialize-WidgetColors {
 }
 function Update-WidgetColorScene {
   if(!$script:widgetColors){return}
+  if($script:lowPower){Restore-WidgetOriginalColors;return}
   $text=if($script:bubbleMode-eq 'quote'){[string]$script:ui.QuoteText.Tag}else{''}
   if(!$text -and $script:bubbleMode-eq 'quote'){$text=$script:ui.QuoteText.Text}
   $script:widgetColors.scope=Get-WidgetColorScope $text

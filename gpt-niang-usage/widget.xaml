@@ -76,6 +76,12 @@
     </Ellipse>
     <Image x:Name="Girl" Canvas.Left="142" Canvas.Top="142" Width="208" Height="208" Stretch="UniformToFill" Cursor="Hand"
            ToolTip="点角色看额度；点气泡看语录，再点收起；拖动调整位置；右键设置"/>
+    <Canvas x:Name="LowPowerViewport" Canvas.Left="156" Canvas.Top="350" Width="208" Height="14"
+            ClipToBounds="True" Background="Transparent" Visibility="Collapsed" Cursor="Hand">
+      <Image x:Name="LowPowerGirl" Width="208" Height="208" Stretch="Uniform" IsHitTestVisible="False"/>
+    </Canvas>
+    <Button x:Name="MinimizeButton" Canvas.Left="148" Canvas.Top="162" Width="24" Height="24" Content="−"
+            FontSize="18" Opacity="0" IsHitTestVisible="False" Background="#EDE7F6" ToolTip="进入省电模式"/>
     <Button x:Name="MenuButton" Canvas.Left="320" Canvas.Top="162" Width="24" Height="24" Content="☰"
             FontSize="15" Opacity="0" IsHitTestVisible="False" Background="#EDE7F6" ToolTip="挂件设置"/>
   </Canvas>

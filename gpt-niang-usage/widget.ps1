@@ -11,6 +11,7 @@ $null=New-Item -ItemType Directory -Path $script:dataDir -Force
 . (Join-Path $script:appDir 'runtime\audio.ps1')
 . (Join-Path $script:appDir 'runtime\host-layer.ps1')
 . (Join-Path $script:appDir 'runtime\host-follow.ps1')
+. (Join-Path $script:appDir 'runtime\low-power-dock.ps1')
 . (Join-Path $script:appDir 'runtime\host-ready.ps1')
 . (Join-Path $script:appDir 'runtime\supervisor-task.ps1')
 . (Join-Path $script:appDir 'runtime\update-common.ps1')
@@ -101,11 +102,17 @@ $script:window=[Windows.Markup.XamlReader]::Parse((Get-Content -LiteralPath (Joi
 $script:designWidth=[double]$script:window.FindName('AnimationStage').Width
 $script:designHeight=[double]$script:window.FindName('AnimationStage').Height
 $script:ui=@{}
-foreach($name in @('Root','Bubble','Tail','TailNear','SceneText','QuotaText','QuoteText','BubbleShape','Girl','PressScale','FacingScale','TextFacingScale','Header','Refresh','MenuButton','Status','LiveDot','ShortRow','WeekRow','ShortLabel','WeekLabel','ShortUsed','ShortLeft','ShortReset','ShortBar','WeekUsed','WeekLeft','WeekReset','WeekBar')){$script:ui[$name]=$script:window.FindName($name)}
+foreach($name in @('Root','Bubble','Tail','TailNear','SceneText','QuotaText','QuoteText','BubbleShape','Girl','LowPowerViewport','LowPowerGirl','MinimizeButton','PressScale','FacingScale','TextFacingScale','Header','Refresh','MenuButton','Status','LiveDot','ShortRow','WeekRow','ShortLabel','WeekLabel','ShortUsed','ShortLeft','ShortReset','ShortBar','WeekUsed','WeekLeft','WeekReset','WeekBar')){$script:ui[$name]=$script:window.FindName($name)}
 $bitmap=New-Object Windows.Media.Imaging.BitmapImage
 $bitmap.BeginInit();$bitmap.CacheOption=[Windows.Media.Imaging.BitmapCacheOption]::OnLoad
 $bitmap.UriSource=[Uri](Join-Path $script:appDir 'assets\gpt-dragon-niang-bust.png');$bitmap.EndInit();$bitmap.Freeze()
 $script:ui.Girl.Source=$bitmap
+$lowPowerBitmap=New-Object Windows.Media.Imaging.BitmapImage
+$lowPowerBitmap.BeginInit();$lowPowerBitmap.CacheOption=[Windows.Media.Imaging.BitmapCacheOption]::OnLoad
+$lowPowerBitmap.UriSource=[Uri](Join-Path $script:appDir 'assets\gpt-low-power.png');$lowPowerBitmap.EndInit();$lowPowerBitmap.Freeze()
+$script:ui.LowPowerGirl.Source=$lowPowerBitmap
+$script:lowPower=$false;$script:lowPowerReveal='idle';$script:lowPowerReady=$false;$script:lowPowerTimer=$null
+$script:lowPowerHostDock=$null;$script:lowPowerDesktopDock=$null;$script:lowPowerGeometry=$null;$script:outsideClick=$null
 $script:alphaBitmap=New-Object Windows.Media.Imaging.FormatConvertedBitmap($bitmap,[Windows.Media.PixelFormats]::Bgra32,$null,0)
 $script:alphaStride=$bitmap.PixelWidth*4;$script:alphaPixels=New-Object byte[] ($script:alphaStride*$bitmap.PixelHeight)
 $script:alphaBitmap.CopyPixels($script:alphaPixels,$script:alphaStride,0)
@@ -132,6 +139,9 @@ try{$settings=Get-Content -LiteralPath $settingsFile -Raw -Encoding UTF8 | Conve
   if($null-ne $settings.soundVolume){$script:soundVolume=[Math]::Min(1,[Math]::Max(0,[double]$settings.soundVolume))}
   if($null-ne $settings.bubbleTapAdvance){$script:bubbleTapAdvance=[bool]$settings.bubbleTapAdvance}
   if($null-ne $settings.hideMenu){$script:hideMenu=[bool]$settings.hideMenu}
+  if($null-ne $settings.lowPower){$script:lowPower=[bool]$settings.lowPower}
+  $script:lowPowerHostDock=ConvertTo-WidgetDock $settings.lowPowerHostDock
+  $script:lowPowerDesktopDock=ConvertTo-WidgetDock $settings.lowPowerDesktopDock
   if(@('original','linked','rainbow','surprise','rare','special','mixed')-contains $settings.colorMode){$script:colorMode=$settings.colorMode}
   if($null-ne $settings.colorChance){try{$chance=[double]$settings.colorChance;if(![double]::IsNaN($chance) -and $chance-ge 0 -and $chance-le 30){$script:colorChance=$chance}}catch{}}
   if($null-ne $settings.colorTextChance){try{$chance=[double]$settings.colorTextChance;if(![double]::IsNaN($chance) -and $chance-ge 0 -and $chance-le 30){$script:colorTextChance=$chance}}catch{}}
@@ -145,10 +155,11 @@ function Write-WidgetJson($file,$value){
   $temp=$file+'.tmp';[IO.File]::WriteAllText($temp,($value|ConvertTo-Json -Depth 6),[Text.UTF8Encoding]::new($false))
   if([IO.File]::Exists($file)){[IO.File]::Replace($temp,$file,($file+'.bak'),$true)}else{[IO.File]::Move($temp,$file)}
 }
-function Save-Settings {Write-WidgetJson $settingsFile @{layoutVersion=2;right=$script:offsetRight;left=$script:offsetLeft;bottom=$script:offsetBottom;anchor=$script:anchor;side=$script:side;scale=$script:scale;collapsed=$script:collapsed;soundOn=$script:soundOn;soundVolume=$script:soundVolume;bubbleTapAdvance=$script:bubbleTapAdvance;hideMenu=$script:hideMenu;colorMode=$script:colorMode;colorChance=$script:colorChance;colorTextChance=$script:colorTextChance;colorPaused=$script:colorPaused;followHost=$script:followHost;desktopTopmost=$script:desktopTopmost;desktopLeft=$script:desktopLeft;desktopTop=$script:desktopTop}}
+function Save-Settings {Write-WidgetJson $settingsFile @{layoutVersion=2;right=$script:offsetRight;left=$script:offsetLeft;bottom=$script:offsetBottom;anchor=$script:anchor;side=$script:side;scale=$script:scale;collapsed=$script:collapsed;soundOn=$script:soundOn;soundVolume=$script:soundVolume;bubbleTapAdvance=$script:bubbleTapAdvance;hideMenu=$script:hideMenu;lowPower=$script:lowPower;lowPowerHostDock=$script:lowPowerHostDock;lowPowerDesktopDock=$script:lowPowerDesktopDock;colorMode=$script:colorMode;colorChance=$script:colorChance;colorTextChance=$script:colorTextChance;colorPaused=$script:colorPaused;followHost=$script:followHost;desktopTopmost=$script:desktopTopmost;desktopLeft=$script:desktopLeft;desktopTop=$script:desktopTop}}
 function Get-WidgetPlacementFrame {
   if($script:followHost){return Get-WidgetVisibleFrame}
   $point=if($null-ne $script:desktopLeft -and $null-ne $script:desktopTop){[Drawing.Point]::new([int]$script:desktopLeft,[int]$script:desktopTop)}else{[Drawing.Point]::new(0,0)}
+  if($script:lowPower){$dock=Get-LowPowerDock;if($null-ne $dock.monitorX -and $null-ne $dock.monitorY){$point=[Drawing.Point]::new([int]$dock.monitorX,[int]$dock.monitorY)}}
   return [Windows.Forms.Screen]::FromPoint($point).WorkingArea
 }
 function Get-WidgetPlacementDpi {
@@ -157,23 +168,45 @@ function Get-WidgetPlacementDpi {
   $dpi=[GptWidgetNative]::GetDpiForWindow($handle)/96.0
   if($dpi-le 0){$dpi=1};return $dpi
 }
+function Sync-LowPowerDesktopMonitor {
+  if($script:followHost){return}
+  # Desktop docking follows the actual pet, not the Codex HWND or the monitor
+  # remembered by a previous low-power drag. Sample before hiding/changing poses.
+  $visual=if($script:lowPower){$script:ui.LowPowerViewport}else{$script:ui.Girl}
+  if(!$visual -or ![Windows.PresentationSource]::FromVisual($visual)){return}
+  $point=$visual.PointToScreen([Windows.Point]::new(($visual.ActualWidth/2),($visual.ActualHeight/2)))
+  $screen=[Windows.Forms.Screen]::FromPoint([Drawing.Point]::new([int]$point.X,[int]$point.Y))
+  $dock=Get-LowPowerDock
+  $dock.monitorX=$point.X;$dock.monitorY=$point.Y
+  if(!$dock.dragged){
+    $dock.edge=if($point.X-lt ($screen.WorkingArea.Left+$screen.WorkingArea.Right)/2.0){'left'}else{'right'}
+  }
+}
 function Set-WidgetFollowHost([bool]$Follow) {
   if(!$Follow -and $null-eq $script:desktopLeft){
     $frame=[GptWidgetNative]::Frame($script:widgetHandle)
     $script:desktopLeft=$frame.Left;$script:desktopTop=$frame.Top
   }
   $script:followHost=$Follow;$script:lastPosition=$null;$script:attachedHost=[IntPtr]::Zero
+  if(!$Follow -and $script:lowPower){Sync-LowPowerDesktopMonitor}
   if(!$Follow){$script:hostFollower.Detach();Set-WidgetDesktopLayer $script:widgetHandle $script:desktopTopmost}
   else{Set-WidgetDesktopLayer $script:widgetHandle $false}
   Set-Appearance;Save-Settings;Tick-Widget
 }
 function Set-Facing {
-  $factor=if($script:side-eq 'left'){-1.0}else{1.0}
+  $side=if($script:lowPower){Get-LowPowerSide}else{$script:side}
+  $factor=if($side-eq 'left'){-1.0}else{1.0}
   $script:ui.FacingScale.ScaleX=$factor;$script:ui.TextFacingScale.ScaleX=$factor
   # Refresh now shares SceneText's mirror compensation with the title.
   $script:ui.Refresh.RenderTransform=[Windows.Media.Transform]::Identity
   $script:ui.MenuButton.RenderTransformOrigin=[Windows.Point]::new(0.5,0.5)
   $script:ui.MenuButton.RenderTransform=[Windows.Media.ScaleTransform]::new($factor,1)
+  # Keep the controls on the visual left/right even when the character is mirrored.
+  $padding=if($script:lowPower){14}else{0}
+  [Windows.Controls.Canvas]::SetLeft($script:ui.MenuButton,$(if($factor-lt 0){148+$padding}else{320+$padding}))
+  [Windows.Controls.Canvas]::SetLeft($script:ui.MinimizeButton,$(if($factor-lt 0){320+$padding}else{148+$padding}))
+  foreach($name in @('MenuButton','MinimizeButton')){[Windows.Controls.Canvas]::SetTop($script:ui[$name],(162+$padding))}
+  if($script:lowPower){Set-LowPowerControls}
 }
 function Set-Appearance {
   $actual=$script:scale
@@ -202,7 +235,17 @@ function Get-WidgetVisibleFrame {
   $width=$script:designWidth*$script:displayScale*$dpi;$height=$script:designHeight*$script:displayScale*$dpi
   $x=if($script:anchor-eq 'right'){$frame.Right-$width-$script:offsetRight*$dpi}else{$frame.Left+$script:offsetLeft*$dpi}
   $y=$frame.Bottom-$height-$script:offsetBottom*$dpi
-  $bounds=[GptWidgetHostFollower]::VisibleBoundsAt($frame.Left,$frame.Top,$frame.Right,$frame.Bottom,[int]($x+$width/2),[int]($y+$height/2))
+  $monitorX=$x+$width/2;$monitorY=$y+$height/2
+  if($script:lowPower){
+    $geometry=Get-LowPowerGeometry $frame $dpi
+    $monitorX=$geometry.ImageLeft+104*$script:displayScale*$dpi;$monitorY=$geometry.ImageTop+104*$script:displayScale*$dpi
+    if($script:drag -and $script:drag.moved){
+      # Dragging past the host must not select an unrelated monitor's whole work area.
+      $monitorX=[Math]::Max($frame.Left,[Math]::Min($frame.Right-1,$script:drag.cursorX))
+      $monitorY=[Math]::Max($frame.Top,[Math]::Min($frame.Bottom-1,$script:drag.cursorY))
+    }
+  }
+  $bounds=[GptWidgetHostFollower]::VisibleBoundsAt($frame.Left,$frame.Top,$frame.Right,$frame.Bottom,[int]$monitorX,[int]$monitorY)
   $frame.Left=$bounds[0];$frame.Top=$bounds[1];$frame.Right=$bounds[2];$frame.Bottom=$bounds[3]
   return $frame
 }
@@ -361,6 +404,7 @@ function Click-Character {
   else{Restart-SceneTtl}
 }
 function Show-Quota {
+  if($script:lowPower){Set-LowPowerReveal 'expanded' -Immediate}
   if(!$script:collapsed){if($script:bubbleMode-ne 'quota'){Switch-Scene 'quota'}else{Restart-SceneTtl};return}
   $script:bubbleEpoch++;$script:collapsed=$false
   $script:bubbleMode='quota';Apply-Scene
@@ -416,8 +460,107 @@ function Exit-WidgetForSession {
   $script:window.Close()
 }
 function Set-MenuVisible([bool]$show){
-  $show=$show -and !$script:hideMenu
-  $script:ui.MenuButton.Opacity=if($show){1}else{0};$script:ui.MenuButton.IsHitTestVisible=$show
+  $show=$show -and (!$script:lowPower -or $script:lowPowerReady)
+  $menuShow=$show -and !$script:hideMenu
+  $script:ui.MenuButton.Opacity=if($menuShow){1}else{0};$script:ui.MenuButton.IsHitTestVisible=$menuShow
+  # Hiding the settings shortcut must never hide the way out of low-power mode.
+  $script:ui.MinimizeButton.Opacity=if($show){1}else{0};$script:ui.MinimizeButton.IsHitTestVisible=$show
+}
+function Set-LowPowerReveal([ValidateSet('idle','peek','expanded')][string]$State,[switch]$Immediate){
+  if(!$script:lowPower){return}
+  if($script:lowPowerTimer){$script:lowPowerTimer.Stop();$script:lowPowerTimer=$null}
+  $script:lowPowerReveal=$State;$script:lowPowerReady=$false
+  if($script:outsideClick){$script:outsideClick.SetEnabled($State-eq 'expanded')}
+  Set-MenuVisible $false
+  $extent=switch($State){'idle'{14.0};'peek'{48.0};'expanded'{208.0}}
+  $viewport=$script:ui.LowPowerViewport
+  $edge=(Get-LowPowerDock).edge
+  $left=156.0;$top=156.0
+  if($script:lowPowerGeometry){$left=$script:lowPowerGeometry.CanvasLeft;$top=$script:lowPowerGeometry.CanvasTop;$edge=$script:lowPowerGeometry.Edge}
+  $width=208.0;$height=208.0
+  if($edge-in @('left','right')){
+    if($null-eq $script:lowPowerLeadingInset){$script:lowPowerLeadingInset=Get-LowPowerLeadingInset $script:ui.LowPowerGirl.Source}
+    $width=[Math]::Min(208.0,($extent+$script:lowPowerLeadingInset))
+    # Both side docks face inward. The root mirror turns this right-edge anchor
+    # into a left-edge anchor without rotating or stretching the source image.
+    $left+=208-$width
+  }else{
+    $height=$extent
+    if($edge-eq 'bottom'){$top+=208-$height}
+  }
+  $values=@(
+    @{property=[Windows.FrameworkElement]::WidthProperty;value=$width},
+    @{property=[Windows.FrameworkElement]::HeightProperty;value=$height},
+    @{property=[Windows.Controls.Canvas]::LeftProperty;value=$left},
+    @{property=[Windows.Controls.Canvas]::TopProperty;value=$top}
+  )
+  # Reset both axes, including interrupted animations when dragging across corners.
+  if($Immediate){
+    foreach($value in $values){Set-AnimatedValue $viewport $value.property $value.value}
+    $script:lowPowerReady=$State-eq 'expanded';Set-MenuVisible $script:lowPowerReady
+  }else{
+    foreach($value in $values){Animate-Value $viewport $value.property $value.value 220}
+    if($State-eq 'expanded'){
+      $script:lowPowerTimer=New-Object Windows.Threading.DispatcherTimer
+      $script:lowPowerTimer.Interval=[TimeSpan]::FromMilliseconds(240)
+      $script:lowPowerTimer.Add_Tick({param($timer,$event)
+        $timer.Stop()
+        if($timer-eq $script:lowPowerTimer -and $script:lowPower -and $script:lowPowerReveal-eq 'expanded'){
+          $script:lowPowerReady=$true;Set-MenuVisible $true
+        }
+      })
+      $script:lowPowerTimer.Start()
+    }
+  }
+}
+function Set-LowPowerMode([bool]$Enabled,[switch]$NoSave){
+  if($Enabled -and !$script:lowPower){Sync-LowPowerDesktopMonitor}
+  $script:lowPower=$Enabled
+  if(!$Enabled -and $script:outsideClick){$script:outsideClick.SetEnabled($false)}
+  $script:lowPowerGeometry=$null
+  if($script:menuTimer){$script:menuTimer.Stop()}
+  if($script:lowPowerTimer){$script:lowPowerTimer.Stop();$script:lowPowerTimer=$null}
+  if($script:context){$script:context.IsOpen=$false}
+  # Stop the bubble/press animations immediately; no normal-pose halo may remain.
+  foreach($timer in @($script:sceneTimer,$script:resetPhaseTimer,$script:closeTimer)){if($timer){$timer.Stop()}}
+  $script:collapsed=$true;$script:sceneDeadline=0;Set-BubbleState
+  Set-AnimatedValue $script:ui.PressScale ([Windows.Media.ScaleTransform]::ScaleXProperty) 1
+  Set-AnimatedValue $script:ui.PressScale ([Windows.Media.ScaleTransform]::ScaleYProperty) 1
+  $script:ui.Girl.Visibility=if($Enabled){[Windows.Visibility]::Collapsed}else{[Windows.Visibility]::Visible}
+  $script:ui.LowPowerViewport.Visibility=if($Enabled){[Windows.Visibility]::Visible}else{[Windows.Visibility]::Collapsed}
+  $script:ui.MinimizeButton.ToolTip=if($Enabled){'恢复正常桌宠模式'}else{'进入省电模式'}
+  if($Enabled){Set-LowPowerReveal 'idle' -Immediate}else{$script:lowPowerReady=$false;Set-MenuVisible $true}
+  Set-Facing
+  $script:lastPosition=$null
+  if($script:hostEventTimer){$script:hostEventTimer.Start()}
+  if($script:widgetColors){Update-WidgetColorScene}
+  if(!$NoSave){Save-Settings}
+}
+function Enter-WidgetHover {
+  $script:menuTimer.Stop()
+  if($script:lowPower){
+    if($script:lowPowerReveal-eq 'idle'){Set-LowPowerReveal 'peek'}
+  }else{Set-MenuVisible $true}
+}
+function Complete-WidgetHoverLeave {
+  # A clicked-open pet stays pinned even across transparent gaps between controls.
+  if($script:lowPower -and $script:lowPowerReveal-eq 'expanded'){return}
+  if($script:drag -or $script:context.IsOpen){return}
+  foreach($name in @('Girl','LowPowerViewport','MinimizeButton','MenuButton','Bubble')){
+    if($script:ui[$name].IsMouseOver){return}
+  }
+  Set-MenuVisible $false
+  if($script:lowPower){
+    Hide-Quota
+    Set-LowPowerReveal 'idle'
+  }
+}
+function Close-LowPowerOnOutsideClick([Windows.Point]$ScreenPoint,[bool]$ExternalWindow=$false){
+  if(!$script:lowPower -or $script:lowPowerReveal-ne 'expanded' -or $script:drag){return}
+  $point=$script:ui.Root.PointFromScreen($ScreenPoint)
+  if(!$ExternalWindow -and (Test-WidgetHit $point)){return}
+  $script:context.IsOpen=$false
+  Hide-Quota;Set-LowPowerReveal 'idle'
 }
 function Test-GirlAlpha([Windows.Point]$rootPoint){
   $point=$script:ui.Root.TranslatePoint($rootPoint,$script:ui.Girl)
@@ -537,6 +680,7 @@ function Update-Quota {
   if($script:widgetColors){Update-WidgetColorScene}
 }
 Set-Appearance;Set-BubbleState;Initialize-WidgetColors;Update-Quota
+if($script:lowPower){Set-LowPowerMode $true -NoSave}
 if($CheckOnly){$hostWindow=[GptWidgetNative]::FindCodex();$foregroundWindow=[GptWidgetNative]::GetAncestor([GptWidgetNative]::GetForegroundWindow(),2);@{ok=$true;imageLoaded=$bitmap.PixelWidth-gt 0;host=$hostWindow.ToInt64();hostTitle=[GptWidgetNative]::Title($hostWindow);foreground=$foregroundWindow.ToInt64();foregroundTitle=[GptWidgetNative]::Title($foregroundWindow);dataDir=$script:dataDir}|ConvertTo-Json;return}
 if($Preview){
   $script:collapsed=$false;Set-Appearance;Set-BubbleState;Apply-Scene
@@ -560,12 +704,17 @@ $script:lastForeground=[IntPtr](-1);$script:foregroundHost=[IntPtr]::Zero;$scrip
 $script:lastPosition=$null;$script:attachedHost=[IntPtr]::Zero;$script:updating=$false
 $interop=New-Object Windows.Interop.WindowInteropHelper($script:window)
 $script:widgetHandle=$interop.EnsureHandle()
+$script:outsideClick=[GptWidgetOutsideClick]::new($script:widgetHandle)
 $script:hostFollower=[GptWidgetHostFollower]::new($script:widgetHandle)
 $script:hostFollower.LayoutRequested=[Action]{if(!$script:hostEventTimer.IsEnabled){$script:hostEventTimer.Start()}}
 $ex=[GptWidgetNative]::GetWindowLongPtr($script:widgetHandle,-20).ToInt64()
 [GptWidgetNative]::SetWindowLongPtr($script:widgetHandle,-20,[IntPtr]($ex-bor 0x08000000-bor 0x80))|Out-Null
 $source=[Windows.Interop.HwndSource]::FromHwnd($script:widgetHandle)
 $script:messageHook=[Windows.Interop.HwndSourceHook]{param($hwnd,$msg,$w,$l,[ref]$handled)
+  if($msg-eq [GptWidgetOutsideClick]::Message -or $msg-eq ([GptWidgetOutsideClick]::Message+1)){
+    Close-LowPowerOnOutsideClick ([Windows.Point]::new($w.ToInt64(),$l.ToInt64())) ($msg-eq ([GptWidgetOutsideClick]::Message+1))
+    $handled.Value=$true;return [IntPtr]::Zero
+  }
   if($msg-eq 0x02E0 -or $msg-eq 0x007E -or $msg-eq 0x001A){
     $script:lastPosition=$null
     if($script:hostEventTimer -and !$script:hostEventTimer.IsEnabled){$script:hostEventTimer.Start()}
@@ -583,14 +732,18 @@ Initialize-WidgetUpdater
 Initialize-WidgetSettingsMenu
 $script:ui.Refresh.Add_Click({param($sender,$event)Request-Refresh;Restart-SceneTtl;$script:ui.Status.Text='正在刷新额度…';$event.Handled=$true})
 $script:ui.MenuButton.Add_Click({Open-WidgetMenu})
+$script:ui.MinimizeButton.Add_Click({param($sender,$event)Set-LowPowerMode (!$script:lowPower);$event.Handled=$true})
+$script:window.Add_ContextMenuOpening({param($sender,$event)
+  if($script:lowPower -and !$script:lowPowerReady){$event.Handled=$true}
+})
 $script:menuTimer=New-Object Windows.Threading.DispatcherTimer
 $script:menuTimer.Interval=[TimeSpan]::FromMilliseconds(180)
 $script:menuTimer.Add_Tick({
   $script:menuTimer.Stop()
-  if(!$script:ui.Girl.IsMouseOver -and !$script:ui.MenuButton.IsMouseOver -and !$script:context.IsOpen){Set-MenuVisible $false}
+  Complete-WidgetHoverLeave
 })
-foreach($control in @($script:ui.Girl,$script:ui.MenuButton)){
-  $control.Add_MouseEnter({$script:menuTimer.Stop();Set-MenuVisible $true})
+foreach($control in @($script:ui.Girl,$script:ui.LowPowerViewport,$script:ui.MinimizeButton,$script:ui.MenuButton,$script:ui.Bubble)){
+  $control.Add_MouseEnter({Enter-WidgetHover})
   $control.Add_MouseLeave({$script:menuTimer.Start()})
 }
 $script:context.Add_Closed({$script:menuTimer.Start()})
@@ -608,6 +761,7 @@ $pressMove={param($sender,$event)
   $dx=$cursor.X-$script:drag.x;$dy=$cursor.Y-$script:drag.y
   if($dx*$dx+$dy*$dy-lt 9 -and !$script:drag.moved){return}
   $script:drag.moved=$true
+  if($script:lowPower){Move-LowPowerDrag $cursor.X $cursor.Y;$event.Handled=$true;return}
   if($script:followHost -and $script:hostHandle-eq [IntPtr]::Zero){return}
   if(!$script:followHost){$script:desktopLeft=$script:drag.left+$dx;$script:desktopTop=$script:drag.top+$dy}
   $frame=Get-WidgetPlacementFrame;$dpi=Get-WidgetPlacementDpi
@@ -638,6 +792,37 @@ $pressUp={param($sender,$event)
 $script:ui.Girl.Add_MouseLeftButtonDown($pressDown);$script:ui.Girl.Add_MouseMove($pressMove);$script:ui.Girl.Add_MouseLeftButtonUp($pressUp)
 $script:ui.Girl.Add_LostMouseCapture({
   if($script:drag){$script:drag=$null;Animate-Press $false;Stop-WidgetAudio;Save-Settings;$script:hostEventTimer.Start()}
+})
+function Move-LowPowerDrag([double]$X,[double]$Y){
+  $script:drag.cursorX=$X;$script:drag.cursorY=$Y
+  if(!$script:followHost){$dock=Get-LowPowerDock;$dock.monitorX=$X;$dock.monitorY=$Y}
+  $frame=Get-WidgetPlacementFrame;$dpi=Get-WidgetPlacementDpi
+  if(!(Test-WidgetPlacementFrame $frame $dpi)){return}
+  $script:displayScale=[Math]::Min($script:scale,[Math]::Min(($frame.Right-$frame.Left)/$dpi/$script:designWidth,($frame.Bottom-$frame.Top)/$dpi/$script:designHeight))
+  $null=Set-WidgetPixelSize $dpi
+  Set-LowPowerDockFromPoint $frame $X $Y $dpi
+  $geometry=Get-LowPowerGeometry $frame $dpi;Set-LowPowerLayout $geometry
+  [GptWidgetNative]::SetWindowPos($script:widgetHandle,[IntPtr]::Zero,$geometry.X,$geometry.Y,0,0,0x15)|Out-Null
+  $script:lastPosition=$null
+}
+$lowPowerDown={param($sender,$event)
+  $script:hostFollower.Suspend();$script:menuTimer.Stop()
+  $cursor=New-Object GptWidgetNative+Point;[GptWidgetNative]::GetCursorPos([ref]$cursor)|Out-Null
+  $script:drag=@{x=$cursor.X;y=$cursor.Y;cursorX=$cursor.X;cursorY=$cursor.Y;moved=$false;control=$sender}
+  $sender.CaptureMouse()|Out-Null;$event.Handled=$true
+}
+$lowPowerUp={param($sender,$event)
+  if(!$script:drag){return}
+  $moved=$script:drag.moved;$script:drag=$null;$sender.ReleaseMouseCapture()
+  if(!$moved -and $script:lowPowerReveal-ne 'expanded'){Set-LowPowerReveal 'expanded'}
+  if($moved -and $script:lowPowerReveal-ne 'expanded'){$script:menuTimer.Start()}
+  Save-Settings;$script:hostEventTimer.Start();$event.Handled=$true
+}
+$script:ui.LowPowerViewport.Add_MouseLeftButtonDown($lowPowerDown)
+$script:ui.LowPowerViewport.Add_MouseMove($pressMove)
+$script:ui.LowPowerViewport.Add_MouseLeftButtonUp($lowPowerUp)
+$script:ui.LowPowerViewport.Add_LostMouseCapture({
+  if($script:drag){$script:drag=$null;Save-Settings;$script:hostEventTimer.Start();$script:menuTimer.Start()}
 })
 function Ensure-QuotaWorker([long]$now){
   $updateFlag=Join-Path $script:dataDir 'update-installing.json'
@@ -681,7 +866,8 @@ function Ensure-QuotaWorker([long]$now){
 function Stop-WidgetRuntime {
   if($script:runtimeClosed){return};$script:runtimeClosed=$true
   try{if($script:hostFollower){$script:hostFollower.Dispose()}}catch{}
-  foreach($timer in @($script:timer,$script:hostEventTimer,$script:menuTimer,$script:sceneTimer,$script:resetPhaseTimer,$script:closeTimer)){try{if($timer){$timer.Stop()}}catch{}}
+  try{if($script:outsideClick){$script:outsideClick.Dispose()}}catch{}
+  foreach($timer in @($script:timer,$script:hostEventTimer,$script:menuTimer,$script:lowPowerTimer,$script:sceneTimer,$script:resetPhaseTimer,$script:closeTimer)){try{if($timer){$timer.Stop()}}catch{}}
   try{Stop-WidgetAudio}catch{}
   foreach($hook in $script:eventHooks){try{if($hook-ne [IntPtr]::Zero){[GptWidgetNative]::UnhookWinEvent($hook)|Out-Null}}catch{}}
   if($script:worker){try{if(!$script:worker.HasExited){$script:worker.Kill()}}catch{}; $script:worker.Dispose();$script:worker=$null}
@@ -728,7 +914,10 @@ function Tick-Widget {
       if([Math]::Abs($script:displayScale-$fitted)-gt 0.001){Set-Appearance}
       $null=Set-WidgetPixelSize $dpi
       $w=[int]($script:designWidth*$script:displayScale*$dpi);$h=[int]($script:designHeight*$script:displayScale*$dpi)
-      if(!$script:followHost){
+      if($script:lowPower){
+        $geometry=Get-LowPowerGeometry $frame $dpi;Set-LowPowerLayout $geometry;$x=$geometry.X
+      }
+      elseif(!$script:followHost){
         if($null-eq $script:desktopLeft){$script:desktopLeft=$frame.Right-$w-24;$script:desktopTop=$frame.Bottom-$h-24}
         $x=[int]$script:desktopLeft
       }
@@ -738,7 +927,7 @@ function Tick-Widget {
         $x=[int]($frame.Left+$script:offsetLeft*$dpi)
       }else{$x=[int]($frame.Right-$w-$script:offsetRight*$dpi)}
       $x=[int][Math]::Max($frame.Left,[Math]::Min($frame.Right-$w,$x))
-      $desiredY=if($script:followHost){$frame.Bottom-$h-$script:offsetBottom*$dpi}else{$script:desktopTop}
+      $desiredY=if($script:lowPower){$geometry.Y}elseif($script:followHost){$frame.Bottom-$h-$script:offsetBottom*$dpi}else{$script:desktopTop}
       $y=[int][Math]::Max($frame.Top,[Math]::Min($frame.Bottom-$h,$desiredY))
       $position="$($script:hostHandle):$x,$y,$w,$h"
       if($position-ne $script:lastPosition){
@@ -746,7 +935,12 @@ function Tick-Widget {
         $script:lastPosition=$position
         if($script:context.IsOpen){Set-WidgetMenuBounds;Position-WidgetMenuToHost}
       }
-      if($script:followHost){$nativeFrame=[GptWidgetNative]::Frame($script:hostHandle);$script:hostFollower.Configure($script:hostHandle,$nativeFrame.Left,$nativeFrame.Top,$nativeFrame.Right,$nativeFrame.Bottom,$w,$h,[int]($script:offsetLeft*$dpi),[int]($script:offsetRight*$dpi),[int]($script:offsetBottom*$dpi),$script:anchor,$true)}
+      if($script:followHost){
+        $nativeFrame=[GptWidgetNative]::Frame($script:hostHandle)
+        $followLeft=[int]($script:offsetLeft*$dpi);$followRight=[int]($script:offsetRight*$dpi);$followBottom=[int]($script:offsetBottom*$dpi);$followAnchor=$script:anchor
+        if($script:lowPower){$followLeft=[int]($x-$frame.Left);$followRight=[int]($frame.Right-$w-$x);$followBottom=[int]($frame.Bottom-$h-$y);$followAnchor='free'}
+        $script:hostFollower.Configure($script:hostHandle,$nativeFrame.Left,$nativeFrame.Top,$nativeFrame.Right,$nativeFrame.Bottom,$w,$h,$followLeft,$followRight,$followBottom,$followAnchor,$true)
+      }
     }
     if($script:followHost){$layer=Set-WidgetAboveHost $script:widgetHandle $script:hostHandle}
     else{Set-WidgetDesktopLayer $script:widgetHandle $script:desktopTopmost}
