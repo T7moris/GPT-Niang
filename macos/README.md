@@ -75,10 +75,11 @@ refresh and supports `GPT_NIANG_CODEX_APP` for a nonstandard Codex app location.
   foremost Codex window. Presence heartbeats are written once per second (and
   immediately when visibility changes), and optional diagnostics four times per
   second. Timing depends on main-thread and WindowServer availability; this is
-  polling, not a guarantee of zero-lag attachment. There is a 0.75-second grace
-  period for transient missing metadata; this differs from the
-  Windows version's native movement hooks. The panel stays at normal window level
-  in following mode so other apps can cover it.
+  polling, not a guarantee of zero-lag attachment. Missing or offscreen/thumbnail
+  hosts hide the panel immediately; reappearing hosts must settle for 150 ms.
+  With Stage Manager enabled, following is shown only while Codex is frontmost
+  (other apps in the same set also hide it). The panel can join other app sets
+  at normal window level. Normal dragging and resizing remain continuous.
 - Login launch is opt-in through macOS `SMAppService`. Enable it only after moving
   the app to its permanent location; macOS may request approval in Login Items.
 - **聊天速度** in the menu bar opens a separate thread performance panel.
