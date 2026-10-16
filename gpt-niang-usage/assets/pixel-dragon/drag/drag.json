@@ -1,0 +1,58 @@
+{
+  "width": 192,
+  "height": 192,
+  "anchor": {
+    "x": 85,
+    "y": 184
+  },
+  "frames": [
+    {
+      "file": "frames/drag-01.png",
+      "durationMs": 180
+    },
+    {
+      "file": "frames/drag-02.png",
+      "durationMs": 180
+    },
+    {
+      "file": "frames/drag-03.png",
+      "durationMs": 180
+    },
+    {
+      "file": "frames/drag-04.png",
+      "durationMs": 180
+    },
+    {
+      "file": "frames/drag-05.png",
+      "durationMs": 180
+    },
+    {
+      "file": "frames/drag-06.png",
+      "durationMs": 180
+    },
+    {
+      "file": "frames/drag-07.png",
+      "durationMs": 180
+    },
+    {
+      "file": "frames/drag-08.png",
+      "durationMs": 180
+    },
+    {
+      "file": "frames/drag-09.png",
+      "durationMs": 180
+    },
+    {
+      "file": "frames/drag-10.png",
+      "durationMs": 180
+    },
+    {
+      "file": "frames/drag-11.png",
+      "durationMs": 180
+    },
+    {
+      "file": "frames/drag-12.png",
+      "durationMs": 180
+    }
+  ]
+}

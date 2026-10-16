@@ -1,4 +1,4 @@
-param([string]$TestRoot=$PSScriptRoot,[string]$WidgetSource)
+﻿param([string]$TestRoot=$PSScriptRoot,[string]$WidgetSource)
 $ErrorActionPreference='Stop'
 if(!$WidgetSource){$WidgetSource=Join-Path (Split-Path $TestRoot -Parent) 'widget.ps1'}
 $source=[IO.File]::ReadAllText($WidgetSource,[Text.Encoding]::UTF8)
@@ -33,6 +33,12 @@ function Set-WidgetPixelSize {}
 $validFrame=$ast.Find({param($n)$n-is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name-eq 'Test-WidgetPlacementFrame'},$true)
 . ([ScriptBlock]::Create($validFrame.Extent.Text))
 $script:designWidth=378;$script:designHeight=378
+function Animate-Press {}
+function Set-WidgetCharacterInteraction {return $false}
+function Set-WidgetCharacterVisible {}
+function Pump-CompletionNotifications {}
+function Pump-QuoteVoice {}
+function Stop-WidgetAudio {}
 function Tick-Scene {}
 function Tick-WidgetUpdater {}
 function Ensure-QuotaWorker {}

@@ -47,7 +47,13 @@ public static class GptWidgetSupervisorNative {
 
 function Test-WidgetSupervisorPause($Pause,$Hosts){
   if(!$Pause){return $false}
-  if($Pause.desktop){return $true}
+  if($Pause.awaitNewHost -or $Pause.desktop){
+    $cutoff=0L
+    try{if($Pause.exitedAtTicks){$cutoff=[long]$Pause.exitedAtTicks}else{$cutoff=([DateTime]$Pause.at).ToUniversalTime().Ticks}}catch{return $true}
+    if($cutoff-le 0){return $true}
+    foreach($item in @($Hosts)){if([long]$item.started-gt $cutoff){return $false}}
+    return $true
+  }
   foreach($item in @($Hosts)){
     if([long]$Pause.host-gt 0 -and [long]$item.handle-eq [long]$Pause.host){
       if([int]$Pause.hostPid-gt 0 -and [int]$item.pid-ne [int]$Pause.hostPid){continue}
@@ -90,6 +96,12 @@ $nextLaunch=[DateTime]::MinValue
 $nextStatus=[DateTime]::MinValue
 $lastVisibleHostKey=''
 $pendingGui=$null
+$sessionId=[Diagnostics.Process]::GetCurrentProcess().SessionId
+$bootTicks=(Get-CimInstance Win32_OperatingSystem -ErrorAction Stop).LastBootUpTime.ToUniversalTime().Ticks
+$launchSessionKey=('{0}:{1}'-f $bootTicks,$sessionId)
+$launchSessionFile=Join-Path $info.DataDir 'supervisor-launch-session.json'
+$desktopActivated=$false
+try{$previous=Get-Content -LiteralPath $launchSessionFile -Raw -Encoding UTF8|ConvertFrom-Json;$desktopActivated=$previous.key-eq $launchSessionKey -and [bool]$previous.activated}catch{}
 $supervisorProcess=Get-Process -Id $PID
 try{$processStartedAt=$supervisorProcess.StartTime.ToUniversalTime().ToString('o')}finally{$supervisorProcess.Dispose()}
 try{
@@ -106,16 +118,20 @@ try{
       $visibleHostKey=(@($visible|Sort-Object handle|ForEach-Object{'{0}:{1}:{2}'-f $_.handle,$_.pid,$_.started}) -join '|')
       if($visibleHostKey-ne $lastVisibleHostKey){$nextLaunch=[DateTime]::MinValue;$lastVisibleHostKey=$visibleHostKey}
       $running=Get-WidgetSupervisorRunningGui $info.DataDir $info.AppDir
+      if(!$desktopActivated -and ($hosts.Count-gt 0 -or $running)){
+        $desktopActivated=$true
+        Write-WidgetSupervisorJson $launchSessionFile @{key=$launchSessionKey;activated=$true;at=[DateTime]::UtcNow.ToString('o')}
+      }
       # Retain the launch handle until startup finishes, so slow WPF startup
       # cannot create another GUI process before runtime.json is available.
       if($pendingGui -and ($running -or $pendingGui.HasExited)){$pendingGui.Dispose();$pendingGui=$null}
-      if(!$paused -and ($desktop -or $visible.Count-gt 0) -and !$running -and !$pendingGui -and [DateTime]::UtcNow-ge $nextLaunch){
+      if(!$paused -and (($desktop -and $desktopActivated) -or $visible.Count-gt 0) -and !$running -and !$pendingGui -and [DateTime]::UtcNow-ge $nextLaunch){
         $nextLaunch=[DateTime]::UtcNow.AddSeconds(10)
         $powerShell=Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\powershell.exe'
         $pendingGui=Start-Process -FilePath $powerShell -ArgumentList @('-NoLogo','-NoProfile','-STA','-ExecutionPolicy','Bypass','-WindowStyle','Hidden','-File',('"'+(Join-Path $info.AppDir 'runtime\start-widget.ps1')+'"'),'-WidgetPath',('"'+(Join-Path $info.AppDir 'widget.ps1')+'"')) -WindowStyle Hidden -PassThru
       }
       if([DateTime]::UtcNow-ge $nextStatus){
-        Write-WidgetSupervisorJson (Join-Path $info.DataDir 'supervisor-status.json') @{pid=$PID;processStartedAt=$processStartedAt;at=[DateTime]::UtcNow.ToString('o');mainWindows=$hosts.Count;visibleWindows=$visible.Count;paused=$paused;widgetRunning=$running;taskName=$info.TaskName}
+        Write-WidgetSupervisorJson (Join-Path $info.DataDir 'supervisor-status.json') @{pid=$PID;processStartedAt=$processStartedAt;at=[DateTime]::UtcNow.ToString('o');mainWindows=$hosts.Count;visibleWindows=$visible.Count;paused=$paused;desktopActivated=$desktopActivated;widgetRunning=$running;taskName=$info.TaskName}
         $nextStatus=[DateTime]::UtcNow.AddSeconds(5)
       }
     }catch{try{[IO.File]::WriteAllText((Join-Path $info.DataDir 'supervisor-error.txt'),$_.Exception.Message)}catch{}}
