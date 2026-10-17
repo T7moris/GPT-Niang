@@ -1,5 +1,25 @@
+function Get-WidgetPhysicalFilePath([string]$File) {
+  if(!('GptWidgetPhysicalPath' -as [type])){
+    Add-Type -TypeDefinition 'using System;using System.Text;using System.Runtime.InteropServices;public static class GptWidgetPhysicalPath{[DllImport("kernel32.dll",CharSet=CharSet.Unicode)]public static extern uint GetFinalPathNameByHandle(IntPtr h,StringBuilder s,uint n,uint f);}'
+  }
+  $stream=[IO.File]::OpenRead($File)
+  try{
+    $buffer=[Text.StringBuilder]::new(4096)
+    if([GptWidgetPhysicalPath]::GetFinalPathNameByHandle($stream.SafeFileHandle.DangerousGetHandle(),$buffer,4096,0)-eq 0){throw 'Cannot resolve physical installation path.'}
+    $result=$buffer.ToString();if($result.StartsWith('\\?\')){$result=$result.Substring(4)}
+    return $result
+  }finally{$stream.Dispose()}
+}
 function Get-WidgetUpdateAgentDir {
-  return (Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'GPTNiangUsage\update-agent')
+  $logical=Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'GPTNiangUsage\update-agent'
+  $candidates=@($PSScriptRoot,$logical)
+  $installed=Join-Path (Split-Path $PSScriptRoot -Parent) 'installation.json'
+  if(Test-Path -LiteralPath $installed){try{$cfg=Get-Content -LiteralPath $installed -Raw -Encoding UTF8|ConvertFrom-Json;if($cfg.updateAgent){$candidates=@($cfg.updateAgent)+$candidates}}catch{}}
+  foreach($candidate in $candidates){
+    if(!$candidate){continue};$binding=Join-Path $candidate 'binding.json'
+    if(Test-Path -LiteralPath $binding){return (Split-Path (Get-WidgetPhysicalFilePath $binding) -Parent)}
+  }
+  return $logical
 }
 function Read-WidgetUpdateJson([string]$File) {
   if(Test-Path -LiteralPath $File){return (Get-Content -LiteralPath $File -Raw -Encoding UTF8|ConvertFrom-Json)}
@@ -59,8 +79,9 @@ function Exit-WidgetUpdateLock($Lock) {
     return
   }
   if($owner.token-eq $Lock.Token){
-    Assert-WidgetUpdateChildPath $Lock.Directory (Get-WidgetUpdateAgentDir)
-    Remove-Item -LiteralPath $Lock.Directory -Recurse -Force
+    $physicalLock=Split-Path (Get-WidgetPhysicalFilePath (Join-Path $Lock.Directory 'owner.json')) -Parent
+    Assert-WidgetUpdateChildPath $physicalLock (Get-WidgetUpdateAgentDir)
+    Remove-Item -LiteralPath $physicalLock -Recurse -Force
   }
 }
 function Assert-WidgetUpdateChildPath([string]$Path,[string]$Parent) {

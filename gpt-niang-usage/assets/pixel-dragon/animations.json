@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "defaultAction": "idle",
+  "actions": {
+    "idle": {
+      "manifest": "idle.json",
+      "playback": "loop"
+    },
+    "working": {
+      "manifest": "working/working.json",
+      "playback": "loop"
+    },
+    "drag": {
+      "manifest": "drag/drag.json",
+      "playback": "loop"
+    }
+  }
+}

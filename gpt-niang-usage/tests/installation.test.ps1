@@ -1,4 +1,4 @@
-$ErrorActionPreference='Stop'
+﻿$ErrorActionPreference='Stop'
 $source=Split-Path $PSScriptRoot -Parent
 . (Join-Path $source 'runtime\supervisor-task.ps1')
 $testRoot=Join-Path ([IO.Path]::GetTempPath()) ('gpt-niang-install-test-'+[Guid]::NewGuid().ToString('N'))
@@ -18,7 +18,7 @@ try{
   $commonFile=Join-Path $moved 'runtime\update-common.ps1'
   $common=[IO.File]::ReadAllText($commonFile)
   $isolatedAgent=Join-Path $testRoot 'update-agent'
-  $common=$common.Replace("(Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'GPTNiangUsage\update-agent')",("'"+$isolatedAgent.Replace("'","''")+"'"))
+  $common=$common.Replace("Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'GPTNiangUsage\update-agent'",("'"+$isolatedAgent.Replace("'","''")+"'"))
   [IO.File]::WriteAllText($commonFile,$common,[Text.UTF8Encoding]::new($false))
   $old=Join-Path $testRoot 'original'
   $data=Join-Path $testRoot 'state'

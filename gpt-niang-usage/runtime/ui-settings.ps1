@@ -1,4 +1,4 @@
-function Open-QuoteEditor {
+﻿function Open-QuoteEditor {
   if($script:quoteEditor -and $script:quoteEditor.IsVisible){$script:quoteEditor.Activate()|Out-Null;return}
   $editor=[Windows.Markup.XamlReader]::Parse(@'
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
@@ -165,12 +165,21 @@ function Initialize-WidgetSettingsMenu {
   # Retain controls only for internal maintenance; the normal menu has no entry.
   $script:context.Items.Remove($script:settingsMenuUi.Colors)
   $script:settingsSubmenus=@($script:settingsSubmenus|Where-Object{$_-ne $script:settingsMenuUi.Colors})
+  $script:settingsMenuUi.Character=Add-SettingsSubmenu '角色形象' {
+    $script:settingsMenuUi.CharacterOriginal=Add-SettingsAction '原版' {Set-WidgetCharacterMode 'original';Save-Settings;Update-WidgetSettingsMenu} -Checkable -StayOpen -ReturnItem
+    $script:settingsMenuUi.CharacterPixel=Add-SettingsAction '像素龙娘' {Set-WidgetCharacterMode 'pixel';Save-Settings;Update-WidgetSettingsMenu} -Checkable -StayOpen -ReturnItem
+    $script:settingsMenuUi.CharacterOriginal.Uid='radio';$script:settingsMenuUi.CharacterPixel.Uid='radio'
+  } -ReturnItem
   $script:settingsMenuUi.Audio=Add-SettingsSubmenu '声音与点击' {
+  $script:settingsMenuUi.QuoteVoice=Add-SettingsAction '语录拟声' {param($sender,$event)Set-QuoteVoiceEnabled ([bool]$sender.IsChecked)} -Description '月铃声线 · 额度保持静音' -Checkable -StayOpen -ReturnItem
+  $script:settingsMenuUi.CompletionVoice=Add-SettingsAction '任务完成拟声' {param($sender,$event)Set-CompletionVoiceEnabled ([bool]$sender.IsChecked)} -Description '月铃声线 · 只说“任务完成” · 音量45%' -Checkable -StayOpen -ReturnItem
   $script:settingsMenuUi.Sound=Add-SettingsAction '点击音效' {param($sender,$event)$script:soundOn=$sender.IsChecked;if(!$script:soundOn){Stop-WidgetAudio};$script:settingsMenuUi.Volume.IsEnabled=$script:soundOn;Save-Settings} -Checkable -StayOpen -ReturnItem
   $volume=New-SettingsSlider '音量' 0 1 0.1
   $script:settingsMenuUi.Volume=$volume.Slider;$script:settingsMenuUi.VolumeText=$volume.Value;$volume.Slider.Value=$script:soundVolume
   $volume.Slider.Add_ValueChanged({param($sender,$event)if($script:settingsMenuSync){return};$script:soundVolume=[Math]::Round($sender.Value,2);$script:settingsMenuUi.VolumeText.Text=([Math]::Round($sender.Value*100)).ToString()+'%';Set-WidgetAudioVolume;Save-Settings})
   Add-SettingsPanel $volume.Panel
+  Add-SettingsDivider
+  $script:settingsMenuUi.TaskCompletion=Add-SettingsAction '任务完成时弹气泡' {param($sender,$event)Set-CompletionNotificationEnabled ([bool]$sender.IsChecked)} -Description 'Codex 本轮结束后显示 5 秒' -Checkable -StayOpen -ReturnItem
   Add-SettingsDivider
   $script:settingsMenuUi.Tap=Add-SettingsAction '点角色也切换内容' {param($sender,$event)$script:bubbleTapAdvance=$sender.IsChecked;Save-Settings} -Description '开启后，连续点角色就能看下一句' -Checkable -ReturnItem
   } -ReturnItem
@@ -228,7 +237,7 @@ function Update-WidgetSettingsMenu{
     $script:settingsMenuUi.Topmost.IsChecked=$script:desktopTopmost;$script:settingsMenuUi.Topmost.IsEnabled=!$script:followHost
     $desktopVisibility=if($script:followHost){[Windows.Visibility]::Collapsed}else{[Windows.Visibility]::Visible}
     $script:settingsMenuUi.Topmost.Visibility=$desktopVisibility;$script:settingsMenuUi.TopmostDivider.Visibility=$desktopVisibility
-    $script:settingsMenuUi.Tap.IsChecked=$script:bubbleTapAdvance;$script:settingsMenuUi.Sound.IsChecked=$script:soundOn;$script:settingsMenuUi.Hide.IsChecked=$script:hideMenu
+    $script:settingsMenuUi.Tap.IsChecked=$script:bubbleTapAdvance;$script:settingsMenuUi.Sound.IsChecked=$script:soundOn;$script:settingsMenuUi.TaskCompletion.IsChecked=$script:completionNotificationsEnabled;$script:settingsMenuUi.CompletionVoice.IsChecked=$script:completionVoiceEnabled;$script:settingsMenuUi.QuoteVoice.IsChecked=$script:quoteVoiceEnabled;$script:settingsMenuUi.Hide.IsChecked=$script:hideMenu
     $script:settingsMenuUi.ColorLinked.IsChecked=$script:colorMode-eq 'linked';$script:settingsMenuUi.ColorRainbow.IsChecked=$script:colorMode-eq 'rainbow';$script:settingsMenuUi.ColorOriginal.IsChecked=$script:colorMode-eq 'original'
     $script:settingsMenuUi.ColorSurprise.IsChecked=$script:colorMode-eq 'surprise';$script:settingsMenuUi.ColorRare.IsChecked=$script:colorMode-eq 'rare';$script:settingsMenuUi.ColorSpecial.IsChecked=$script:colorMode-eq 'special'
     $script:settingsMenuUi.ColorMixed.IsChecked=$script:colorMode-eq 'mixed'
@@ -236,6 +245,7 @@ function Update-WidgetSettingsMenu{
     $script:settingsMenuUi.ColorTextChance.Value=$script:colorTextChance;$script:settingsMenuUi.ColorTextChanceText.Text=$script:colorTextChance.ToString()+'%';$script:settingsMenuUi.ColorTextChance.IsEnabled=$script:colorMode-eq 'mixed'
     $script:settingsMenuUi.ColorTriggerList.IsEnabled=$script:colorMode-in @('special','surprise')
     $script:settingsMenuUi.ColorPause.IsChecked=$script:colorPaused;$script:settingsMenuUi.ColorPause.IsEnabled=$script:colorMode-ne 'original'
+    if($script:settingsMenuUi.CharacterOriginal){$script:settingsMenuUi.CharacterOriginal.IsChecked=$script:characterMode-eq 'original';$script:settingsMenuUi.CharacterPixel.IsChecked=$script:characterMode-eq 'pixel'}
     $script:settingsMenuUi.Volume.Value=$script:soundVolume;$script:settingsMenuUi.Volume.IsEnabled=$script:soundOn;$script:settingsMenuUi.VolumeText.Text=([Math]::Round($script:soundVolume*100)).ToString()+'%'
     $script:sizeSlider.Value=$script:scale;$script:settingsMenuUi.SizeText.Text=([Math]::Round($script:scale*100)).ToString()+'%';Update-WidgetSizePresets
   }finally{$script:settingsMenuSync=$false}
