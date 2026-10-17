@@ -5,6 +5,44 @@
         ShowInTaskbar="False" ShowActivated="False" Topmost="False"
         FontFamily="Microsoft YaHei UI" UseLayoutRounding="True">
   <Window.Resources>
+    <Style x:Key="QuotaNumberRow" TargetType="Grid">
+      <Setter Property="Height" Value="22"/>
+      <Style.Triggers>
+        <DataTrigger Binding="{Binding Visibility, ElementName=ShortRow}" Value="Collapsed"><Setter Property="Height" Value="30"/></DataTrigger>
+        <DataTrigger Binding="{Binding Visibility, ElementName=WeekRow}" Value="Collapsed"><Setter Property="Height" Value="30"/></DataTrigger>
+      </Style.Triggers>
+    </Style>
+    <Style x:Key="QuotaLabel" TargetType="TextBlock">
+      <Setter Property="FontSize" Value="17"/><Setter Property="LineHeight" Value="22"/>
+      <Style.Triggers>
+        <DataTrigger Binding="{Binding Visibility, ElementName=ShortRow}" Value="Collapsed"><Setter Property="FontSize" Value="20"/><Setter Property="LineHeight" Value="28"/></DataTrigger>
+        <DataTrigger Binding="{Binding Visibility, ElementName=WeekRow}" Value="Collapsed"><Setter Property="FontSize" Value="20"/><Setter Property="LineHeight" Value="28"/></DataTrigger>
+      </Style.Triggers>
+    </Style>
+    <Style x:Key="QuotaValue" TargetType="TextBlock">
+      <Setter Property="FontSize" Value="22"/><Setter Property="LineHeight" Value="22"/>
+      <Style.Triggers>
+        <DataTrigger Binding="{Binding Visibility, ElementName=ShortRow}" Value="Collapsed"><Setter Property="FontSize" Value="28"/><Setter Property="LineHeight" Value="30"/></DataTrigger>
+        <DataTrigger Binding="{Binding Visibility, ElementName=WeekRow}" Value="Collapsed"><Setter Property="FontSize" Value="28"/><Setter Property="LineHeight" Value="30"/></DataTrigger>
+      </Style.Triggers>
+    </Style>
+    <Style x:Key="QuotaReset" TargetType="TextBlock">
+      <Setter Property="FontSize" Value="12"/>
+      <Setter Property="LineHeight" Value="12"/>
+      <Setter Property="Margin" Value="0,2,0,0"/>
+      <Style.Triggers>
+        <DataTrigger Binding="{Binding Visibility, ElementName=ShortRow}" Value="Collapsed"><Setter Property="FontSize" Value="14"/><Setter Property="LineHeight" Value="17"/></DataTrigger>
+        <DataTrigger Binding="{Binding Visibility, ElementName=WeekRow}" Value="Collapsed"><Setter Property="FontSize" Value="14"/><Setter Property="LineHeight" Value="17"/></DataTrigger>
+      </Style.Triggers>
+    </Style>
+    <Style x:Key="QuotaTrack" TargetType="Border">
+      <Setter Property="Width" Value="168"/><Setter Property="Height" Value="5"/>
+      <Setter Property="Background" Value="#EAE4F3"/><Setter Property="CornerRadius" Value="2.5"/>
+      <Style.Triggers>
+        <DataTrigger Binding="{Binding Visibility, ElementName=ShortRow}" Value="Collapsed"><Setter Property="Width" Value="184"/><Setter Property="Height" Value="9"/><Setter Property="CornerRadius" Value="4.5"/></DataTrigger>
+        <DataTrigger Binding="{Binding Visibility, ElementName=WeekRow}" Value="Collapsed"><Setter Property="Width" Value="184"/><Setter Property="Height" Value="9"/><Setter Property="CornerRadius" Value="4.5"/></DataTrigger>
+      </Style.Triggers>
+    </Style>
     <Style TargetType="Button">
       <Setter Property="Background" Value="Transparent"/>
       <Setter Property="BorderThickness" Value="0"/>
@@ -23,7 +61,7 @@
       </Setter>
     </Style>
   </Window.Resources>
-  <Viewbox x:Name="ScaleHost" Stretch="Uniform">
+  <Viewbox x:Name="ScaleHost" Stretch="Uniform" RenderOptions.BitmapScalingMode="HighQuality">
   <Canvas x:Name="AnimationStage" Width="378" Height="378">
   <Canvas x:Name="Root" Canvas.Left="14" Canvas.Top="14" Width="350" Height="350" RenderTransformOrigin="0.5,1">
     <Canvas.RenderTransform><TransformGroup><ScaleTransform x:Name="PressScale"/><ScaleTransform x:Name="FacingScale"/></TransformGroup></Canvas.RenderTransform>
@@ -32,34 +70,39 @@
       <Path x:Name="BubbleShape" Fill="#FFFFFF" Stroke="#745A98" StrokeThickness="4"
             StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round"
             Data="M 283,85 A 128,79 0 1 0 27,85 A 128,79 0 0 0 114,160 A 20,10 0 0 0 149,164 A 128,79 0 0 0 283,85 Z"/>
-      <Grid x:Name="SceneText" Canvas.Left="63" Canvas.Top="22" Width="184" Height="115" RenderTransformOrigin="0.5,0.5">
+      <Grid x:Name="SceneText" Canvas.Left="63" Canvas.Top="22" Width="184" Height="115" IsHitTestVisible="False" RenderTransformOrigin="0.5,0.5">
         <Grid.RenderTransform><ScaleTransform x:Name="TextFacingScale"/></Grid.RenderTransform>
-      <StackPanel x:Name="QuotaText" VerticalAlignment="Center">
-        <Grid x:Name="HeaderRow" Height="16">
-          <Grid.ColumnDefinitions><ColumnDefinition Width="24"/><ColumnDefinition Width="*"/><ColumnDefinition Width="24"/></Grid.ColumnDefinitions>
-          <TextBlock x:Name="Header" Grid.Column="1" Text="剩余额度" HorizontalAlignment="Center" VerticalAlignment="Center" MaxWidth="136" TextAlignment="Center" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" FontSize="12" LineHeight="16" LineStackingStrategy="BlockLineHeight" FontWeight="SemiBold" Foreground="#7D6B91" IsHitTestVisible="False" ToolTip="重置时间按当前机器的本地时间显示"/>
-          <Button x:Name="Refresh" Grid.Column="2" HorizontalAlignment="Right" VerticalAlignment="Center" Width="20" Height="16" Content="↻" FontSize="12" ToolTip="立即刷新额度"/>
+      <StackPanel x:Name="QuotaText" HorizontalAlignment="Center">
+        <StackPanel.Style>
+          <Style TargetType="StackPanel">
+            <Setter Property="Width" Value="168"/><Setter Property="VerticalAlignment" Value="Top"/><Setter Property="Margin" Value="0,21,0,0"/>
+            <Style.Triggers>
+              <DataTrigger Binding="{Binding Visibility, ElementName=ShortRow}" Value="Collapsed"><Setter Property="Width" Value="184"/><Setter Property="Margin" Value="0,34,0,0"/></DataTrigger>
+              <DataTrigger Binding="{Binding Visibility, ElementName=WeekRow}" Value="Collapsed"><Setter Property="Width" Value="184"/><Setter Property="Margin" Value="0,34,0,0"/></DataTrigger>
+            </Style.Triggers>
+          </Style>
+        </StackPanel.Style>
+        <TextBlock x:Name="Header" Visibility="Collapsed" Text="剩余额度" ToolTip="重置时间按当前机器的本地时间显示"/>
+        <StackPanel x:Name="ShortRow">
+        <Grid Style="{StaticResource QuotaNumberRow}">
+          <TextBlock x:Name="ShortLabel" Style="{StaticResource QuotaLabel}" Text="5 小时" FontWeight="Normal" LineStackingStrategy="BlockLineHeight" VerticalAlignment="Center" Foreground="#76638D"/>
+          <TextBlock x:Name="ShortLeft" Style="{StaticResource QuotaValue}" Text="—" HorizontalAlignment="Right" VerticalAlignment="Center" FontFamily="Segoe UI" LineStackingStrategy="BlockLineHeight" FontWeight="Bold" Foreground="#745A98"/>
         </Grid>
-        <StackPanel x:Name="ShortRow" Margin="0,1,0,0" IsHitTestVisible="False">
-        <Grid Height="25">
-          <TextBlock x:Name="ShortLabel" Text="5 小时" FontSize="13" VerticalAlignment="Center" Foreground="#76638D"/>
-          <TextBlock x:Name="ShortLeft" Text="—" HorizontalAlignment="Right" VerticalAlignment="Center" FontFamily="Segoe UI" FontSize="24" LineHeight="25" LineStackingStrategy="BlockLineHeight" FontWeight="Bold" Foreground="#745A98"/>
-        </Grid>
-        <Border Height="4" Background="#EAE4F3" CornerRadius="2" Margin="0,1,0,0">
-          <Border x:Name="ShortBar" Background="#AA95CD" CornerRadius="2" Width="0" HorizontalAlignment="Left"/>
+        <Border Style="{StaticResource QuotaTrack}">
+          <Border x:Name="ShortBar" Background="#AA95CD" CornerRadius="{Binding CornerRadius, RelativeSource={RelativeSource AncestorType={x:Type Border}}}" Width="0" HorizontalAlignment="Left"/>
         </Border>
-        <TextBlock x:Name="ShortReset" Text="等待额度数据" Margin="0,1,0,0" FontSize="12" LineHeight="15" LineStackingStrategy="BlockLineHeight" Foreground="#7D6B91"/>
+        <TextBlock x:Name="ShortReset" Style="{StaticResource QuotaReset}" Text="等待额度数据" LineStackingStrategy="BlockLineHeight" Foreground="#A1A4AD" Opacity="0.65"/>
         <TextBlock x:Name="ShortUsed" Visibility="Collapsed" Text="已用 —"/>
         </StackPanel>
-        <StackPanel x:Name="WeekRow" Margin="0,4,0,0" IsHitTestVisible="False">
-        <Grid Height="25">
-          <TextBlock x:Name="WeekLabel" Text="每周" FontSize="13" VerticalAlignment="Center" Foreground="#76638D"/>
-          <TextBlock x:Name="WeekLeft" Text="—" HorizontalAlignment="Right" VerticalAlignment="Center" FontFamily="Segoe UI" FontSize="24" LineHeight="25" LineStackingStrategy="BlockLineHeight" FontWeight="Bold" Foreground="#745A98"/>
+        <StackPanel x:Name="WeekRow" Margin="0,1,0,0">
+        <Grid Style="{StaticResource QuotaNumberRow}">
+          <TextBlock x:Name="WeekLabel" Style="{StaticResource QuotaLabel}" Text="每周" FontWeight="Normal" LineStackingStrategy="BlockLineHeight" VerticalAlignment="Center" Foreground="#76638D"/>
+          <TextBlock x:Name="WeekLeft" Style="{StaticResource QuotaValue}" Text="—" HorizontalAlignment="Right" VerticalAlignment="Center" FontFamily="Segoe UI" LineStackingStrategy="BlockLineHeight" FontWeight="Bold" Foreground="#745A98"/>
         </Grid>
-        <Border Height="4" Background="#EAE4F3" CornerRadius="2" Margin="0,1,0,0">
-          <Border x:Name="WeekBar" Background="#AA95CD" CornerRadius="2" Width="0" HorizontalAlignment="Left"/>
+        <Border Style="{StaticResource QuotaTrack}">
+          <Border x:Name="WeekBar" Background="#AA95CD" CornerRadius="{Binding CornerRadius, RelativeSource={RelativeSource AncestorType={x:Type Border}}}" Width="0" HorizontalAlignment="Left"/>
         </Border>
-        <TextBlock x:Name="WeekReset" Text="等待额度数据" Margin="0,1,0,0" FontSize="12" LineHeight="15" LineStackingStrategy="BlockLineHeight" Foreground="#7D6B91"/>
+        <TextBlock x:Name="WeekReset" Style="{StaticResource QuotaReset}" Text="等待额度数据" LineStackingStrategy="BlockLineHeight" Foreground="#A1A4AD" Opacity="0.65"/>
         <TextBlock x:Name="WeekUsed" Visibility="Collapsed" Text="已用 —"/>
         </StackPanel>
         <TextBlock x:Name="Status" Visibility="Collapsed" Text="正在读取额度…"/>
@@ -74,8 +117,19 @@
     <Ellipse x:Name="TailNear" Canvas.Left="142" Canvas.Top="214" Width="17" Height="12" Fill="#FFFFFF" Stroke="#745A98" StrokeThickness="4" RenderTransformOrigin="0.5,0.5">
       <Ellipse.RenderTransform><ScaleTransform/></Ellipse.RenderTransform>
     </Ellipse>
-    <Image x:Name="Girl" Canvas.Left="142" Canvas.Top="142" Width="208" Height="208" Stretch="UniformToFill" Cursor="Hand"
+    <Image x:Name="Girl" Canvas.Left="142" Canvas.Top="142" Width="208" Height="208" Stretch="Uniform" RenderOptions.BitmapScalingMode="HighQuality" Cursor="Hand"
            ToolTip="点角色看额度；点气泡看语录，再点收起；拖动调整位置；右键设置"/>
+    <Canvas x:Name="RefreshHost" Width="350" Height="239" Panel.ZIndex="10" RenderTransformOrigin="0.4425,0.36"
+            Visibility="{Binding Visibility, ElementName=Bubble}" Opacity="{Binding Opacity, ElementName=Bubble}"
+            IsHitTestVisible="{Binding IsHitTestVisible, ElementName=Bubble}" RenderTransform="{Binding RenderTransform, ElementName=Bubble}">
+      <Button x:Name="Refresh" Canvas.Left="141" Canvas.Top="134" Width="28" Height="26" Foreground="#A6ADB8" Opacity="0.7" ToolTip="立即刷新额度">
+        <Grid Width="18" Height="18" IsHitTestVisible="False">
+          <Path Data="M 15,10.5 A 6.25,6.25 0 1 1 14.8,5.2 M 10.9,5.2 L 14.8,5.2 L 14.8,1.3"
+                Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType={x:Type Button}}}"
+                StrokeThickness="1.8" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"/>
+        </Grid>
+      </Button>
+    </Canvas>
     <Button x:Name="MenuButton" Canvas.Left="320" Canvas.Top="162" Width="24" Height="24" Content="☰"
             FontSize="15" Opacity="0" IsHitTestVisible="False" Background="#EDE7F6" ToolTip="挂件设置"/>
   </Canvas>

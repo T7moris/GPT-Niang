@@ -63,7 +63,9 @@ setInterval(heartbeat,100);
   $script:mutexOwned=$true
   $script:timer=[pscustomobject]@{}
   $script:timer|Add-Member -MemberType ScriptMethod -Name Stop -Value {throw 'Injected timer stop failure.'}
-  function Stop-WidgetAudio {throw 'Injected audio stop failure.'}
+  $script:audioCloses=0
+  function Close-WidgetAudio {$script:audioCloses++;$script:audioCloseCalls++;throw 'Injected audio close failure.'}
+  $script:audioCloseCalls=0
 
   Ensure-QuotaWorker ([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds())
   if(!$script:worker){throw 'The dummy quota worker was not launched.'}
@@ -87,6 +89,7 @@ setInterval(heartbeat,100);
   [IO.File]::WriteAllText((Join-Path $script:dataDir 'presence.json'),'{"pid":2147483647}')
   Stop-WidgetRuntime
   Stop-WidgetRuntime
+  Assert-Lifecycle ($script:audioCloses-eq 1) 'Shutdown did not close audio exactly once.'
   $deadline=[DateTime]::UtcNow.AddSeconds(2)
   do{
     $remaining=Get-Process -Id $restartedPid -ErrorAction SilentlyContinue
@@ -97,6 +100,7 @@ setInterval(heartbeat,100);
   Assert-Lifecycle (!$remaining) 'Cleanup left its own worker running after injected failures.'
   Assert-Lifecycle (!(Test-Path -LiteralPath (Join-Path $script:dataDir 'runtime.json')) -and (Test-Path -LiteralPath (Join-Path $script:dataDir 'presence.json'))) 'Cleanup removed another owner record or retained its own record.'
   Assert-Lifecycle $script:runtimeClosed 'Cleanup was not idempotent.'
+  Assert-Lifecycle ($script:audioCloseCalls-eq 1) 'Cleanup did not close audio exactly once.'
   $observer=[Threading.Mutex]::new($false,$mutexName)
   try{
     $released=$observer.WaitOne(0)

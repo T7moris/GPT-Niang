@@ -1,4 +1,4 @@
-param([switch]$WidgetOnly,[switch]$SettingsMenuOnly,[string]$PreviewDirectory)
+﻿param([switch]$WidgetOnly,[switch]$SettingsMenuOnly,[string]$PreviewDirectory)
 $ErrorActionPreference='Stop'
 if($SettingsMenuOnly){
   $source=[IO.File]::ReadAllText((Join-Path $PSScriptRoot 'settings-menu.test.ps1'),[Text.Encoding]::UTF8)
@@ -11,10 +11,16 @@ if($WidgetOnly){
   return
 }
 $powerShell=Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\powershell.exe'
-foreach($name in @('installation.test.ps1','update.test.ps1','lifecycle.test.ps1','entrypoint.test.ps1','quote-layout.test.ps1','size.test.ps1','display.test.ps1','desktop-mode.test.ps1','drag-sizing.test.ps1','settings-menu.test.ps1','host-ready.test.ps1')){
+foreach($name in @('installation.test.ps1','update.test.ps1','lifecycle.test.ps1','entrypoint.test.ps1','quote-layout.test.ps1','size.test.ps1','display.test.ps1','desktop-mode.test.ps1','drag-sizing.test.ps1','settings-menu.test.ps1','host-ready.test.ps1','characters.test.ps1','character-rendering.test.ps1','character-startup.test.ps1','audio.test.ps1')){
   if($name-eq 'settings-menu.test.ps1'){& $powerShell -NoProfile -STA -ExecutionPolicy Bypass -File $PSCommandPath -SettingsMenuOnly}
   else {& $powerShell -NoProfile -STA -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot $name)}
   if($LASTEXITCODE-ne 0){throw "$name failed ($LASTEXITCODE)"}
+}
+foreach($quotaTest in @('quota-mood.test.ps1','quota-editor.test.ps1','quota-integration.test.ps1')){
+  $quotaArgs=@('-NoProfile','-STA','-ExecutionPolicy','Bypass','-File',(Join-Path $PSScriptRoot $quotaTest))
+  if($PreviewDirectory -and $quotaTest-ne 'quota-mood.test.ps1'){$quotaArgs+=@('-PreviewDirectory',$PreviewDirectory)}
+  & $powerShell @quotaArgs
+  if($LASTEXITCODE-ne 0){throw "$quotaTest failed"}
 }
 $widgetTestArgs=@('-NoProfile','-STA','-ExecutionPolicy','Bypass','-File',$PSCommandPath,'-WidgetOnly')
 if($PreviewDirectory){$widgetTestArgs+=@('-PreviewDirectory',$PreviewDirectory)}

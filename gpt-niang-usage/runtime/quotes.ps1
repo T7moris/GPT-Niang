@@ -34,8 +34,10 @@ function Read-WidgetQuoteFile([string]$Path) {
   @(ConvertTo-WidgetQuoteRows $json)
 }
 
-function Get-WidgetQuoteSettings([string]$DataDir) {
-  $customPath=Join-Path $DataDir 'quotes.json'
+function Get-WidgetQuoteSettings([string]$DataDir,[switch]$LowQuota) {
+  $fileName=if($LowQuota){'quotes-low-quota.json'}else{'quotes.json'}
+  $customPath=Join-Path $DataDir $fileName
+  $builtInPath=if($LowQuota){Join-Path ([IO.Path]::GetDirectoryName($script:widgetQuotesBuiltInPath)) $fileName}else{$script:widgetQuotesBuiltInPath}
   $rows=@();$problem=$null;$source='built-in'
   if([IO.File]::Exists($customPath)){
     try{
@@ -44,18 +46,22 @@ function Get-WidgetQuoteSettings([string]$DataDir) {
     }catch{$problem='自定义语录无法读取，已使用内置语录。'}
   }
   if($rows.Count-eq 0){
-    try{$rows=@(Read-WidgetQuoteFile $script:widgetQuotesBuiltInPath)}catch{$rows=@()}
+    try{$rows=@(Read-WidgetQuoteFile $builtInPath)}catch{$rows=@()}
   }
   if($rows.Count-eq 0){
     $source='fallback'
     $rows=@([pscustomobject]@{text='Ciallo～ 今天也请多关照。';weight=1.0},[pscustomobject]@{text='我在这儿，慢慢来就好。';weight=1.0})
+    if($LowQuota){$rows=@([pscustomobject]@{text='需要重置……';weight=1.0})}
   }
   [pscustomobject]@{source=$source;quotes=@($rows);customPath=$customPath;error=$problem}
 }
 
-function Get-WidgetQuote([string]$DataDir) {
-  $settings=Get-WidgetQuoteSettings $DataDir
+function Get-WidgetQuote([string]$DataDir,[switch]$LowQuota) {
+  $settings=Get-WidgetQuoteSettings $DataDir -LowQuota:$LowQuota
   $key=[IO.Path]::GetFullPath($DataDir)
+  if($LowQuota){
+    $key+='|low-quota'
+  }
   $last=$script:widgetQuoteLastByDataDir[$key]
   $candidates=@($settings.quotes | Where-Object {![string]::Equals($_.text,$last,[StringComparison]::Ordinal)})
   if($candidates.Count-eq 0){$candidates=@($settings.quotes)}
@@ -67,25 +73,25 @@ function Get-WidgetQuote([string]$DataDir) {
   [string]$choice.text
 }
 
-function Save-WidgetQuotes([string]$DataDir,$Quotes) {
+function Save-WidgetQuotes([string]$DataDir,$Quotes,[switch]$LowQuota) {
   $rows=@(ConvertTo-WidgetQuoteRows $Quotes)
   if($rows.Count-eq 0){throw '请至少填写一条有效语录；每条最多 200 字，权重须大于 0 且不超过 1000。'}
   $null=[IO.Directory]::CreateDirectory($DataDir)
-  $file=Join-Path $DataDir 'quotes.json'
+  $file=Join-Path $DataDir $(if($LowQuota){'quotes-low-quota.json'}else{'quotes.json'})
   $temp=$file+'.'+$PID+'.tmp'
   try{
     $json=@{version=1;quotes=@($rows)} | ConvertTo-Json -Depth 5
     [IO.File]::WriteAllText($temp,$json,[Text.UTF8Encoding]::new($true))
     if([IO.File]::Exists($file)){[IO.File]::Replace($temp,$file,($file+'.bak'),$true)}else{[IO.File]::Move($temp,$file)}
   }finally{if([IO.File]::Exists($temp)){[IO.File]::Delete($temp)}}
-  Get-WidgetQuoteSettings $DataDir
+  Get-WidgetQuoteSettings $DataDir -LowQuota:$LowQuota
 }
 
-function Reset-WidgetQuotes([string]$DataDir) {
-  $file=Join-Path $DataDir 'quotes.json'
+function Reset-WidgetQuotes([string]$DataDir,[switch]$LowQuota) {
+  $file=Join-Path $DataDir $(if($LowQuota){'quotes-low-quota.json'}else{'quotes.json'})
   if([IO.File]::Exists($file)){
     [IO.File]::Copy($file,($file+'.bak'),$true)
     [IO.File]::Delete($file)
   }
-  Get-WidgetQuoteSettings $DataDir
+  Get-WidgetQuoteSettings $DataDir -LowQuota:$LowQuota
 }

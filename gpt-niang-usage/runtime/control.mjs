@@ -10,7 +10,7 @@ const command=process.argv[2]??'status';
 if(command==='query'){
   const result=await requestRefresh(config,configPath);
   console.log(JSON.stringify(result));process.exitCode=result.queryOk && result.ok?0:1;
-}else if(command==='show' || command==='quote' || command==='menu' || command==='close-menu'){
+}else if(command==='show' || command==='quote' || command==='menu' || command==='close-menu' || command==='characters'){
   atomicJson(path.join(config.dataDir,'display-request.json'),{mode:command==='show'?'quota':command,at:Date.now(),nonce:crypto.randomUUID()});
   console.log('已请求显示'+(command==='show'?'额度':command==='quote'?'语录':'设置'));
 }else if(command==='stop'){

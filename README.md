@@ -1,4 +1,4 @@
-# GPT-Niang（GPT 娘）
+﻿# GPT-Niang（GPT 娘）
 
 让一只白发紫瞳的小龙娘，陪你看 Codex 的剩余额度。
 
@@ -11,6 +11,8 @@
 <img src="gpt-niang-usage/assets/gpt-dragon-niang-bust.png" alt="无嘴巴的白发龙娘半身形象" width="240">
 
 ## 能做什么
+
+Windows 源码新增[角色库与自定义立绘](docs/WINDOWS-CUSTOMIZATION.md)、[低额度形象与独立台词](docs/WINDOWS-QUOTA-STATES.md)，并整合缩放抗锯齿、音量记忆和连续点击音效修复。额度恢复后会回到所选角色；当前源码包含50条普通语录和21条低额度语录。以上源码改进尚未包含在已发布的1.3.4安装包中。整合来源与兼容行为见[Windows 功能整合说明](docs/WINDOWS-CHARACTER-INTEGRATION.md)。
 
 - **点角色看额度**：按接口实际返回的窗口显示剩余百分比，例如 5 小时、每周、30 天；单个窗口在原气泡内居中，横条越满，剩余额度越多。成功查询时折叠未返回的整条窗口；查询失败会显示异常，重置时间为空时仍保留百分比。
 - **点气泡看语录**：再点收起，显示完成约 5 秒后也会自动收起；支持编辑自己的语录。
@@ -138,7 +140,7 @@ Windows / macOS 1.3.4：右键角色，从原生菜单／设置进入「显示�
 
 Windows 启动时先检查 Codex 的输入或导航控件是否可用，连续两次确认主界面就绪后才显示挂件；加载画面中的原生窗口本身不会触发显示。已启动的桌面模式继续独立显示。
 
-内置语录为作者确认的 **33 句**，包括「高性能↓」「我不是吃白饭的大肥鱼」「我是啥龙？」和三句 token／储存台词。1.3.4 保留此前确认的语录池；下载时请核对对应版本的 `SHA256SUMS.txt`。
+当前源码的普通语录为 **50句**：原有33句、AkihiM补充12句、本次新增5句；Windows另有 **21句低额度语录**：LY1A提供12句、本次新增9句。已发布的1.3.4安装包仍使用此前确认的33句普通语录；下载时请核对对应版本的 `SHA256SUMS.txt`。
 
 升级会保留各台电脑的自定义语录。若要使用这份内置台词池，在语录设置里选择「恢复内置语录」（Mac 为「恢复默认」）；恢复前请备份自行添加的句子，Windows会自动保留旧列表备份。自定义文件只保存在本机，不会随账户同步到另一台电脑。
 
@@ -272,10 +274,12 @@ Windows 界面使用 PowerShell / WPF，Mac 界面使用 SwiftUI / AppKit，额�
 | 贡献者 | 具体贡献与关联 PR／Issue | 当前状态 |
 | --- | --- | --- |
 | [@Admilkk](https://github.com/Admilkk) | [PR #1](https://github.com/T7moris/GPT-Niang/pull/1)：动态额度展示、账号快照隔离、单实例刷新、进程恢复与安装／生命周期回归；[PR #16](https://github.com/T7moris/GPT-Niang/pull/16)：Windows 内置更新、校验、失败回滚和中断事务恢复，整合于 [PR #17](https://github.com/T7moris/GPT-Niang/pull/17)；[PR #20](https://github.com/T7moris/GPT-Niang/pull/20)：修复 Windows 拖动与定位时原生尺寸回写导致的持续放大，改为只移动窗口、由 WPF 管理尺寸，并补充窗口内／桌面模式及不同 DPI 的连续拖动回归；[PR #12 审查](https://github.com/T7moris/GPT-Niang/pull/12#pullrequestreview-5484203142)：指出个人额度的空分钟数会破坏 macOS 解码，并建议补充混合额度兼容测试。 | PR #1／#16／#20 已合并；PR #12 个人额度兼容审查已在 1.3.4 补齐 |
+| [@AkihiM](https://github.com/AkihiM) | [PR #34](https://github.com/T7moris/GPT-Niang/pull/34)：Windows 角色库、本地图片导入与移除/撤销、保存选择、缩放抗锯齿、额度气泡和刷新布局、小数音量记忆、连续点击音效修复，以及普通语录扩充到45句。本次整合在此基础上补齐与低额度形象的兼容。 | 本次整合引用，原 PR 保持独立评审 |
 | [@FusaishiHaruaki-afk](https://github.com/FusaishiHaruaki-afk) | [PR #8](https://github.com/T7moris/GPT-Niang/pull/8)：真实 Go 账号的 30 天窗口复现、后端／Mac 适配及可选 `GPT_NIANG_SDK` 构建参数；[PR #9](https://github.com/T7moris/GPT-Niang/pull/9)：按窗口自身时长分类，覆盖槽位互换、月度边界与未知时长，并提供 Go 回归及 Swift 标题验证；相关实现与回归由 [PR #10](https://github.com/T7moris/GPT-Niang/pull/10) 整合。 | PR #8／#9 已合并；当前标签沿用整合后的精确时长显示 |
 | [@gyb13451576](https://github.com/gyb13451576) | [Issue #11](https://github.com/T7moris/GPT-Niang/issues/11)：提供 v1.3.1 混合 DPI 双屏环境中重启 Codex 后窗口塌缩为 2×2 的复现、DPI 反馈循环分析、固定设计尺寸与 DIP／物理像素换算方案，以及自动测试和实际 HWND 采样验证；关联 [Issue #2](https://github.com/T7moris/GPT-Niang/issues/2)。 | 问题报告保持开放；PR #20 已合入拖动／定位的尺寸回写修复，重启后的 2×2 塌缩仍待验证 |
 | [@insightlacyrina](https://github.com/insightlacyrina) | [Issue #14](https://github.com/T7moris/GPT-Niang/issues/14)：建议增加可持久化的「双击角色打开设置」开关，保留其他设置入口，并提出 macOS 简体中文界面建议；描述了连续点击被设置窗口打断的场景。 | 1.3.4 按维护者最新要求取消双击设置；简／繁体与跟随系统选择已实现 |
 | [@JCyxMio](https://github.com/JCyxMio) | [PR #12](https://github.com/T7moris/GPT-Niang/pull/12)：提出 Windows 多屏／混合 DPI 修复、Business `individualLimit` 个人额度显示，以及套餐标题、刷新按钮布局和命中修复；提供重复尺寸、额度解析及 WPF 验证。 | 方案整合于 1.3.4；DPI 定位以 PR #20 为准，并补齐 macOS 个人额度解码与显示 |
+| [@LY1A](https://github.com/LY1A) | [PR #42](https://github.com/T7moris/GPT-Niang/pull/42)：低额度形象、独立台词池、预览与管理、账号/快照隔离，以及连续 PCM 音效与退出清理。本次整合采用其较新音频实现。 | 本次整合引用，原 PR 保持独立评审 |
 | [@maolilup](https://github.com/maolilup) | [PR #13](https://github.com/T7moris/GPT-Niang/pull/13)：针对 [Issue #2](https://github.com/T7moris/GPT-Niang/issues/2)，提出使用固定设计宽高计算跟随／拖动尺寸以避免 DPI 尺寸漂移，并提供不同设计画布、缩放与目标 DPI 下的连续原生尺寸回归。 | 固定设计尺寸与回归已适配到 1.3.4；原生调用保持只移动 |
 | [@meaqua9420](https://github.com/meaqua9420) | [PR #3](https://github.com/T7moris/GPT-Niang/pull/3)：SwiftUI／AppKit 原生 macOS 挂件、原有气泡／动画／配色／音效移植、窗口跟随与原生点击设置、菜单栏和可选登录启动；新增只读本地聊天速度面板、Mac CLI 与 worker 锁支持、应用构建及双平台 CI。 | 已合并 |
 | [@ShiroasabaMio](https://github.com/ShiroasabaMio) | [Issue #2](https://github.com/T7moris/GPT-Niang/issues/2)：报告 v1.2.3 跨不同 DPI 显示器移动时挂件放大、跳动与错位，提供 120／144 DPI 复现、尺寸反馈循环分析、固定设计尺寸与统一 DPI 上下文建议及本机修复结果。 | 问题报告保持开放；PR #20 已合入拖动修复，跨屏场景继续验证，其他方案见 PR #12／#13 |
