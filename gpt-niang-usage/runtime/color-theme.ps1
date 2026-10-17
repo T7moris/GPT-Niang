@@ -1,4 +1,4 @@
-# Native WPF flowing colours. One shared phase keeps every surface in sync.
+﻿# Native WPF flowing colours. One shared phase keeps every surface in sync.
 $script:colorMode='mixed'
 $script:colorChance=0.5
 $script:colorTextChance=3
@@ -9,6 +9,10 @@ $script:colorSpecialQuotes=@('Token来，Token来')
 $script:colorSceneScope='none';$script:colorSceneKey='';$script:colorSpecialLast=''
 
 function Get-WidgetBubbleQuote([string]$DataDir){
+  if($script:quotaMood-eq 'low'){
+    $script:colorSceneScope='none';$script:colorSceneKey=''
+    return Get-WidgetQuote $DataDir -LowQuota
+  }
   # Choose the text from its own pool before drawing an unrelated appearance.
   $text=Get-WidgetQuote $DataDir
   if($script:colorMode-ne 'mixed'){return $text}
@@ -178,7 +182,7 @@ function Initialize-WidgetColors {
   foreach($role in @('accent','ink','surface')){$null=New-WidgetFlowBrush $role}
   Set-WidgetColorPalette 'rainbow' -Immediate
   $mask=[Windows.Media.ImageBrush]::new($script:ui.Girl.Source)
-  $mask.Stretch=[Windows.Media.Stretch]::UniformToFill
+  $mask.Stretch=[Windows.Media.Stretch]::Uniform
   $root=$script:ui.Root;$girlIndex=$root.Children.IndexOf($script:ui.Girl)
   $halo=[Windows.Shapes.Rectangle]::new();$halo.Width=$script:ui.Girl.Width;$halo.Height=$script:ui.Girl.Height
   $halo.Fill=$script:widgetColors.brushes.accent;$halo.Opacity=0.62;$halo.OpacityMask=$mask

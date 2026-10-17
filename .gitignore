@@ -19,6 +19,16 @@ Thumbs.db
 **/.env
 **/.env.*
 
+# Imported character images and per-user runtime data stay local.
+**/characters/custom-*.png
+**/characters/removed/
+**/display-request*.json
+**/auth.json
+**/state/
+**/logs/
+**/install.log
+**/setup-result.json
+
 # macOS build intermediates and local diagnostics
 **/.build/
 **/.build-cache/

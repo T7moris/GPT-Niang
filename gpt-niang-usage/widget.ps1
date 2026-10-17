@@ -1,4 +1,4 @@
-param([switch]$CheckOnly,[switch]$Preview,[string]$AppDir=$PSScriptRoot)
+﻿param([switch]$CheckOnly,[switch]$Preview,[string]$AppDir=$PSScriptRoot)
 $ErrorActionPreference='Stop'
 $script:appDir=$AppDir
 $script:configPath=Join-Path $script:appDir 'installation.json'
@@ -7,7 +7,12 @@ $script:config=Get-Content -LiteralPath $script:configPath -Raw -Encoding UTF8 |
 $script:dataDir=$script:config.dataDir
 $null=New-Item -ItemType Directory -Path $script:dataDir -Force
 . (Join-Path $script:appDir 'runtime\quotes.ps1')
+. (Join-Path $script:appDir 'runtime\quota-character.ps1')
+. (Join-Path $script:appDir 'runtime\quota-mood.ps1')
+$script:quotaMood='normal';$script:quotaMoodAccount=''
 . ([ScriptBlock]::Create([IO.File]::ReadAllText((Join-Path $script:appDir 'runtime\ui-settings.ps1'),[Text.Encoding]::UTF8)))
+. ([ScriptBlock]::Create([IO.File]::ReadAllText((Join-Path $script:appDir 'runtime\characters.ps1'),[Text.Encoding]::UTF8)))
+. ([ScriptBlock]::Create([IO.File]::ReadAllText((Join-Path $script:appDir 'runtime\character-gallery.ps1'),[Text.Encoding]::UTF8)))
 . (Join-Path $script:appDir 'runtime\audio.ps1')
 . (Join-Path $script:appDir 'runtime\host-layer.ps1')
 . (Join-Path $script:appDir 'runtime\host-follow.ps1')
@@ -102,13 +107,7 @@ $script:designWidth=[double]$script:window.FindName('AnimationStage').Width
 $script:designHeight=[double]$script:window.FindName('AnimationStage').Height
 $script:ui=@{}
 foreach($name in @('Root','Bubble','Tail','TailNear','SceneText','QuotaText','QuoteText','BubbleShape','Girl','PressScale','FacingScale','TextFacingScale','Header','Refresh','MenuButton','Status','LiveDot','ShortRow','WeekRow','ShortLabel','WeekLabel','ShortUsed','ShortLeft','ShortReset','ShortBar','WeekUsed','WeekLeft','WeekReset','WeekBar')){$script:ui[$name]=$script:window.FindName($name)}
-$bitmap=New-Object Windows.Media.Imaging.BitmapImage
-$bitmap.BeginInit();$bitmap.CacheOption=[Windows.Media.Imaging.BitmapCacheOption]::OnLoad
-$bitmap.UriSource=[Uri](Join-Path $script:appDir 'assets\gpt-dragon-niang-bust.png');$bitmap.EndInit();$bitmap.Freeze()
-$script:ui.Girl.Source=$bitmap
-$script:alphaBitmap=New-Object Windows.Media.Imaging.FormatConvertedBitmap($bitmap,[Windows.Media.PixelFormats]::Bgra32,$null,0)
-$script:alphaStride=$bitmap.PixelWidth*4;$script:alphaPixels=New-Object byte[] ($script:alphaStride*$bitmap.PixelHeight)
-$script:alphaBitmap.CopyPixels($script:alphaPixels,$script:alphaStride,0)
+$script:characterId='gpt-dragon';$script:activeCharacter=$null
 $script:status=$null
 $script:statusStamp=0
 $script:offsetRight=0.0;$script:offsetBottom=0.0;$script:offsetLeft=$null;$script:anchor='right';$script:side='right';$script:scale=1.0;$script:collapsed=$true
@@ -129,7 +128,7 @@ try{$settings=Get-Content -LiteralPath $settingsFile -Raw -Encoding UTF8 | Conve
     if(@('left','right')-contains $settings.side){$script:side=$settings.side}
   }else{$script:offsetBottom=0;if($script:offsetRight-gt 18){$script:anchor='free'}}
   if($null-ne $settings.soundOn){$script:soundOn=[bool]$settings.soundOn}
-  if($null-ne $settings.soundVolume){$script:soundVolume=[Math]::Min(1,[Math]::Max(0,[double]$settings.soundVolume))}
+  if($null-ne $settings.soundVolume){$script:soundVolume=[Math]::Min(1.0,[Math]::Max(0.0,[double]$settings.soundVolume))}
   if($null-ne $settings.bubbleTapAdvance){$script:bubbleTapAdvance=[bool]$settings.bubbleTapAdvance}
   if($null-ne $settings.hideMenu){$script:hideMenu=[bool]$settings.hideMenu}
   if(@('original','linked','rainbow','surprise','rare','special','mixed')-contains $settings.colorMode){$script:colorMode=$settings.colorMode}
@@ -140,12 +139,48 @@ try{$settings=Get-Content -LiteralPath $settingsFile -Raw -Encoding UTF8 | Conve
   if($null-ne $settings.desktopTopmost){$script:desktopTopmost=[bool]$settings.desktopTopmost}
   if($null-ne $settings.desktopLeft){$script:desktopLeft=[double]$settings.desktopLeft}
   if($null-ne $settings.desktopTop){$script:desktopTop=[double]$settings.desktopTop}
+  if($settings.characterId-is [string]){$script:characterId=$settings.characterId}
 }catch{}
 function Write-WidgetJson($file,$value){
   $temp=$file+'.tmp';[IO.File]::WriteAllText($temp,($value|ConvertTo-Json -Depth 6),[Text.UTF8Encoding]::new($false))
   if([IO.File]::Exists($file)){[IO.File]::Replace($temp,$file,($file+'.bak'),$true)}else{[IO.File]::Move($temp,$file)}
 }
-function Save-Settings {Write-WidgetJson $settingsFile @{layoutVersion=2;right=$script:offsetRight;left=$script:offsetLeft;bottom=$script:offsetBottom;anchor=$script:anchor;side=$script:side;scale=$script:scale;collapsed=$script:collapsed;soundOn=$script:soundOn;soundVolume=$script:soundVolume;bubbleTapAdvance=$script:bubbleTapAdvance;hideMenu=$script:hideMenu;colorMode=$script:colorMode;colorChance=$script:colorChance;colorTextChance=$script:colorTextChance;colorPaused=$script:colorPaused;followHost=$script:followHost;desktopTopmost=$script:desktopTopmost;desktopLeft=$script:desktopLeft;desktopTop=$script:desktopTop}}
+function Save-Settings {Write-WidgetJson $settingsFile @{layoutVersion=2;right=$script:offsetRight;left=$script:offsetLeft;bottom=$script:offsetBottom;anchor=$script:anchor;side=$script:side;scale=$script:scale;collapsed=$script:collapsed;soundOn=$script:soundOn;soundVolume=$script:soundVolume;bubbleTapAdvance=$script:bubbleTapAdvance;hideMenu=$script:hideMenu;colorMode=$script:colorMode;colorChance=$script:colorChance;colorTextChance=$script:colorTextChance;colorPaused=$script:colorPaused;followHost=$script:followHost;desktopTopmost=$script:desktopTopmost;desktopLeft=$script:desktopLeft;desktopTop=$script:desktopTop;characterId=$script:characterId}}
+function Set-WidgetCharacter([string]$Id,[switch]$NoSave) {
+  $character=Get-WidgetCharacter $script:appDir $script:dataDir $Id
+  # Decode and build the click-through map before replacing the current pose.
+  $image=Read-WidgetCharacterImage $character.path
+  $alpha=[Windows.Media.Imaging.FormatConvertedBitmap]::new($image,[Windows.Media.PixelFormats]::Bgra32,$null,0)
+  $alpha.Freeze();$stride=$image.PixelWidth*4;$pixels=New-Object byte[] ($stride*$image.PixelHeight)
+  $alpha.CopyPixels($pixels,$stride,0)
+  $previous=@{bitmap=$script:bitmap;alpha=$script:alphaBitmap;stride=$script:alphaStride;pixels=$script:alphaPixels;id=$script:characterId;character=$script:activeCharacter;quotaState=$script:quotaCharacterState;size=$script:ui.Girl.Width;left=[Windows.Controls.Canvas]::GetLeft($script:ui.Girl);top=[Windows.Controls.Canvas]::GetTop($script:ui.Girl)}
+  try{
+    $script:bitmap=$image;$script:alphaBitmap=$alpha;$script:alphaStride=$stride;$script:alphaPixels=$pixels
+    $script:characterId=$character.id;$script:activeCharacter=$character;$script:ui.Girl.Source=$image
+    if($script:widgetColors){
+      foreach($overlay in @($script:widgetColors.halo,$script:widgetColors.tint)){
+        if($overlay -and $overlay.OpacityMask){$overlay.OpacityMask.ImageSource=$image;$overlay.OpacityMask.Stretch=[Windows.Media.Stretch]::Uniform}
+      }
+    }
+    # Selection changes the saved normal pose. Low quota remains an independent override.
+    $script:quotaCharacterState=$null
+    $mood=if($script:quotaMood-eq 'low'){'low'}else{'normal'}
+    Set-WidgetQuotaCharacter $mood -Force
+    if(!$NoSave){Save-Settings}
+  }catch{
+    $script:bitmap=$previous.bitmap;$script:alphaBitmap=$previous.alpha;$script:alphaStride=$previous.stride;$script:alphaPixels=$previous.pixels
+    $script:characterId=$previous.id;$script:activeCharacter=$previous.character;$script:ui.Girl.Source=$previous.bitmap
+    $script:quotaCharacterState=$previous.quotaState
+    $script:ui.Girl.Width=$previous.size;$script:ui.Girl.Height=$previous.size
+    [Windows.Controls.Canvas]::SetLeft($script:ui.Girl,$previous.left);[Windows.Controls.Canvas]::SetTop($script:ui.Girl,$previous.top)
+    if($script:widgetColors){foreach($overlay in @($script:widgetColors.halo,$script:widgetColors.tint)){if($overlay -and $overlay.OpacityMask){$overlay.OpacityMask.ImageSource=$previous.bitmap;$overlay.Width=$previous.size;$overlay.Height=$previous.size;[Windows.Controls.Canvas]::SetLeft($overlay,$previous.left);[Windows.Controls.Canvas]::SetTop($overlay,$previous.top)}}}
+    throw
+  }
+  if($script:settingsMenuUi){Update-WidgetSettingsMenu}
+  return $character
+}
+try{$null=Set-WidgetCharacter $script:characterId -NoSave}
+catch{$script:characterLoadNotice='上次使用的图片无法读取，已恢复龙娘1。';$null=Set-WidgetCharacter 'gpt-dragon' -NoSave}
 function Get-WidgetPlacementFrame {
   if($script:followHost){return Get-WidgetVisibleFrame}
   $point=if($null-ne $script:desktopLeft -and $null-ne $script:desktopTop){[Drawing.Point]::new([int]$script:desktopLeft,[int]$script:desktopTop)}else{[Drawing.Point]::new(0,0)}
@@ -170,8 +205,9 @@ function Set-WidgetFollowHost([bool]$Follow) {
 function Set-Facing {
   $factor=if($script:side-eq 'left'){-1.0}else{1.0}
   $script:ui.FacingScale.ScaleX=$factor;$script:ui.TextFacingScale.ScaleX=$factor
-  # Refresh now shares SceneText's mirror compensation with the title.
-  $script:ui.Refresh.RenderTransform=[Windows.Media.Transform]::Identity
+  # The separate refresh overlay needs its own mirror compensation.
+  $script:ui.Refresh.RenderTransformOrigin=[Windows.Point]::new(0.5,0.5)
+  $script:ui.Refresh.RenderTransform=[Windows.Media.ScaleTransform]::new($factor,1)
   $script:ui.MenuButton.RenderTransformOrigin=[Windows.Point]::new(0.5,0.5)
   $script:ui.MenuButton.RenderTransform=[Windows.Media.ScaleTransform]::new($factor,1)
 }
@@ -278,14 +314,19 @@ function Read-DisplayRequest {
     $request=Get-Content -LiteralPath (Join-Path $script:dataDir 'display-request.json') -Raw -Encoding UTF8 | ConvertFrom-Json
     if($request.nonce -and $request.nonce-ne $script:displayRequestToken){
       $script:displayRequestToken=$request.nonce
-      if([Math]::Abs([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()-[long]$request.at)-lt 10000){
+      $script:lastDisplayRequestMode=$request.mode
+      $script:lastDisplayRequestAgeMs=[DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()-[long]$request.at
+      if([Math]::Abs($script:lastDisplayRequestAgeMs)-lt 10000){
         if($request.mode-eq 'quota'){Show-Quota}
         elseif($request.mode-eq 'quote'){if($script:collapsed){Show-Quota};Switch-Scene 'quote'}
         elseif($request.mode-eq 'menu' -and $script:window.IsVisible){Open-WidgetMenu}
+        elseif($request.mode-eq 'characters' -and $script:window.IsVisible){Open-WidgetCharacterGallery}
         elseif($request.mode-eq 'close-menu'){$script:context.IsOpen=$false}
       }
     }
-  }catch{}
+  }catch{
+    if($request.nonce){try{Write-WidgetJson (Join-Path $script:dataDir 'display-request-error.json') @{mode=$request.mode;error=$_.Exception.Message;trace=$_.ScriptStackTrace;at=[DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()}}catch{}}
+  }
 }
 function Apply-Scene {
   Set-WidgetSceneLayout
@@ -421,11 +462,11 @@ function Set-MenuVisible([bool]$show){
 }
 function Test-GirlAlpha([Windows.Point]$rootPoint){
   $point=$script:ui.Root.TranslatePoint($rootPoint,$script:ui.Girl)
-  $fit=[Math]::Max($script:ui.Girl.ActualWidth/$bitmap.PixelWidth,$script:ui.Girl.ActualHeight/$bitmap.PixelHeight)
+  $fit=[Math]::Min($script:ui.Girl.ActualWidth/$script:bitmap.PixelWidth,$script:ui.Girl.ActualHeight/$script:bitmap.PixelHeight)
   if($fit-le 0){return $false}
-  $x=[int][Math]::Floor(($point.X-($script:ui.Girl.ActualWidth-$bitmap.PixelWidth*$fit)/2)/$fit)
-  $y=[int][Math]::Floor(($point.Y-($script:ui.Girl.ActualHeight-$bitmap.PixelHeight*$fit)/2)/$fit)
-  if($x-lt 0 -or $y-lt 0 -or $x-ge $bitmap.PixelWidth -or $y-ge $bitmap.PixelHeight){return $false}
+  $x=[int][Math]::Floor(($point.X-($script:ui.Girl.ActualWidth-$script:bitmap.PixelWidth*$fit)/2)/$fit)
+  $y=[int][Math]::Floor(($point.Y-($script:ui.Girl.ActualHeight-$script:bitmap.PixelHeight*$fit)/2)/$fit)
+  if($x-lt 0 -or $y-lt 0 -or $x-ge $script:bitmap.PixelWidth -or $y-ge $script:bitmap.PixelHeight){return $false}
   return $script:alphaPixels[$y*$script:alphaStride+$x*4+3]-gt 10
 }
 function Test-WidgetHit([Windows.Point]$rootPoint){
@@ -493,10 +534,15 @@ function Update-Quota {
     elseif($stamp-ne $script:statusStamp){$script:status=Get-Content -LiteralPath $file -Raw -Encoding UTF8 | ConvertFrom-Json;$script:statusStamp=$stamp}
   }catch{$script:status=$null;$script:statusStamp=0}
   $now=[DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
-  foreach($row in (Get-QuotaRows)){
+  Update-WidgetQuotaMood
+  $rows=@(Get-QuotaRows)
+  # Resolve the row layout before reading the single/double-row track widths.
+  foreach($row in $rows){
+    $script:ui[$row.prefix+'Row'].Visibility=if(!$row.window -and $script:status.queryOk-eq $true){[Windows.Visibility]::Collapsed}else{[Windows.Visibility]::Visible}
+  }
+  foreach($row in $rows){
     $prefix=$row.prefix;$q=$row.window
     $script:ui[$prefix+'Label'].Text=$row.label
-    $script:ui[$prefix+'Row'].Visibility=if(!$q -and $script:status.queryOk-eq $true){[Windows.Visibility]::Collapsed}else{[Windows.Visibility]::Visible}
     $script:ui[$prefix+'Reset'].ToolTip=$null
     if(!$q){
       $script:ui[$prefix+'Used'].Text='已用 —';$script:ui[$prefix+'Left'].Text='—'
@@ -510,13 +556,16 @@ function Update-Quota {
     $script:ui[$prefix+'Left'].Text=if($expired){'—'}else{"$left%"}
     $script:ui[$prefix+'Reset'].Text=if($hasReset){Format-ResetDisplay ([long]$q.resetsAt) $now}else{'未提供重置时间'}
     if($hasReset){$script:ui[$prefix+'Reset'].ToolTip='本机时间 '+[DateTimeOffset]::FromUnixTimeSeconds([long]$q.resetsAt).ToLocalTime().ToString('yyyy-MM-dd HH:mm zzz')+' 重置 · '+(Reset-Label ([double]$q.resetsAt-$now))}
-    $script:ui[$prefix+'Bar'].Width=if($expired){0}else{184*[double]$q.remaining/100}
+    $trackWidth=[double]$script:ui[$prefix+'Bar'].Parent.Width
+    if([double]::IsNaN($trackWidth)){$trackWidth=184.0}
+    $remaining=[Math]::Min(100.0,[Math]::Max(0.0,[double]$q.remaining))
+    $script:ui[$prefix+'Bar'].Width=if($expired){0}else{$trackWidth*$remaining/100}
     $color=if($expired){'#B3A7C0'}elseif([double]$q.used-ge 90){'#D77659'}elseif([double]$q.used-ge 75){'#D0A051'}else{'#9B86C1'}
     $script:ui[$prefix+'Bar'].Background=[Windows.Media.BrushConverter]::new().ConvertFromString($color)
     $valueColor=if($expired){'#95889F'}elseif([double]$q.used-ge 90){'#B74839'}elseif([double]$q.used-ge 75){'#A06C1C'}else{'#745A98'}
     $script:ui[$prefix+'Left'].Foreground=[Windows.Media.BrushConverter]::new().ConvertFromString($valueColor)
   }
-  $script:ui.WeekRow.Margin=if($script:ui.ShortRow.Visibility-eq [Windows.Visibility]::Collapsed){[Windows.Thickness]::new(0,1,0,0)}else{[Windows.Thickness]::new(0,4,0,0)}
+  $script:ui.WeekRow.Margin=if($script:ui.ShortRow.Visibility-eq [Windows.Visibility]::Collapsed){[Windows.Thickness]::new(0)}else{[Windows.Thickness]::new(0,1,0,0)}
   $age=if($script:status.observedAt){$now-[Math]::Floor([double]$script:status.observedAt/1000)}else{0}
   $dot='#9B86C1'
   if(!$script:status){$script:ui.Status.Text='正在读取订阅额度…';$dot='#C5A96F'}
@@ -537,7 +586,7 @@ function Update-Quota {
   if($script:widgetColors){Update-WidgetColorScene}
 }
 Set-Appearance;Set-BubbleState;Initialize-WidgetColors;Update-Quota
-if($CheckOnly){$hostWindow=[GptWidgetNative]::FindCodex();$foregroundWindow=[GptWidgetNative]::GetAncestor([GptWidgetNative]::GetForegroundWindow(),2);@{ok=$true;imageLoaded=$bitmap.PixelWidth-gt 0;host=$hostWindow.ToInt64();hostTitle=[GptWidgetNative]::Title($hostWindow);foreground=$foregroundWindow.ToInt64();foregroundTitle=[GptWidgetNative]::Title($foregroundWindow);dataDir=$script:dataDir}|ConvertTo-Json;return}
+if($CheckOnly){$hostWindow=[GptWidgetNative]::FindCodex();$foregroundWindow=[GptWidgetNative]::GetAncestor([GptWidgetNative]::GetForegroundWindow(),2);@{ok=$true;imageLoaded=$script:bitmap.PixelWidth-gt 0;quotaMood=$script:quotaMood;characterSize=$script:ui.Girl.Width;characterId=$script:characterId;characterName=$script:activeCharacter.name;soundVolume=$script:soundVolume;host=$hostWindow.ToInt64();hostTitle=[GptWidgetNative]::Title($hostWindow);foreground=$foregroundWindow.ToInt64();foregroundTitle=[GptWidgetNative]::Title($foregroundWindow);dataDir=$script:dataDir}|ConvertTo-Json;return}
 if($Preview){
   $script:collapsed=$false;Set-Appearance;Set-BubbleState;Apply-Scene
   $script:ui.Root.LayoutTransform=[Windows.Media.Transform]::Identity
@@ -682,7 +731,7 @@ function Stop-WidgetRuntime {
   if($script:runtimeClosed){return};$script:runtimeClosed=$true
   try{if($script:hostFollower){$script:hostFollower.Dispose()}}catch{}
   foreach($timer in @($script:timer,$script:hostEventTimer,$script:menuTimer,$script:sceneTimer,$script:resetPhaseTimer,$script:closeTimer)){try{if($timer){$timer.Stop()}}catch{}}
-  try{Stop-WidgetAudio}catch{}
+  try{Close-WidgetAudio}catch{}
   foreach($hook in $script:eventHooks){try{if($hook-ne [IntPtr]::Zero){[GptWidgetNative]::UnhookWinEvent($hook)|Out-Null}}catch{}}
   if($script:worker){try{if(!$script:worker.HasExited){$script:worker.Kill()}}catch{}; $script:worker.Dispose();$script:worker=$null}
   foreach($name in @('runtime.json','presence.json')){
@@ -759,7 +808,7 @@ function Tick-Widget {
     $script:window.Hide()
   }
   if($now-$script:lastPresence-ge 1000){
-    Write-WidgetJson (Join-Path $script:dataDir 'presence.json') @{visible=[bool]$visible;at=$now;host=$script:hostHandle.ToInt64();widget=$script:widgetHandle.ToInt64();pid=$PID;followHost=$script:followHost;follow=@{ready=$script:hostFollower.Ready;events=$script:hostFollower.MovementEvents;mode='native-immediate';animationPaddingDip=14};scene=@{open=!$script:collapsed;mode=$script:bubbleMode;resetTimeMode=$script:resetTimeMode;startedAt=$script:sceneStartedAt;closesAt=$script:sceneDeadline;shortReset=$script:ui.ShortReset.Text;weekReset=$script:ui.WeekReset.Text}}
+    Write-WidgetJson (Join-Path $script:dataDir 'presence.json') @{visible=[bool]$visible;at=$now;host=$script:hostHandle.ToInt64();widget=$script:widgetHandle.ToInt64();pid=$PID;followHost=$script:followHost;character=@{id=$script:characterId;name=$script:activeCharacter.name;galleryOpen=[bool]($script:characterGallery -and $script:characterGallery.IsVisible)};displayRequest=@{mode=$script:lastDisplayRequestMode;ageMs=$script:lastDisplayRequestAgeMs};follow=@{ready=$script:hostFollower.Ready;events=$script:hostFollower.MovementEvents;mode='native-immediate';animationPaddingDip=14};scene=@{open=!$script:collapsed;mode=$script:bubbleMode;resetTimeMode=$script:resetTimeMode;startedAt=$script:sceneStartedAt;closesAt=$script:sceneDeadline;shortReset=$script:ui.ShortReset.Text;weekReset=$script:ui.WeekReset.Text}}
     Update-Quota;$script:lastPresence=$now
     Read-DisplayRequest
   }

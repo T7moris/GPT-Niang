@@ -1,14 +1,20 @@
-param([string]$PreviewDirectory,[string]$TestRoot=$PSScriptRoot)
+﻿param([string]$PreviewDirectory,[string]$TestRoot=$PSScriptRoot)
 $ErrorActionPreference='Stop'
 Add-Type -AssemblyName PresentationFramework,PresentationCore,WindowsBase
 $appDir=Split-Path $TestRoot -Parent
+$script:appDir=$appDir
+. (Join-Path $appDir 'runtime\quotes.ps1')
+. (Join-Path $appDir 'runtime\quota-character.ps1')
+. (Join-Path $appDir 'runtime\quota-mood.ps1')
+. ([ScriptBlock]::Create([IO.File]::ReadAllText((Join-Path $appDir 'runtime\color-theme.ps1'),[Text.Encoding]::UTF8)))
+$script:quotaMood='normal';$script:quotaMoodAccount=''
 . ([ScriptBlock]::Create([IO.File]::ReadAllText((Join-Path $appDir 'runtime\quote-layout.ps1'),[Text.Encoding]::UTF8)))
 Initialize-WidgetQuoteLayouts $appDir
 $tokens=$null;$parseErrors=$null
 $source=[IO.File]::ReadAllText((Join-Path $appDir 'widget.ps1'),[Text.Encoding]::UTF8)
 $ast=[Management.Automation.Language.Parser]::ParseInput($source,[ref]$tokens,[ref]$parseErrors)
 if($parseErrors.Count){throw ($parseErrors|Out-String)}
-foreach($name in @('Set-Facing','Reset-Label','Format-ResetTime','Format-ResetDisplay','Get-QuotaWindowLabel','Get-QuotaRows','Set-ResetTimeMode','Restart-SceneTtl','Tick-Scene','Apply-Scene','Update-BubbleTooltip','Update-Quota')){
+foreach($name in @('Test-GirlAlpha','Set-Facing','Reset-Label','Format-ResetTime','Format-ResetDisplay','Get-QuotaWindowLabel','Get-QuotaRows','Set-ResetTimeMode','Restart-SceneTtl','Tick-Scene','Apply-Scene','Update-BubbleTooltip','Update-Quota')){
   $definition=$ast.Find({param($node)$node-is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name-eq $name},$true)
   . ([ScriptBlock]::Create($definition.Extent.Text))
 }
@@ -16,9 +22,10 @@ function Assert-Equal($actual,$expected,[string]$message){if($actual-ne $expecte
 $script:dataDir=Join-Path ([IO.Path]::GetTempPath()) ('gpt-niang-widget-test-'+[Guid]::NewGuid().ToString('N'))
 $null=New-Item -ItemType Directory -Path $script:dataDir
 $script:window=[Windows.Markup.XamlReader]::Parse([IO.File]::ReadAllText((Join-Path $appDir 'widget.xaml'),[Text.Encoding]::UTF8))
+# InputHitTest needs a presentation source. Keep this private test window invisible and offscreen.
+$script:window.Left=-32000;$script:window.Top=-32000;$script:window.Opacity=0;$script:window.Show()
 $script:ui=@{}
-foreach($name in @('Root','Girl','Bubble','SceneText','QuotaText','Refresh','ShortRow','WeekRow','ShortLabel','WeekLabel','ShortUsed','ShortLeft','ShortReset','ShortBar','WeekUsed','WeekLeft','WeekReset','WeekBar','Status','LiveDot','Header','QuoteText')){$script:ui[$name]=$script:window.FindName($name)}
-foreach($name in @('FacingScale','TextFacingScale','MenuButton')){$script:ui[$name]=$script:window.FindName($name)}
+foreach($name in @('Root','Girl','Bubble','BubbleShape','SceneText','QuotaText','Refresh','RefreshHost','MenuButton','FacingScale','TextFacingScale','ShortRow','WeekRow','ShortLabel','WeekLabel','ShortUsed','ShortLeft','ShortReset','ShortBar','WeekUsed','WeekLeft','WeekReset','WeekBar','Status','LiveDot','Header','QuoteText')){$script:ui[$name]=$script:window.FindName($name)}
 $script:ui.Girl.Source=[Windows.Media.Imaging.BitmapImage]::new([Uri](Join-Path $appDir 'assets\gpt-dragon-niang-bust.png'))
 $script:bubbleMode='quota';$script:status=$null;$script:statusStamp=0
 $script:resetTimeMode='fixed';$script:resetPhaseTimer=$null;$script:collapsed=$true;$script:closeCount=0
@@ -36,7 +43,9 @@ function Set-Snapshot($snapshot){
 function Save-Preview([string]$name,[double]$scale=1){
   if(!$PreviewDirectory){return}
   $null=New-Item -ItemType Directory -Path $PreviewDirectory -Force
-  $size=[int][Math]::Round(350*$scale);$viewport=$script:window.Content
+  $size=[int][Math]::Round(378*$scale);$viewport=$script:window.Content
+  $script:window.Width=$size;$script:window.Height=$size;$script:window.UpdateLayout()
+  $script:window.FindName('AnimationStage').InvalidateArrange();$script:ui.Root.InvalidateArrange();$viewport.InvalidateArrange()
   $viewport.Measure([Windows.Size]::new($size,$size));$viewport.Arrange([Windows.Rect]::new(0,0,$size,$size));$viewport.UpdateLayout()
   $render=[Windows.Media.Imaging.RenderTargetBitmap]::new($size,$size,96,96,[Windows.Media.PixelFormats]::Pbgra32)
   $render.Render($viewport);$encoder=[Windows.Media.Imaging.PngBitmapEncoder]::new()
@@ -44,22 +53,27 @@ function Save-Preview([string]$name,[double]$scale=1){
   $stream=[IO.File]::Create((Join-Path $PreviewDirectory ($name+'.png')))
   try{$encoder.Save($stream)}finally{$stream.Dispose()}
 }
-function Assert-QuotaLayout {
+function Add-QuotaInk($drawing,[Windows.Media.Matrix]$matrix){
+  if($drawing-is [Windows.Media.DrawingGroup]){
+    if($drawing.Transform){$next=$drawing.Transform.Value;$next.Append($matrix)}else{$next=$matrix}
+    foreach($child in $drawing.Children){Add-QuotaInk $child $next}
+  }elseif($drawing-is [Windows.Media.GlyphRunDrawing]){
+    $outline=$drawing.GlyphRun.BuildGeometry();$outline.Transform=[Windows.Media.MatrixTransform]::new($matrix)
+    $script:quotaInk.Children.Add($outline)
+  }
+}
+function Assert-QuotaLayout([double]$scale=1) {
   $scene=$script:window.FindName('SceneText');$root=$script:ui.Root
-  $root.Measure([Windows.Size]::new(350,350));$root.Arrange([Windows.Rect]::new(0,0,350,350));$root.UpdateLayout()
-  $header=$script:ui.Header;$headerOrigin=$header.TranslatePoint([Windows.Point]::new(0,0),$scene)
-  if($headerOrigin.X-lt -0.5 -or $headerOrigin.X+$header.ActualWidth-gt $scene.ActualWidth+0.5 -or $header.ActualHeight-gt 16.5){throw 'Quota title escapes its single-line bounds'}
-  $refresh=$script:ui.Refresh;$refreshOrigin=$refresh.TranslatePoint([Windows.Point]::new(0,0),$scene)
-  if($headerOrigin.X+$header.ActualWidth+3-gt $refreshOrigin.X){throw 'Refresh button overlaps title or loses its gap'}
-  if([Math]::Abs(($headerOrigin.Y+$header.ActualHeight/2)-($refreshOrigin.Y+$refresh.ActualHeight/2))-gt 0.5){throw 'Refresh and title are not on the same line'}
-  if($refreshOrigin.X+$refresh.ActualWidth-gt $scene.ActualWidth+0.5){throw 'Refresh escapes the text area'}
-  if(!$refresh.IsHitTestVisible){throw 'Refresh is blocked by a non-interactive ancestor'}
-  $buttonCenter=$refresh.TranslatePoint([Windows.Point]::new($refresh.ActualWidth/2,$refresh.ActualHeight/2),$root)
-  $hit=$root.InputHitTest($buttonCenter)
-  while($hit -and $hit-ne $refresh){$hit=[Windows.Media.VisualTreeHelper]::GetParent($hit)}
-  if($hit-ne $refresh){throw "Refresh cannot receive pointer input: center=$buttonCenter visible=$($refresh.IsVisible) root=$($root.IsVisible) hit=$($root.InputHitTest($buttonCenter))"}
+  $size=378*$scale;$viewport=$script:window.Content
+  $script:window.Width=$size;$script:window.Height=$size;$script:window.UpdateLayout()
+  $script:window.FindName('AnimationStage').InvalidateArrange();$root.InvalidateArrange();$viewport.InvalidateArrange()
+  $viewport.Measure([Windows.Size]::new($size,$size));$viewport.Arrange([Windows.Rect]::new(0,0,$size,$size));$viewport.UpdateLayout()
+  Assert-Equal $script:ui.Header.Visibility Collapsed 'Quota title stays hidden'
+  $safe=[Windows.Media.EllipseGeometry]::new([Windows.Point]::new(155,85),124,75)
+  $resetBottom=0.0;$rowCount=0;$informationBounds=[Windows.Rect]::Empty
   foreach($prefix in @('Short','Week')){
     if($script:ui[$prefix+'Row'].Visibility-eq [Windows.Visibility]::Collapsed){continue}
+    $rowCount++
     foreach($suffix in @('Left','Reset','Bar')){
       $control=$script:ui[$prefix+$suffix];$origin=$control.TranslatePoint([Windows.Point]::new(0,0),$scene)
       if($origin.X-lt -0.5 -or $origin.Y-lt -0.5 -or $origin.X+$control.ActualWidth-gt $scene.ActualWidth+0.5 -or $origin.Y+$control.ActualHeight-gt $scene.ActualHeight+0.5){throw "$prefix$suffix escapes the bubble text area"}
@@ -70,8 +84,49 @@ function Assert-QuotaLayout {
     $formatted=[Windows.Media.FormattedText]::new($reset.Text,[Globalization.CultureInfo]::InvariantCulture,[Windows.FlowDirection]::LeftToRight,$typeface,$reset.FontSize,$reset.Foreground)
     if($formatted.Width-gt $reset.ActualWidth){throw "Reset time is horizontally clipped: $($reset.Text)"}
     $bottom=$reset.TranslatePoint([Windows.Point]::new(0,$reset.ActualHeight),$root).Y
-    if($bottom-gt [Windows.Controls.Canvas]::GetTop($script:ui.Girl)-2){throw 'Reset time overlaps the character'}
+    $resetBottom=[Math]::Max($resetBottom,$bottom)
+    if($bottom-gt [Windows.Controls.Canvas]::GetTop($script:ui.Girl)-2){
+      if($script:quotaMood-ne 'low'){throw 'Reset time overlaps the character'}
+      # A full-body image has transparent corners. Compare actual text ink to
+      # actual sprite alpha rather than treating its rectangle as fully opaque.
+      $origin=$reset.TranslatePoint([Windows.Point]::new(0,0),$root)
+      $ink=$formatted.BuildGeometry([Windows.Point]::new(0,0));$bounds=$ink.Bounds
+      for($y=[int][Math]::Floor($bounds.Top);$y-le [Math]::Ceiling($bounds.Bottom);$y++){
+        for($x=[int][Math]::Floor($bounds.Left);$x-le [Math]::Ceiling($bounds.Right);$x++){
+          $point=[Windows.Point]::new($x+0.5,$y+0.5)
+          if($ink.FillContains($point) -and (Test-GirlAlpha ([Windows.Point]::new($origin.X+$point.X,$origin.Y+$point.Y)))){throw 'Character obscures reset time glyphs'}
+        }
+      }
+    }
+    if($script:ui[$prefix+'Bar'].ActualWidth-gt $script:ui[$prefix+'Bar'].Parent.ActualWidth+0.5){throw 'Remaining progress exceeds its track'}
+    if($script:ui[$prefix+'Left'].Text-eq '100%' -and [Math]::Abs($script:ui[$prefix+'Bar'].ActualWidth-$script:ui[$prefix+'Bar'].Parent.ActualWidth)-gt 0.5){throw 'A full remaining quota does not fill its resized track'}
+    foreach($suffix in @('Label','Left','Reset')){
+      $text=$script:ui[$prefix+$suffix];$script:quotaInk=[Windows.Media.GeometryGroup]::new()
+      Add-QuotaInk ([Windows.Media.VisualTreeHelper]::GetDrawing($text)) ([Windows.Media.Matrix]::Identity)
+      $origin=$text.TranslatePoint([Windows.Point]::new(0,0),$root)
+      $x=$text.TranslatePoint([Windows.Point]::new(1,0),$root);$y=$text.TranslatePoint([Windows.Point]::new(0,1),$root)
+      $script:quotaInk.Transform=[Windows.Media.MatrixTransform]::new([Windows.Media.Matrix]::new($x.X-$origin.X,$x.Y-$origin.Y,$y.X-$origin.X,$y.Y-$origin.Y,$origin.X,$origin.Y))
+      if($script:quotaInk.Children.Count-eq 0 -or $safe.FillContainsWithDetail($script:quotaInk)-ne [Windows.Media.IntersectionDetail]::FullyContains){throw ($prefix+$suffix+' rendered glyphs escape the bubble at scale '+$scale+': '+$script:quotaInk.Bounds)}
+      $informationBounds.Union($script:quotaInk.Bounds)
+    }
   }
+  $refresh=$script:ui.Refresh;$near=$refresh.TranslatePoint([Windows.Point]::new(0,0),$root)
+  $far=$refresh.TranslatePoint([Windows.Point]::new($refresh.ActualWidth,$refresh.ActualHeight),$root)
+  $refreshOrigin=[Windows.Point]::new([Math]::Min($near.X,$far.X),[Math]::Min($near.Y,$far.Y))
+  if($refreshOrigin.Y-lt $resetBottom+1){throw 'Refresh button overlaps the reset text'}
+  if([Math]::Abs($refreshOrigin.X+$refresh.ActualWidth/2-155)-gt 0.5){throw 'Refresh button is not centered under the quota rows'}
+  if($script:ui.BubbleShape.Data.FillContainsWithDetail([Windows.Media.RectangleGeometry]::new([Windows.Rect]::new($refreshOrigin.X,$refreshOrigin.Y,$refresh.ActualWidth,$refresh.ActualHeight)))-ne [Windows.Media.IntersectionDetail]::FullyContains){throw 'Refresh button escapes the bubble'}
+  if($rowCount-gt 0 -and [Math]::Abs($informationBounds.Top+$informationBounds.Height/2-85)-gt 3){throw ('Quota information glyphs are not vertically centered: '+$informationBounds)}
+  if($rowCount-eq 2){
+    $shortBottom=$script:ui.ShortRow.TranslatePoint([Windows.Point]::new(0,$script:ui.ShortRow.ActualHeight),$root).Y
+    $weekTop=$script:ui.WeekRow.TranslatePoint([Windows.Point]::new(0,0),$root).Y
+    if([Math]::Abs($weekTop-$shortBottom-1)-gt 0.5){throw 'The two quota rows are not grouped with a compact one-pixel gap'}
+    if($informationBounds.Height-gt 84){throw 'The two-row quota information still contains excessive vertical space'}
+  }
+  # A low refresh button overlaps the Image control rectangle; its separate overlay must win the hit test.
+  $hit=$root.InputHitTest([Windows.Point]::new($refreshOrigin.X+$refresh.ActualWidth/2,$refreshOrigin.Y+$refresh.ActualHeight/2))
+  while($hit -and $hit-ne $refresh){$hit=[Windows.Media.VisualTreeHelper]::GetParent($hit)}
+  if($hit-ne $refresh){throw ('Refresh button is not hit-testable: rootVisible='+$root.IsVisible+', hostVisible='+$script:ui.RefreshHost.Visibility+', hostInput='+$script:ui.RefreshHost.IsHitTestVisible)}
 }
 try{
   # An invisible test HWND makes IsVisible/input routing real without flashing
@@ -106,7 +161,7 @@ try{
   Assert-Equal $script:ui.ShortRow.Visibility Visible 'Short window is visible'
   Assert-Equal $script:ui.WeekRow.Visibility Visible 'Week window is visible'
   Assert-Equal $script:ui.ShortLeft.Text '75%' 'Short percentage'
-  Assert-Equal $script:ui.ShortBar.Width 138 'Short remaining bar'
+  Assert-Equal $script:ui.ShortBar.Width 126 'Short remaining bar'
   $root=$script:ui.Root;$root.Measure([Windows.Size]::new(350,350));$root.Arrange([Windows.Rect]::new(0,0,350,350));$root.UpdateLayout()
   $shortTrack=$script:ui.ShortBar.Parent;$weekTrack=$script:ui.WeekBar.Parent
   $shortOrigin=$shortTrack.TranslatePoint([Windows.Point]::new(0,0),$root)
@@ -140,7 +195,7 @@ try{
   Update-Quota
   Assert-Equal $script:resetTimeMode fixed 'Quota refresh does not reset phase'
   Assert-Equal $script:ui.ShortLeft.Text '75%' 'Phase switch keeps quota percentage'
-  Assert-Equal $script:ui.ShortBar.Width 138 'Phase switch keeps quota bar'
+  Assert-Equal $script:ui.ShortBar.Width 126 'Phase switch keeps quota bar'
   Assert-QuotaLayout;Save-Preview 'second-half-fixed'
   Tick-Scene ($now+4999)
   Assert-Equal $script:collapsed $false 'Second half stays visible until deadline'
@@ -201,7 +256,7 @@ try{
   Set-Snapshot @{ok=$true;queryOk=$true;observedAt=$now;windows=@($week)}
   Assert-Equal $script:ui.ShortRow.Visibility Collapsed 'Successful absent short window collapses entire row'
   Assert-Equal $script:ui.WeekRow.Visibility Visible 'Week remains visible'
-  Assert-Equal $script:ui.WeekRow.Margin.Top 1 'Single row spacing'
+  Assert-Equal $script:ui.WeekRow.Margin.Top 0 'Single row spacing'
   Assert-QuotaLayout
   if($script:bubbleTooltipText.Text.Contains('5 小时')){throw 'Hidden window leaked into tooltip'}
   Save-Preview 'week-only'
@@ -254,9 +309,6 @@ try{
     Assert-Equal $script:ui.ShortLeft.Text ($single.remaining.ToString()+'%') 'Generic duration percentage'
     Assert-Equal $script:ui.WeekRow.Visibility Collapsed 'One actual window hides the unused row'
     Assert-QuotaLayout
-    $scene=$script:ui.SceneText;$quota=$script:ui.QuotaText
-    $origin=$quota.TranslatePoint([Windows.Point]::new(0,0),$scene)
-    if([Math]::Abs($origin.Y+$quota.ActualHeight/2-$scene.ActualHeight/2)-gt 0.5){throw 'Single-window quota content is not vertically centered'}
     if(!$script:bubbleTooltipText.Text.Contains('当前套餐：Go')){throw 'Plan metadata missing from tooltip'}
     Save-Preview ('single-'+$single.minutes)
   }
@@ -310,13 +362,14 @@ try{
   Assert-Equal $script:ui.Header.Text '暂无法读取' 'Read error retains the compact title'
   Set-Snapshot @{ok=$true;queryOk=$true;observedAt=$now;planLabel=('FuturePlan'*10);windows=@($short)}
   Assert-QuotaLayout
-  Assert-Equal $script:ui.Header.TextTrimming CharacterEllipsis 'Long future plan names stay within bubble'
+  Assert-Equal $script:ui.Header.Visibility Collapsed 'Long future plan names stay in the tooltip'
   if(!$script:ui.Header.ToolTip.Contains(('FuturePlan'*10))){throw 'Full long plan name missing from tooltip'}
   Set-Snapshot @{ok=$true;queryOk=$true;observedAt=$now;planLabel='未知套餐';windows=@($short)}
   Assert-Equal $script:ui.Header.Text '剩余额度' 'Unknown plan does not clutter heading'
   foreach($side in @('left','right')){
     $script:side=$side;Set-Facing
-    Assert-Equal $script:ui.Refresh.RenderTransform.Value.M11 1 'Refresh must not be mirrored twice'
+    $expectedRefreshFacing=if($side-eq 'left'){-1.0}else{1.0}
+    Assert-Equal $script:ui.Refresh.RenderTransform.Value.M11 $expectedRefreshFacing 'Separate refresh overlay compensates for root mirroring'
     foreach($rows in @(@($individual),@($short,$week))){
       Set-Snapshot @{ok=$true;queryOk=$true;observedAt=$now;planLabel='Enterprise';windows=$rows}
       Assert-QuotaLayout
@@ -324,13 +377,44 @@ try{
     }
   }
   [IO.File]::WriteAllText((Join-Path $script:dataDir 'status.json'),'broken',[Text.UTF8Encoding]::new($false))
+  # Force parsing even if rapid fixture rewrites share a filesystem timestamp.
+  $script:statusStamp=0
   Update-Quota
   Assert-Equal $script:status $null 'Malformed snapshot cannot retain the previous account'
+  $script:ui.Girl.Source=[Windows.Media.Imaging.BitmapImage]::new([Uri](Join-Path $appDir 'assets\gpt-dragon-niang-bust.png'))
+  $future=[DateTimeOffset]::UtcNow.ToUnixTimeSeconds()+345600
+  $layoutCases=@(
+    @{name='week-90';snapshot=@{ok=$true;queryOk=$true;observedAt=$now;planLabel='Pro';windows=@(@{minutes=10080;used=10;remaining=90;resetsAt=$future})}},
+    @{name='week-100';snapshot=@{ok=$true;queryOk=$true;observedAt=$now;planLabel='Pro';windows=@(@{minutes=10080;used=0;remaining=100;resetsAt=$future})}},
+    @{name='two-windows';snapshot=@{ok=$true;queryOk=$true;observedAt=$now;windows=@(@{minutes=300;used=0;remaining=100;resetsAt=$future},@{minutes=10080;used=10;remaining=90;resetsAt=$future})}},
+    @{name='unknown-reset';snapshot=@{ok=$true;queryOk=$true;observedAt=$now;windows=@(@{minutes=10080;used=10;remaining=90;resetsAt=$null})}},
+    @{name='query-error';snapshot=@{ok=$false;queryOk=$false;observedAt=$now;error='Please sign in';windows=@()}}
+  )
+  $layoutChecks=0
+  foreach($case in $layoutCases){
+    $script:bubbleMode='quota';$script:resetTimeMode='fixed';Set-Snapshot $case.snapshot;Apply-Scene
+    foreach($side in @('right','left')){
+      $script:side=$side;Set-Facing
+      foreach($scale in @(0.6,0.8,1,1.4,2.5)){
+        Assert-QuotaLayout $scale;Save-Preview ($case.name+'-'+$side+'-'+$scale) $scale;$layoutChecks++
+      }
+    }
+  }
+  $script:side='right';Set-Facing
+  $script:ui.Bubble.Visibility=[Windows.Visibility]::Hidden;$script:ui.Bubble.IsHitTestVisible=$false
+  $script:window.Content.UpdateLayout()
+  Assert-Equal $script:ui.RefreshHost.Visibility Hidden 'Refresh overlay hides with the bubble'
+  Assert-Equal $script:ui.RefreshHost.IsHitTestVisible $false 'Hidden refresh overlay cannot intercept character clicks'
+  $script:ui.Bubble.Visibility=[Windows.Visibility]::Visible;$script:ui.Bubble.IsHitTestVisible=$true;$script:ui.Bubble.Opacity=0.4
+  $script:window.Content.UpdateLayout()
+  Assert-Equal $script:ui.RefreshHost.Opacity 0.4 'Refresh overlay follows bubble fade animations'
+  Assert-Equal ([object]::ReferenceEquals($script:ui.RefreshHost.RenderTransform,$script:ui.Bubble.RenderTransform)) $true 'Refresh overlay shares the bubble scale animation'
+  $script:ui.Bubble.Opacity=1
   Remove-Item -LiteralPath (Join-Path $script:dataDir 'status.json')
   Update-Quota
   Assert-Equal $script:status $null 'Removed snapshot is cleared'
   Assert-Equal $script:ui.ShortRow.Visibility Visible 'Loading is not treated as unsupported'
-  Write-Output 'PASS: two reset phases, native midpoint timer, restart and close timing, local dates, five timezones, daylight saving, layout and quota edge cases'
+  Write-Output ('PASS: two reset phases, native timers, dates/timezones, quota edge cases; '+$layoutChecks+' native glyph and refresh layout checks across both orientations and five scales')
 }finally{
   foreach($timer in @($script:resetPhaseTimer,$finishTimer)){if($timer){$timer.Stop()}}
   $script:window.Close()

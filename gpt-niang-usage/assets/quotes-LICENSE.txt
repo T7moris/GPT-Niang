@@ -1,6 +1,7 @@
 GPT娘内置语录来源与许可
 
-内置33句由原创台词、用户提供台词和以下7句上游文本组成。
+内置普通语录50句由原创台词、用户提供台词和以下7句上游文本组成。
+低额度语录另有21句独立保存。普通语录包含 AkihiM 在 PR #34 中补充的12句；本次贡献者另新增普通5句、低额度9句，共14句。
 上游来源：https://github.com/MeteorNOX/DeepSeek-Balance-Whale-Widget/blob/770d3f55ff40284eb244fff33fc9ed4654be8a45/assets/whale-widget.js
 
 真当我是便宜货啊...
