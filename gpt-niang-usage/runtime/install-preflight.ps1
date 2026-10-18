@@ -17,7 +17,7 @@ function Get-WidgetInstallPreflight {
   if($agentDir-ieq $programRoot -or $agentDir.StartsWith($programRoot+'\',[StringComparison]::OrdinalIgnoreCase) -or $programRoot.StartsWith($agentDir+'\',[StringComparison]::OrdinalIgnoreCase)){throw 'Stable update launcher must be outside the program directory.'}
   $localData=[Environment]::GetFolderPath('LocalApplicationData')
   if(!$localData){throw 'Local application data folder unavailable.'}
-  $dataDir=Join-Path $localData 'GPTNiangUsage\state'
+  $dataDir=Join-Path (Get-WidgetStorageRoot) 'state'
   $previousConfig=Join-Path $appDir 'installation.json'
   if(Test-Path -LiteralPath $previousConfig){$previous=Read-WidgetUpdateJson $previousConfig;$dataDir=Get-WidgetInstallationDataDir -AppDir $appDir -Configuration $previous}
   $dataDir=[IO.Path]::GetFullPath($dataDir).TrimEnd('\')

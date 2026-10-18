@@ -1,12 +1,16 @@
 $ErrorActionPreference='Stop'
 $source=Split-Path $PSScriptRoot -Parent
 . (Join-Path $source 'runtime\supervisor-task.ps1')
+. (Join-Path $source 'runtime\update-common.ps1')
 $testRoot=Join-Path ([IO.Path]::GetTempPath()) ('gpt-niang-install-test-'+[Guid]::NewGuid().ToString('N'))
 $null=New-Item -ItemType Directory -Path $testRoot
 $checks=0
 function Assert($condition,[string]$label){if(!$condition){throw ('Assertion failed: '+$label)};$script:checks++;Write-Output ('PASS '+$label)}
 function Assert-Throws([scriptblock]$action,[string]$pattern,[string]$label){try{& $action|Out-Null}catch{Assert ($_.Exception.Message-like $pattern) $label;return};throw ('Expected rejection: '+$label)}
 try{
+  $expectedStorage=Join-Path ([Environment]::GetFolderPath('UserProfile')) '.gpt-niang'
+  Assert ((Get-WidgetStorageRoot)-eq $expectedStorage) 'storage root belongs to the user profile outside redirected LocalAppData'
+  Assert ((Get-WidgetUpdateAgentDir)-eq (Join-Path $expectedStorage 'update-agent')) 'stable launcher uses the same profile storage root'
   $programRoot=Join-Path $testRoot 'program'
   $null=New-Item -ItemType Directory -Path $programRoot
   $moved=Join-Path $programRoot 'moved [folder]'
@@ -18,7 +22,7 @@ try{
   $commonFile=Join-Path $moved 'runtime\update-common.ps1'
   $common=[IO.File]::ReadAllText($commonFile)
   $isolatedAgent=Join-Path $testRoot 'update-agent'
-  $common=$common.Replace("(Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'GPTNiangUsage\update-agent')",("'"+$isolatedAgent.Replace("'","''")+"'"))
+  $common=$common.Replace("(Join-Path (Get-WidgetStorageRoot) 'update-agent')",("'"+$isolatedAgent.Replace("'","''")+"'"))
   [IO.File]::WriteAllText($commonFile,$common,[Text.UTF8Encoding]::new($false))
   $old=Join-Path $testRoot 'original'
   $data=Join-Path $testRoot 'state'
@@ -123,6 +127,76 @@ try{
   Write-WidgetSupervisorJson (Join-Path $uninstallData 'runtime.json') @{pid='invalid'}
   Stop-WidgetGui $moved $uninstallData
   Assert ($global:widgetInstallerTestPolls-eq 0) 'malformed runtime PID does not prevent stopping installation'
+
+  $readyInfo=Get-WidgetSupervisorInfo $moved @{appDir=$moved;dataDir=$uninstallData}
+  $started=[DateTime]::UtcNow.AddSeconds(-5)
+  $global:widgetInstallerReadyProcess=[pscustomobject]@{Name='powershell.exe';CreationDate=$started;CommandLine=('powershell.exe -File "'+(Join-Path $moved 'runtime\supervisor.ps1')+'"')}
+  function Get-CimInstance {return $global:widgetInstallerReadyProcess}
+  $statusFile=Join-Path $uninstallData 'supervisor-status.json'
+  $heartbeat=@{pid=2200;processStartedAt=$started.ToString('o');at=[DateTime]::UtcNow.ToString('o');taskName=$readyInfo.TaskName}
+  Write-WidgetSupervisorJson $statusFile $heartbeat
+  Assert (Test-WidgetSupervisorReady $readyInfo) 'a fresh heartbeat from the installed supervisor is ready'
+  $global:widgetInstallerReadyProcess.CreationDate=$started.AddTicks(-4)
+  Assert (Test-WidgetSupervisorReady $readyInfo) 'CIM microsecond truncation preserves the same supervisor identity'
+  $global:widgetInstallerReadyProcess.CreationDate=$started
+  $stableInfo=Get-WidgetSupervisorInfo $moved @{appDir=$moved;dataDir=$uninstallData;updateAgent=(Get-WidgetUpdateAgentDir)}
+  $global:widgetInstallerReadyProcess.CommandLine='powershell.exe -File "'+(Join-Path $stableInfo.AgentDir 'update-agent.ps1')+'" -Supervisor'
+  Assert (Test-WidgetSupervisorReady $stableInfo) 'the bound stable supervisor entry can satisfy readiness'
+  $global:widgetInstallerReadyProcess.CommandLine='powershell.exe -File "'+(Join-Path $stableInfo.AgentDir 'update-agent.ps1')+'"'
+  Assert (!(Test-WidgetSupervisorReady $stableInfo)) 'a one-shot launcher cannot impersonate a running supervisor'
+  $global:widgetInstallerReadyProcess.CommandLine='powershell.exe -File "C:\foreign\runtime\supervisor.ps1"'
+  Assert (!(Test-WidgetSupervisorReady $stableInfo)) 'a foreign supervisor cannot satisfy startup readiness'
+  $global:widgetInstallerReadyProcess.CommandLine='powershell.exe -File "'+(Join-Path $moved 'runtime\supervisor.ps1')+'"'
+  $global:widgetInstallerReadyProcess.CreationDate=$started.AddSeconds(1)
+  Assert (!(Test-WidgetSupervisorReady $readyInfo)) 'a reused supervisor PID cannot satisfy readiness'
+  $global:widgetInstallerReadyProcess.CreationDate=$started
+  $heartbeat.at=[DateTime]::UtcNow.AddMinutes(-1).ToString('o')
+  Write-WidgetSupervisorJson $statusFile $heartbeat
+  Assert (!(Test-WidgetSupervisorReady $readyInfo)) 'a stale supervisor heartbeat cannot claim startup success'
+  function Get-ScheduledTaskInfo {return @{LastTaskResult=2147942667}}
+  Assert-Throws {Wait-WidgetSupervisorReady $readyInfo -TimeoutSeconds 0} '*0x8007010B*' 'failed startup reports the real scheduler result'
+
+  function New-ScheduledTaskAction {param($Execute,$Argument,$WorkingDirectory);return @{Execute=$Execute;Arguments=$Argument;WorkingDirectory=$WorkingDirectory}}
+  function New-ScheduledTaskPrincipal {param($UserId,$LogonType,$RunLevel);return @{UserId=$UserId;LogonType=$LogonType;RunLevel=$RunLevel}}
+  function New-ScheduledTaskTrigger {
+    param([switch]$AtLogOn,$User,[switch]$Once,$At,$RepetitionInterval)
+    if($Once){return @{CimClass=@{CimClassName='MSFT_TaskTimeTrigger'};Enabled=$true;StartBoundary=$At;Repetition=@{Interval='PT1M';Duration=$null};RequestedInterval=$RepetitionInterval}}
+    return @{CimClass=@{CimClassName='MSFT_TaskLogonTrigger'};Enabled=$true;User=$User}
+  }
+  function New-ScheduledTaskSettingsSet {
+    param([switch]$AllowStartIfOnBatteries,[switch]$DontStopIfGoingOnBatteries,$ExecutionTimeLimit,$MultipleInstances,[switch]$StartWhenAvailable,[switch]$Hidden,$RestartCount,$RestartInterval)
+    return @{RestartCount=$RestartCount;RestartInterval=$RestartInterval;ExecutionTimeLimit=$ExecutionTimeLimit;MultipleInstances=$MultipleInstances}
+  }
+  function New-ScheduledTask {param($Action,$Principal,$Trigger,$Settings,$Description);return @{Actions=@($Action);Principal=$Principal;Triggers=@($Trigger);Settings=$Settings}}
+  $definition=New-WidgetSupervisorTaskDefinition $stableInfo
+  Assert ($definition.Settings.RestartCount-eq 999 -and $definition.Settings.RestartInterval-eq [TimeSpan]::FromMinutes(1)) 'scheduler retries an unexpectedly exited supervisor'
+  Assert ($definition.Settings.ExecutionTimeLimit-eq [TimeSpan]::Zero -and $definition.Settings.MultipleInstances-eq 'IgnoreNew') 'supervisor stays running without duplicate scheduled instances'
+  Assert ($definition.Triggers.Count-eq 2 -and $definition.Triggers[0].CimClass.CimClassName-eq 'MSFT_TaskLogonTrigger') 'supervisor retains its per-user logon trigger'
+  Assert ((Test-WidgetSupervisorPeriodicTrigger $definition) -and $definition.Triggers[1].RequestedInterval-eq [TimeSpan]::FromMinutes(1)) 'supervisor has an indefinite one-minute recovery trigger'
+  $definition.Triggers[1].Repetition.Duration='PT1H'
+  Assert (!(Test-WidgetSupervisorPeriodicTrigger $definition)) 'a recovery trigger that expires is not accepted'
+  $definition.Triggers[1].Repetition.Duration=$null
+
+  Write-WidgetSupervisorJson $configFile @{appDir=$moved;dataDir=$uninstallData;updateAgent=$stableInfo.AgentDir}
+  $global:widgetInstallerRegistrationTask=@{TaskName=$stableInfo.TaskName;TaskPath=$stableInfo.TaskPath;State='Ready';Actions=$definition.Actions;Triggers=@($definition.Triggers[0]);Settings=@{RestartCount=999;RestartInterval='PT1M'}}
+  $global:widgetInstallerRegistrations=0
+  function Get-WidgetSupervisorTask {return $global:widgetInstallerRegistrationTask}
+  function Register-ScheduledTask {
+    param($TaskName,$TaskPath,$InputObject,[switch]$Force,$ErrorAction)
+    $global:widgetInstallerRegistrations++
+    $global:widgetInstallerRegistrationTask.Triggers=$InputObject.Triggers
+    $global:widgetInstallerRegistrationTask.Settings=@{RestartCount=$InputObject.Settings.RestartCount;RestartInterval='PT1M'}
+  }
+  function Start-ScheduledTask {param($TaskName,$TaskPath,$ErrorAction)}
+  $global:widgetInstallerReadyProcess.CommandLine='powershell.exe -File "'+(Join-Path $moved 'runtime\supervisor.ps1')+'"'
+  $null=Register-WidgetSupervisorTask $moved
+  Assert ($global:widgetInstallerRegistrations-eq 1 -and (Test-WidgetSupervisorPeriodicTrigger $global:widgetInstallerRegistrationTask)) 'normal installation upgrades an existing task recovery trigger'
+  $null=Register-WidgetSupervisorTask $moved
+  Assert ($global:widgetInstallerRegistrations-eq 1) 'an unchanged scheduled definition is retained'
+  $global:widgetInstallerRegistrationTask.Triggers=@($definition.Triggers[0])
+  $global:widgetInstallerReadyProcess.CommandLine='powershell.exe -File "'+(Join-Path $stableInfo.AgentDir 'update-agent.ps1')+'" -Supervisor'
+  $null=Register-WidgetSupervisorTask $moved
+  Assert ($global:widgetInstallerRegistrations-eq 1) 'self recovery defers rewriting its own scheduled definition'
   Write-Output ("All $checks isolated installer assertions passed.")
 }finally{
   $resolved=[IO.Path]::GetFullPath($testRoot)

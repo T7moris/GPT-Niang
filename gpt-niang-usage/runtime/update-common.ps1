@@ -1,5 +1,12 @@
+function Get-WidgetStorageRoot {
+  # MSIX callers can see a redirected LocalAppData that Explorer and Task
+  # Scheduler cannot see. A profile directory is shared by every launch context.
+  $profileRoot=[Environment]::GetFolderPath('UserProfile')
+  if(!$profileRoot){throw 'User profile folder unavailable.'}
+  return (Join-Path $profileRoot '.gpt-niang')
+}
 function Get-WidgetUpdateAgentDir {
-  return (Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'GPTNiangUsage\update-agent')
+  return (Join-Path (Get-WidgetStorageRoot) 'update-agent')
 }
 function Read-WidgetUpdateJson([string]$File) {
   if(Test-Path -LiteralPath $File){return (Get-Content -LiteralPath $File -Raw -Encoding UTF8|ConvertFrom-Json)}

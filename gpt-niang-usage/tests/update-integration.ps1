@@ -20,7 +20,7 @@ function Copy-TestPackage([string]$Root,[string]$Version) {
     [IO.File]::WriteAllText($file,($value|ConvertTo-Json -Depth 12),[Text.UTF8Encoding]::new($false))
   }
   $files=@{
-    'update-common.ps1'=@{Before="(Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'GPTNiangUsage\update-agent')";After=("'"+$agent.Replace("'","''")+"'")}
+    'update-common.ps1'=@{Before="(Join-Path (Get-WidgetStorageRoot) 'update-agent')";After=("'"+$agent.Replace("'","''")+"'")}
     'supervisor-task.ps1'=@{Before='(''GPT Niang Usage - ''+$sid)';After='(''GPT Niang Usage Updater Test - ''+$sid)'}
     'install-preflight.ps1'=@{Before="[Environment]::GetFolderPath('Startup')";After=("'"+(Join-Path $testRoot 'startup').Replace("'","''")+"'")}
     'supervisor.ps1'=@{Before='$hosts=@([GptWidgetSupervisorNative]::Hosts())';After='$hosts=@()'}

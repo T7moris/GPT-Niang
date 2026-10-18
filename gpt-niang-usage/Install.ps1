@@ -25,7 +25,7 @@ try {
   $link=(New-Object -ComObject WScript.Shell).CreateShortcut($config.startupShortcut)
   $link.TargetPath=Join-Path $env:WINDIR 'System32\wscript.exe'
   $link.Arguments='"'+(Join-Path $config.updateAgent 'agent-launch.vbs')+'"'
-  $link.WorkingDirectory=$config.updateAgent
+  $link.WorkingDirectory=$env:WINDIR
   $link.Description='GPT Niang: Codex subscription quota widget'
   $link.Save()
   $task=Register-WidgetSupervisorTask -AppDir $appDir

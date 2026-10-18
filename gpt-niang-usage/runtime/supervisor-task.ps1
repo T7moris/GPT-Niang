@@ -17,7 +17,7 @@ function Test-WidgetStartupShortcutIdentity {
   param([Parameter(Mandatory=$true)]$Shortcut,[Parameter(Mandatory=$true)][string]$AppDir)
   $expectedExecute=Join-Path $env:WINDIR 'System32\wscript.exe'
   $expectedArguments='"'+(Join-Path ([IO.Path]::GetFullPath($AppDir)) 'launch.vbs')+'"'
-  $stable=if(Get-Command Get-WidgetUpdateAgentDir -ErrorAction SilentlyContinue){Get-WidgetUpdateAgentDir}else{Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'GPTNiangUsage\update-agent'}
+  $stable=if(Get-Command Get-WidgetUpdateAgentDir -ErrorAction SilentlyContinue){Get-WidgetUpdateAgentDir}else{Join-Path ([Environment]::GetFolderPath('UserProfile')) '.gpt-niang\update-agent'}
   $stableArguments='"'+(Join-Path $stable 'agent-launch.vbs')+'"'
   $argumentsMatch=[string]$Shortcut.Arguments-ieq $expectedArguments
   if([string]$Shortcut.Arguments-ieq $stableArguments){
@@ -58,7 +58,7 @@ function Get-WidgetSupervisorInfo {
   if([IO.Path]::GetFullPath([string]$config.appDir).TrimEnd('\')-ine $root){throw 'Supervisor installation identity mismatch.'}
   $data=[IO.Path]::GetFullPath([string]$config.dataDir)
   $sid=[Security.Principal.WindowsIdentity]::GetCurrent().User.Value
-  $agent=if(Get-Command Get-WidgetUpdateAgentDir -ErrorAction SilentlyContinue){Get-WidgetUpdateAgentDir}else{Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'GPTNiangUsage\update-agent'}
+  $agent=if(Get-Command Get-WidgetUpdateAgentDir -ErrorAction SilentlyContinue){Get-WidgetUpdateAgentDir}else{Join-Path ([Environment]::GetFolderPath('UserProfile')) '.gpt-niang\update-agent'}
   if($config.updateAgent -and [IO.Path]::GetFullPath($config.updateAgent)-ine $agent){throw 'Stable launcher path mismatch.'}
   $stable=[bool]$config.updateAgent
   [pscustomobject]@{AppDir=$root;DataDir=$data;Sid=$sid;TaskName=('GPT Niang Usage - '+$sid);TaskPath='\';Execute=(Join-Path $env:WINDIR 'System32\wscript.exe');Arguments=$(if($stable){'"'+(Join-Path $agent 'agent-supervisor.vbs')+'"'}else{'"'+(Join-Path $root 'supervisor.vbs')+'"'});WorkingDirectory=$(if($stable){$agent}else{$root});AgentDir=$agent}
@@ -143,9 +143,22 @@ function New-WidgetSupervisorTaskDefinition {
   param([Parameter(Mandatory=$true)]$Info)
   $action=New-ScheduledTaskAction -Execute $Info.Execute -Argument $Info.Arguments -WorkingDirectory $Info.WorkingDirectory
   $principal=New-ScheduledTaskPrincipal -UserId $Info.Sid -LogonType Interactive -RunLevel Limited
-  $trigger=New-ScheduledTaskTrigger -AtLogOn -User $Info.Sid
-  $settings=New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit ([TimeSpan]::Zero) -MultipleInstances IgnoreNew -StartWhenAvailable -Hidden
-  New-ScheduledTask -Action $action -Principal $principal -Trigger $trigger -Settings $settings -Description 'Keep the local GPT Niang widget attached to the current user Codex main window.'
+  $logonTrigger=New-ScheduledTaskTrigger -AtLogOn -User $Info.Sid
+  # Windows can leave a terminated wscript instance Ready without honoring
+  # RestartOnFailure. The repeating trigger recovers that state; IgnoreNew
+  # keeps it from duplicating a healthy running supervisor.
+  $recoveryTrigger=New-ScheduledTaskTrigger -Once -At ([DateTime]::Now.AddMinutes(1)) -RepetitionInterval ([TimeSpan]::FromMinutes(1))
+  $recoveryTrigger.Repetition.StopAtDurationEnd=$false
+  $settings=New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit ([TimeSpan]::Zero) -MultipleInstances IgnoreNew -StartWhenAvailable -Hidden -RestartCount 999 -RestartInterval ([TimeSpan]::FromMinutes(1))
+  New-ScheduledTask -Action $action -Principal $principal -Trigger @($logonTrigger,$recoveryTrigger) -Settings $settings -Description 'Keep the local GPT Niang widget attached to the current user Codex main window.'
+}
+
+function Test-WidgetSupervisorPeriodicTrigger {
+  param([Parameter(Mandatory=$true)]$Task)
+  foreach($trigger in @($Task.Triggers)){
+    if($trigger.CimClass.CimClassName-eq 'MSFT_TaskTimeTrigger' -and $trigger.Enabled-ne $false -and [string]$trigger.Repetition.Interval-eq 'PT1M' -and ![string]$trigger.Repetition.Duration -and $trigger.Repetition.StopAtDurationEnd-ne $true){return $true}
+  }
+  return $false
 }
 
 function Register-WidgetSupervisorTask {
@@ -156,9 +169,17 @@ function Register-WidgetSupervisorTask {
   if($existing -and [string]$existing.State-eq 'Running'){Stop-WidgetSupervisorTask $AppDir}
   Resume-WidgetSupervisor $AppDir
   $currentAction=if($existing){@($existing.Actions)[0]}else{$null}
-  # An unchanged stable entry survives program replacement. Replacing the running
-  # recovery task's definition can terminate its own instance on Windows.
-  if(!$currentAction -or [string]$currentAction.Arguments-ine $info.Arguments -or [IO.Path]::GetFullPath($currentAction.WorkingDirectory).TrimEnd('\')-ine $info.WorkingDirectory){
+  $definitionChanged=!$currentAction -or [string]$currentAction.Arguments-ine $info.Arguments -or [IO.Path]::GetFullPath($currentAction.WorkingDirectory).TrimEnd('\')-ine $info.WorkingDirectory
+  if($existing -and (!(Test-WidgetSupervisorPeriodicTrigger $existing) -or [int]$existing.Settings.RestartCount-ne 999 -or [string]$existing.Settings.RestartInterval-ne 'PT1M')){$definitionChanged=$true}
+  $recoveringEntry=$false
+  if($existing -and $definitionChanged -and $info.WorkingDirectory-ine $info.AppDir){
+    $self=Get-CimInstance Win32_Process -Filter ('ProcessId='+$PID) -ErrorAction Stop
+    $stableScript='"'+(Join-Path $info.AgentDir 'update-agent.ps1')+'"'
+    $recoveringEntry=$self -and [string]$self.CommandLine -and $self.CommandLine.IndexOf($stableScript,[StringComparison]::OrdinalIgnoreCase)-ge 0 -and $self.CommandLine-match '\s-Supervisor(?:\s|$)'
+  }
+  # Replacing a definition inside its own logon recovery entry can terminate
+  # that recovery. A later normal install can upgrade its trigger/settings.
+  if($definitionChanged -and !$recoveringEntry){
     $definition=New-WidgetSupervisorTaskDefinition $info
     Register-ScheduledTask -TaskName $info.TaskName -TaskPath $info.TaskPath -InputObject $definition -Force -ErrorAction Stop|Out-Null
   }
@@ -167,6 +188,39 @@ function Register-WidgetSupervisorTask {
   # IgnoreNew handles a running recovery instance; the CIM state can lag a stop.
   Start-ScheduledTask -TaskName $info.TaskName -TaskPath $info.TaskPath -ErrorAction Stop
   return $info
+}
+
+function Test-WidgetSupervisorReady {
+  param([Parameter(Mandatory=$true)]$Info)
+  try{
+    $status=Get-Content -LiteralPath (Join-Path $Info.DataDir 'supervisor-status.json') -Raw -Encoding UTF8 -ErrorAction Stop|ConvertFrom-Json
+    $age=([DateTime]::UtcNow-([DateTime]$status.at).ToUniversalTime()).TotalSeconds
+    if($age-lt -2 -or $age-gt 15 -or !$status.processStartedAt -or [string]$status.taskName-ine $Info.TaskName){return $false}
+    $supervisorPid=0
+    if(![int]::TryParse([string]$status.pid,[ref]$supervisorPid) -or $supervisorPid-le 0){return $false}
+    $process=Get-CimInstance Win32_Process -Filter ('ProcessId='+$supervisorPid) -ErrorAction Stop
+    if(!$process -or $process.Name-notin @('powershell.exe','pwsh.exe') -or ![string]$process.CommandLine){return $false}
+    # CIM truncates process creation times to microseconds; Process.StartTime
+    # used by the heartbeat retains 100ns ticks.
+    if(!$process.CreationDate -or [Math]::Abs((([DateTime]$process.CreationDate).ToUniversalTime()-([DateTime]$status.processStartedAt).ToUniversalTime()).Ticks)-gt 10){return $false}
+    $direct='"'+(Join-Path $Info.AppDir 'runtime\supervisor.ps1')+'"'
+    if($process.CommandLine.IndexOf($direct,[StringComparison]::OrdinalIgnoreCase)-ge 0){return $true}
+    $stable='"'+(Join-Path $Info.AgentDir 'update-agent.ps1')+'"'
+    return [bool]($Info.WorkingDirectory-ine $Info.AppDir -and $process.CommandLine.IndexOf($stable,[StringComparison]::OrdinalIgnoreCase)-ge 0 -and $process.CommandLine-match '\s-Supervisor(?:\s|$)')
+  }catch{return $false}
+}
+
+function Wait-WidgetSupervisorReady {
+  param([Parameter(Mandatory=$true)]$Info,[int]$TimeoutSeconds=15)
+  $deadline=[DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
+  do{
+    if(Test-WidgetSupervisorReady $Info){return}
+    if([DateTime]::UtcNow-ge $deadline){break}
+    Start-Sleep -Milliseconds 250
+  }while($true)
+  $result='unavailable'
+  try{$result='0x{0:X8}' -f [uint32](Get-ScheduledTaskInfo -TaskName $Info.TaskName -TaskPath $Info.TaskPath -ErrorAction Stop).LastTaskResult}catch{}
+  throw ('Supervisor did not publish a valid heartbeat. Task result: '+$result)
 }
 
 function Start-WidgetSupervisorTask {

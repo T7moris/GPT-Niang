@@ -8,7 +8,7 @@ import {EventEmitter} from 'node:events';
 import {Readable} from 'node:stream';
 import {deflateRawSync} from 'node:zlib';
 import {spawn,spawnSync} from 'node:child_process';
-import {compareVersions,versionParts,selectRelease,verifyHash,inspectZip,validatePackage,extractPackage,validateExtractedPackage,safeZipName,allowedUrl,download,runUpdate,acquireUpdateLock,updatePreferences,checkDue,installIdle,DAY,RELEASE_API} from '../runtime/update.mjs';
+import {compareVersions,versionParts,selectRelease,verifyHash,inspectZip,validatePackage,extractPackage,validateExtractedPackage,safeZipName,allowedUrl,download,runUpdate,acquireUpdateLock,updatePreferences,checkDue,installIdle,resolveUpdateAgentDir,DAY,RELEASE_API} from '../runtime/update.mjs';
 import {requestRefresh} from '../runtime/refresh-client.mjs';
 
 const required=JSON.parse(fs.readFileSync(new URL('../runtime/install-files.json',import.meta.url),'utf8'));
@@ -49,6 +49,20 @@ function setup(t,bytes=zipFixture(packageFiles())) {
   const options={agentDir:path.join(dir,'agent'),waitIdle:async()=>true,fetchBytes:async url=>url===RELEASE_API?Buffer.from(JSON.stringify(source)):url.endsWith('SHA256SUMS.txt')?sums:bytes,launch:async()=>{options.installs++;},installs:0};
   return {dir,config,options,source,sums};
 }
+test('updater uses the configured stable root and profile fallback outside LocalAppData',t=>{
+  const profile=temporary(t),configured=path.join(profile,'persisted','agent');
+  assert.equal(resolveUpdateAgentDir({updateAgent:configured},{userProfile:path.join(profile,'other')}),configured);
+  assert.equal(resolveUpdateAgentDir({},{userProfile:profile}),path.join(profile,'.gpt-niang','update-agent'));
+  for(const invalid of ['',null,42,'relative-agent'])assert.throws(()=>resolveUpdateAgentDir({updateAgent:invalid},{userProfile:profile}));
+});
+test('an update transaction uses config.updateAgent when no test override is supplied',async t=>{
+  const {dir,config,options}=setup(t);
+  config.updateAgent=path.join(dir,'persisted-agent');delete options.agentDir;
+  await runUpdate(config,options);
+  assert.equal(options.installs,1);
+  assert.equal(JSON.parse(fs.readFileSync(path.join(config.updateAgent,'update-transaction.json'),'utf8')).phase,'prepared');
+  assert.equal(fs.existsSync(path.join(dir,'agent')),false);
+});
 test('stable versions compare numerically and ignore same versions, prereleases and downgrades',()=>{
   assert.equal(compareVersions('v1.10.0','1.9.99'),1);assert.equal(compareVersions('2.0.0','10.0.0'),-1);
   assert.equal(compareVersions('999999999999999999.0.0','999999999999999998.9.9'),1);
