@@ -8,6 +8,24 @@ import {normalizeLimits,freshness,readUsage,accountFingerprint} from '../runtime
 import {mergeUsageSnapshot} from '../runtime/refresh-queue.mjs';
 const w=(used=10,mins=300)=>({usedPercent:used,windowDurationMins:mins,resetsAt:2000000000});
 const individual=(overrides={})=>({limit:'4000',used:'2082.8820300102234',remainingPercent:48,resetsAt:2000000000,...overrides});
+
+test('workspace routing failures are distinct from login errors and never expose raw RPC details',async()=>{
+  const spawnProcess=()=>{
+    const proc=new EventEmitter();proc.stdout=new PassThrough();proc.stderr=new PassThrough();proc.stdin=new PassThrough();proc.kill=()=>{};
+    let buffer='';
+    proc.stdin.on('data',chunk=>{
+      buffer+=chunk.toString();let end;
+      while((end=buffer.indexOf('\n'))>=0){
+        const request=JSON.parse(buffer.slice(0,end));buffer=buffer.slice(end+1);
+        if(request.id===1)queueMicrotask(()=>proc.stdout.write(JSON.stringify({id:1,result:{}})+'\n'));
+        if(request.id===2)queueMicrotask(()=>proc.stdout.write(JSON.stringify({id:2,error:{code:-32603,message:'workspace routing discovery timed out internal-private-details'}})+'\n'));
+      }
+    });return proc;
+  };
+  const result=await readUsage('fake',{spawnProcess});
+  assert.equal(result.errorCode,'WORKSPACE_ROUTING_UNAVAILABLE');assert.equal(result.clearPrevious,true);
+  assert.equal(JSON.stringify(result).includes('internal-private-details'),false);
+});
 test('Business personal cap works without primary or secondary windows',()=>{
   const r=normalizeLimits({rateLimitsByLimitId:{codex:{planType:'business',primary:null,secondary:null,individualLimit:individual()}}},1000);
   assert.equal(r.ok,true);assert.equal(r.queryOk,true);assert.equal(r.plan,'business');

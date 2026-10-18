@@ -149,7 +149,7 @@ test('worker exits when its GUI parent exits and releases ownership',async()=>{
   }
 });
 
-test('worker ownership recovers after a force-killed worker leaves stale files',{skip:!['win32','darwin'].includes(process.platform)},async()=>{
+test('worker ownership recovers after a force-killed worker leaves stale files',{skip:!['win32','darwin','linux'].includes(process.platform)},async()=>{
   const dir=fs.mkdtempSync(path.join(os.tmpdir(),'gpt-niang-crash-'));
   const children=[];
   try {
@@ -166,7 +166,7 @@ test('worker ownership recovers after a force-killed worker leaves stale files',
       return readJson(path.join(dir,'worker.lock')).token;
     };
     const first=start(),firstToken=await waitForOwner(first);
-    const crashed=once(first,'exit');first.kill(process.platform==='darwin'?'SIGKILL':'SIGTERM');await crashed;
+    const crashed=once(first,'exit');first.kill(process.platform==='win32'?'SIGTERM':'SIGKILL');await crashed;
     assert.equal(healthyWorker(dir),null);
     const second=start(),secondToken=await waitForOwner(second);
     assert.notEqual(firstToken,secondToken);

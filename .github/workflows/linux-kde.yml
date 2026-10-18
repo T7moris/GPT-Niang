@@ -1,0 +1,45 @@
+name: Linux KDE runtime and packaging
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - distro: fedora
+            image: fedora:44
+          - distro: debian
+            image: debian:trixie-slim
+          - distro: arch
+            image: archlinux:base
+    container: ${{ matrix.image }}
+    steps:
+      - name: Install distribution runtime dependencies
+        shell: sh
+        run: |
+          case '${{ matrix.distro }}' in
+            fedora) dnf install -y git nodejs python3 python3-dbus python3-gobject util-linux tar gzip ;;
+            debian) apt-get update && apt-get install -y --no-install-recommends git nodejs python3 python3-dbus python3-gi util-linux ca-certificates ;;
+            arch) pacman -Syu --noconfirm --needed git nodejs python python-dbus python-gobject util-linux ca-certificates ;;
+          esac
+      - uses: actions/checkout@v4
+      - name: Shared runtime, crash recovery and KWin logic tests
+        run: node --test gpt-niang-usage/tests/*.test.mjs linux/tests/*.test.mjs
+      - name: Python bridge imports and syntax
+        run: |
+          python3 -c 'import dbus,gi; from gi.repository import GLib'
+          python3 -m py_compile linux/runtime/kwin-bridge.py
+      - name: Build public KDE bundle
+        run: python3 scripts/build-linux.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kde-bundle-${{ matrix.distro }}
+          path: dist/*-preview.tar.gz*
+          if-no-files-found: error
