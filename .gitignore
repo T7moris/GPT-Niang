@@ -3,6 +3,14 @@
 **/runtime.json
 **/presence.json
 **/status.json
+**/quote-generation.json
+**/quote-generation-state.json
+**/quote-history.json
+**/generated-quotes.json
+**/quote-library.json
+**/quote-generation-request.json
+**/quote-model-request.json
+**/quote-models.json
 **/*-status.json
 **/*-error.txt
 **/*.flag

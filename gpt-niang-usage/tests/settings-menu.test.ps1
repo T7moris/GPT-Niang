@@ -3,6 +3,8 @@ $ErrorActionPreference='Stop'
 Add-Type -AssemblyName PresentationFramework,PresentationCore,WindowsBase
 $appDir=Split-Path $TestRoot -Parent
 . ([ScriptBlock]::Create([IO.File]::ReadAllText((Join-Path $appDir 'runtime\ui-settings.ps1'),[Text.Encoding]::UTF8)))
+. (Join-Path $appDir 'runtime\quotes.ps1')
+. ([ScriptBlock]::Create([IO.File]::ReadAllText((Join-Path $appDir 'runtime\quote-generation-ui.ps1'),[Text.Encoding]::UTF8)))
 function Assert-Equal($actual,$expected,[string]$message){if($actual-ne $expected){throw "$message : expected '$expected', got '$actual'"}}
 function Save-Settings {}
 function Set-WidgetFollowHost([bool]$Follow){$script:followHost=$Follow}
@@ -24,9 +26,12 @@ $script:scale=1.0;$script:soundOn=$true;$script:soundVolume=0.9;$script:bubbleTa
 $script:colorMode='mixed';$script:colorChance=0.5;$script:colorTextChance=3;$script:colorPaused=$false
 try{
   Initialize-WidgetSettingsMenu
-  $expected=@('查看额度','换一句台词','刷新额度','编辑我的语录','显示与位置','外观设置','声音与点击','更新','退出 GPT 娘')
+  $expected=@('查看额度','换一句台词','刷新额度','编辑我的语录','自动补充台词…','显示与位置','外观设置','声音与点击','更新','退出 GPT 娘')
   $actual=@($script:context.Items|Where-Object{$_.Header-is [string]}|ForEach-Object{$_.Header})
   Assert-Equal ($actual-join '|') ($expected-join '|') 'Menu entries and removed title block'
+  Assert-Equal $script:settingsMenuUi.Generate.Header.Children[0].Text '立刻生成新语录' 'Manual generation row exists'
+  if(!$script:settingsMenuUi.Generate.Header.Children[1].Text.Contains('token')){throw 'Manual generation has a token cost reminder'}
+  Assert-Equal $script:settingsMenuUi.Generate.IsEnabled $false 'Disabled by default'
   Assert-Equal $script:settingsMenuUi.UpdateVersion.Header '当前版本：1.3.2' 'Update menu shows actual version'
   Assert-Equal $script:settingsMenuUi.AutoUpdate.IsChecked $true 'Automatic updates are on initially'
   $script:settingsMenuUi.AutoUpdate.IsChecked=$false

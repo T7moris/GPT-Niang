@@ -1,4 +1,4 @@
-param([switch]$CheckOnly,[switch]$Preview,[string]$AppDir=$PSScriptRoot)
+﻿param([switch]$CheckOnly,[switch]$Preview,[string]$AppDir=$PSScriptRoot)
 $ErrorActionPreference='Stop'
 $script:appDir=$AppDir
 $script:configPath=Join-Path $script:appDir 'installation.json'
@@ -7,6 +7,7 @@ $script:config=Get-Content -LiteralPath $script:configPath -Raw -Encoding UTF8 |
 $script:dataDir=$script:config.dataDir
 $null=New-Item -ItemType Directory -Path $script:dataDir -Force
 . (Join-Path $script:appDir 'runtime\quotes.ps1')
+. ([ScriptBlock]::Create([IO.File]::ReadAllText((Join-Path $script:appDir 'runtime\quote-generation-ui.ps1'),[Text.Encoding]::UTF8)))
 . ([ScriptBlock]::Create([IO.File]::ReadAllText((Join-Path $script:appDir 'runtime\ui-settings.ps1'),[Text.Encoding]::UTF8)))
 . (Join-Path $script:appDir 'runtime\audio.ps1')
 . (Join-Path $script:appDir 'runtime\host-layer.ps1')
@@ -345,6 +346,9 @@ function Switch-Scene([string]$mode){
     $timer.Stop()
     if($timer-eq $script:sceneTimer -and !$script:collapsed){
       Apply-Scene;Animate-Value $script:ui.SceneText ([Windows.UIElement]::OpacityProperty) 1 160
+      if($script:bubbleMode-eq 'quote' -and $script:window.IsVisible){
+        try{Register-WidgetQuoteShown $script:dataDir ([string]$script:ui.QuoteText.Tag)}catch{}
+      }
       Restart-SceneTtl 160
     }
   })
@@ -551,6 +555,7 @@ $mutexKey='Local\GPTNiangUsage_'+([Convert]::ToBase64String([Text.Encoding]::UTF
 $script:mutex=[Threading.Mutex]::new($false,$mutexKey);$script:mutexOwned=$false
 try{$script:mutexOwned=$script:mutex.WaitOne(0)}catch [Threading.AbandonedMutexException]{$script:mutexOwned=$true}
 if(!$script:mutexOwned){Request-Refresh;$script:mutex.Dispose();return}
+Initialize-WidgetQuoteHistory $script:dataDir
 Initialize-WidgetAudio -AppDir $script:appDir
 Remove-Item -LiteralPath (Join-Path $script:dataDir 'stop.flag') -ErrorAction SilentlyContinue
 $script:worker=$null
@@ -759,7 +764,7 @@ function Tick-Widget {
     $script:window.Hide()
   }
   if($now-$script:lastPresence-ge 1000){
-    Write-WidgetJson (Join-Path $script:dataDir 'presence.json') @{visible=[bool]$visible;at=$now;host=$script:hostHandle.ToInt64();widget=$script:widgetHandle.ToInt64();pid=$PID;followHost=$script:followHost;follow=@{ready=$script:hostFollower.Ready;events=$script:hostFollower.MovementEvents;mode='native-immediate';animationPaddingDip=14};scene=@{open=!$script:collapsed;mode=$script:bubbleMode;resetTimeMode=$script:resetTimeMode;startedAt=$script:sceneStartedAt;closesAt=$script:sceneDeadline;shortReset=$script:ui.ShortReset.Text;weekReset=$script:ui.WeekReset.Text}}
+    Write-WidgetJson (Join-Path $script:dataDir 'presence.json') @{visible=[bool]$visible;codexVisible=[bool]$hostVisible;at=$now;host=$script:hostHandle.ToInt64();widget=$script:widgetHandle.ToInt64();pid=$PID;followHost=$script:followHost;follow=@{ready=$script:hostFollower.Ready;events=$script:hostFollower.MovementEvents;mode='native-immediate';animationPaddingDip=14};scene=@{open=!$script:collapsed;mode=$script:bubbleMode;resetTimeMode=$script:resetTimeMode;startedAt=$script:sceneStartedAt;closesAt=$script:sceneDeadline;shortReset=$script:ui.ShortReset.Text;weekReset=$script:ui.WeekReset.Text}}
     Update-Quota;$script:lastPresence=$now
     Read-DisplayRequest
   }

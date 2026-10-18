@@ -18,12 +18,15 @@ $defaults=Get-WidgetQuoteSettings $freshData
 if($defaults.source-ne 'built-in' -or $defaults.error){throw 'A fresh installation must load the bundled quote pool'}
 foreach($row in $defaults.quotes){if(!$script:quoteLayoutMap.ContainsKey($row.text)){throw ('Bundled quote lacks a reviewed layout: '+$row.text)}}
 $values=@($defaults.quotes.text)+@('好模型',('自定义测试' * 40))
+$values+=@('今天的 token 也要花在喜欢的事上。','别急，灵感还在加载。','额度可以等，休息别跳过。',('新'*40),"第一行`n第二行 GPT 🖐️😡🤚",'中文 ABC 123，標點與空 格。')
+$values+=@("第一行`n`n第三行",'👩‍💻 写代码 🖐️😡🤚')
+$values+=@("`n第二行","`n`n第三行",'é café 世界 مرحبا')
 function Add-QuoteInk($drawing,[Windows.Media.Matrix]$matrix){
   if($drawing-is [Windows.Media.DrawingGroup]){
     if($drawing.Transform){$next=$drawing.Transform.Value;$next.Append($matrix)}else{$next=$matrix}
     foreach($child in $drawing.Children){Add-QuoteInk $child $next}
   }elseif($drawing-is [Windows.Media.GlyphRunDrawing]){
-    $outline=$drawing.GlyphRun.BuildGeometry();$outline.Transform=[Windows.Media.MatrixTransform]::new($matrix)
+    $outline=$drawing.GlyphRun.BuildGeometry();if($outline.Bounds.IsEmpty){return};if($outline.IsFrozen){$outline=$outline.Clone()};$outline.Transform=[Windows.Media.MatrixTransform]::new($matrix)
     $script:quoteInk.Children.Add($outline)
   }
 }

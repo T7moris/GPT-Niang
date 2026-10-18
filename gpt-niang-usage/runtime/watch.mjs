@@ -16,15 +16,26 @@ let refresh;
 const ipc=createPipeRefreshHandler(()=>{if(refresh)void refresh.request();});
 const lock=await acquireWorkerLock(config.dataDir,parentPid,{onLost:()=>process.exit(1),onConnection:ipc.onConnection});
 if(!lock)process.exit(0);
+// Windows opt-in only. macOS retains its existing read-only behavior and does
+// not need to package the new persona or expose a settings UI yet.
+let quoteReplenisher=null;
+let modelReader=null,modelReading=false,modelRequestId=null;
+if(process.platform==='win32'){
+  const {createQuoteReplenisher}=await import('./quote-generation.mjs');
+  const {createCodexQuoteGenerator,createCodexModelReader}=await import('./quote-codex.mjs');
+  modelReader=createCodexModelReader(config);
+  quoteReplenisher=createQuoteReplenisher({dataDir:config.dataDir,builtIn:path.join(config.appDir??path.dirname(process.argv[2]),'assets','quotes.json'),generate:createCodexQuoteGenerator(config)});
+}
 const statusFile=path.join(config.dataDir,'status.json');
 const healthFile=path.join(config.dataDir,'worker-status.json');
 let status=null,requestToken=readRefreshRequest(path.join(config.dataDir,'refresh.flag')),lastActivity=Date.now(),heartbeat;
 const activeRequestIds=new Set();
 const initialStop=readRefreshRequest(path.join(config.dataDir,'stop.flag'));
 const save=data=>{atomicJson(statusFile,data);status=data;};
-const health=()=>atomicJson(healthFile,{...lock.owner,at:Date.now(),busy:refresh.busy,lastRefresh:refresh.lastRefresh});
+const health=()=>atomicJson(healthFile,{...lock.owner,at:Date.now(),busy:refresh.busy || !!quoteReplenisher?.busy,lastRefresh:refresh.lastRefresh});
 function exit() {
   clearInterval(heartbeat);
+  quoteReplenisher?.close();
   try{if(readJson(healthFile)?.token===lock.owner.token)fs.unlinkSync(healthFile);}catch{}
   try{lock.release();}catch{}
 }
@@ -66,7 +77,16 @@ heartbeat=setInterval(()=>{
   if((parentPid && (!processAlive(parentPid) || stop!==null)) || (stop!==null && stop!==initialStop))process.exit(0);
   // No background queries while Codex is not visible; a fresh query on return.
   const now=Date.now(),presence=readJson(path.join(config.dataDir,'presence.json'));
+  const modelRequest=readJson(path.join(config.dataDir,'quote-model-request.json'));
+  if(modelReader && !modelReading && typeof modelRequest?.id==='string' && modelRequest.id!==modelRequestId && now-modelRequest.at>=0 && now-modelRequest.at<60000){
+    modelReading=true;modelRequestId=modelRequest.id;
+    atomicJson(path.join(config.dataDir,'quote-models.json'),{requestId:modelRequestId,status:'loading',at:now});
+    void modelReader().then(result=>atomicJson(path.join(config.dataDir,'quote-models.json'),{...result,requestId:modelRequestId,status:'ready',at:Date.now()}),()=>atomicJson(path.join(config.dataDir,'quote-models.json'),{requestId:modelRequestId,status:'failed',at:Date.now()})).catch(()=>{}).finally(()=>{modelReading=false;});
+  }
   const active=presence?.visible && now-presence.at>=0 && now-presence.at<5000 && processAlive(presence.pid);
+  // Desktop mode can keep the widget visible after Codex closes/minimizes.
+  // Require an explicit current host-visible field from the Windows UI too.
+  quoteReplenisher?.tick({visible:!!(active && presence.codexVisible===true),ownerPid:active?presence.pid:null});
   if(active)lastActivity=now;
   const request=readRefreshRequest(path.join(config.dataDir,'refresh.flag'));
   const requested=request!==null && request!==requestToken;

@@ -1,50 +1,78 @@
-function Open-QuoteEditor {
+function Update-WidgetQuoteEditor {
+  $editor=$script:quoteEditor;if(!$editor){return}
+  $library=Get-WidgetQuoteLibrary $script:dataDir
+  $base=New-Object 'System.Collections.ObjectModel.ObservableCollection[object]'
+  foreach($row in $library.base){$base.Add([pscustomobject]@{text=$row.text;weight=$row.weight;preferred=[bool]$row.preferred})}
+  $editor.FindName('Base').ItemsSource=$base
+  $editor.FindName('Generated').ItemsSource=@(Get-WidgetGeneratedQuotes $script:dataDir)
+  $editor.FindName('Deleted').ItemsSource=@($library.deleted)
+  $editor.FindName('Counts').Text='常驻 '+$base.Count+' 句 · 生成 '+$editor.FindName('Generated').Items.Count+' 句 · 已删除 '+$library.deleted.Count+' 句'
+}
+function Save-WidgetQuoteEditorBase {
+  $grid=$script:quoteEditor.FindName('Base')
+  $null=$grid.CommitEdit([Windows.Controls.DataGridEditingUnit]::Cell,$true)
+  $null=$grid.CommitEdit([Windows.Controls.DataGridEditingUnit]::Row,$true)
+  $rows=@(foreach($row in $grid.ItemsSource){
+    $number=0.0;try{$number=[double]$row.weight}catch{throw '权重须为数字。'}
+    if([string]::IsNullOrWhiteSpace($row.text) -or $row.text.Length-gt 200 -or [double]::IsNaN($number) -or [double]::IsInfinity($number) -or $number-le 0 -or $number-gt 1000){throw '每条语录须为 1–200 字，权重须大于 0 且不超过 1000。'}
+    $row.weight=$number
+    $row
+  })
+  $library=Get-WidgetQuoteLibrary $script:dataDir;$library.base=$rows
+  Save-WidgetQuoteLibrary $script:dataDir $library
+}
+function Invoke-WidgetQuoteEditorAction([string]$Action) {
+  try{
+    $editor=$script:quoteEditor
+    Save-WidgetQuoteEditorBase
+    switch($Action){
+      'Save' {}
+      'Add' {
+        $text=$editor.FindName('NewText').Text.Trim()
+        if(!$text -or $text.Length-gt 200){throw '请填写 1–200 字的新语录。'}
+        $library=Get-WidgetQuoteLibrary $script:dataDir;$key=Get-WidgetQuoteKey $text
+        if(@($library.base|Where-Object{(Get-WidgetQuoteKey $_.text)-eq $key}).Count){throw '常驻语录已包含这句话。'}
+        $library.deleted=@($library.deleted|Where-Object{(Get-WidgetQuoteKey $_.text)-ne $key})
+        $library.base+=@([pscustomobject]@{text=$text;weight=1;preferred=$false});Save-WidgetQuoteLibrary $script:dataDir $library
+        $editor.FindName('NewText').Clear()
+      }
+      'Promote' {foreach($row in @($editor.FindName('Generated').SelectedItems)){Move-WidgetGeneratedQuote $script:dataDir $row.text}}
+      'DeleteBase' {foreach($row in @($editor.FindName('Base').SelectedItems)){Remove-WidgetLibraryQuote $script:dataDir $row.text 'base'}}
+      'DeleteGenerated' {foreach($row in @($editor.FindName('Generated').SelectedItems)){Remove-WidgetLibraryQuote $script:dataDir $row.text 'generated'}}
+      'Restore' {foreach($row in @($editor.FindName('Deleted').SelectedItems)){Restore-WidgetLibraryQuote $script:dataDir $row.text}}
+      'Defaults' {$null=Reset-WidgetQuotes $script:dataDir}
+    }
+    Update-WidgetQuoteEditor
+    $editor.FindName('Feedback').Text='已保存。preferred 在候选池内按原权重的 3 倍抽取；开启生成时仍优先未展示台词。'
+  }catch{$script:quoteEditor.FindName('Feedback').Text=$_.Exception.Message}
+}
+function Open-QuoteEditor([switch]$CheckOnly) {
   if($script:quoteEditor -and $script:quoteEditor.IsVisible){$script:quoteEditor.Activate()|Out-Null;return}
   $editor=[Windows.Markup.XamlReader]::Parse(@'
-<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
- Title="GPT 娘 · 我的语录" Width="540" Height="480" MinWidth="440" MinHeight="340" ShowInTaskbar="False"
- FontFamily="Microsoft YaHei UI" FontSize="14" Background="#FAF8FD" WindowStartupLocation="CenterScreen">
- <Grid Margin="22">
-  <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-  <TextBlock Margin="0,0,0,14" TextWrapping="Wrap" Foreground="#745A98" Text="一行一句语录。想让某句更常出现，可写：3 | 这句语录。"/>
-  <TextBox x:Name="Lines" Grid.Row="1" AcceptsReturn="True" AcceptsTab="True" VerticalScrollBarVisibility="Auto" TextWrapping="Wrap" FontSize="16" Padding="12" Background="White" BorderBrush="#DDD4EA"/>
-  <TextBlock x:Name="Feedback" Grid.Row="2" Margin="0,12,0,10" Foreground="#745A98" TextWrapping="Wrap"/>
-  <Grid Grid.Row="3">
-   <Button x:Name="Defaults" Content="恢复内置语录" Padding="12,6" HorizontalAlignment="Left"/>
-   <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-    <Button x:Name="Save" Content="保存" Padding="20,6" Margin="0,0,10,0"/>
-    <Button x:Name="Done" Content="关闭" Padding="20,6"/>
-   </StackPanel>
-  </Grid>
- </Grid>
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" Title="GPT 娘 · 我的语录" Width="740" Height="600" MinWidth="560" MinHeight="420" ShowInTaskbar="False" FontFamily="Microsoft YaHei UI" FontSize="14" Background="#FAF8FD" WindowStartupLocation="CenterOwner">
+ <DockPanel Margin="20" Background="#FAF8FD">
+  <StackPanel DockPanel.Dock="Top"><TextBlock x:Name="Counts" FontWeight="Bold" Margin="0,0,0,8"/><TextBlock Text="常驻语录关闭生成后仍会出现。生成语录可移入常驻；删除后可恢复，且不会再次生成相同句子。" TextWrapping="Wrap" Foreground="#745A98" Margin="0,0,0,12"/></StackPanel>
+  <StackPanel DockPanel.Dock="Bottom" Margin="0,12,0,0"><TextBlock x:Name="Feedback" TextWrapping="Wrap" Foreground="#745A98" Margin="0,0,0,10"/><StackPanel Orientation="Horizontal" HorizontalAlignment="Right"><Button x:Name="Save" Content="保存 / 刷新列表" Padding="12,6" Margin="0,0,10,0"/><Button x:Name="Done" Content="关闭" Padding="18,6"/></StackPanel></StackPanel>
+  <TabControl>
+   <TabItem Header="常驻语录"><DockPanel Margin="10">
+    <StackPanel DockPanel.Dock="Bottom" Margin="0,10,0,0"><DockPanel><Button x:Name="Add" Content="添加" DockPanel.Dock="Right" Padding="12,5" Margin="8,0,0,0"/><TextBox x:Name="NewText" MaxLength="200" Padding="6,5" ToolTip="填写新语录"/></DockPanel><StackPanel Orientation="Horizontal" Margin="0,8,0,0"><Button x:Name="DeleteBase" Content="删除选中语录" Padding="10,5"/><Button x:Name="Defaults" Content="恢复内置语录" Padding="10,5" Margin="8,0,0,0"/></StackPanel></StackPanel>
+    <DataGrid x:Name="Base" AutoGenerateColumns="False" CanUserAddRows="False" CanUserDeleteRows="False" SelectionMode="Extended" SelectionUnit="FullRow" EnableRowVirtualization="True"><DataGrid.Columns><DataGridCheckBoxColumn Header="preferred" Binding="{Binding preferred}" Width="85"/><DataGridTextColumn Header="台词（双击编辑）" Binding="{Binding text}" Width="*" MinWidth="240"/><DataGridTextColumn Header="权重" Binding="{Binding weight}" Width="65"/></DataGrid.Columns></DataGrid>
+   </DockPanel></TabItem>
+   <TabItem Header="生成语录"><DockPanel Margin="10"><StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Margin="0,10,0,0"><Button x:Name="Promote" Content="移入常驻语录" Padding="12,6"/><Button x:Name="DeleteGenerated" Content="删除选中语录" Padding="12,6" Margin="8,0,0,0"/></StackPanel><DataGrid x:Name="Generated" AutoGenerateColumns="False" IsReadOnly="True" SelectionMode="Extended" SelectionUnit="FullRow"><DataGrid.Columns><DataGridTextColumn Header="台词" Binding="{Binding text}" Width="*"/></DataGrid.Columns></DataGrid></DockPanel></TabItem>
+   <TabItem Header="已删除"><DockPanel Margin="10"><Button x:Name="Restore" Content="恢复选中语录" DockPanel.Dock="Bottom" HorizontalAlignment="Left" Padding="12,6" Margin="0,10,0,0"/><DataGrid x:Name="Deleted" AutoGenerateColumns="False" IsReadOnly="True" SelectionMode="Extended" SelectionUnit="FullRow"><DataGrid.Columns><DataGridTextColumn Header="台词" Binding="{Binding text}" Width="*"/></DataGrid.Columns></DataGrid></DockPanel></TabItem>
+  </TabControl>
+ </DockPanel>
 </Window>
 '@)
-  $script:quoteEditor=$editor
-  $editor.Owner=$script:window
-  $lines=$editor.FindName('Lines');$feedback=$editor.FindName('Feedback')
-  $current=Get-WidgetQuoteSettings $script:dataDir
-  $lines.Text=($current.quotes|ForEach-Object{if($_.weight-eq 1){$_.text}else{([string]$_.weight)+' | '+$_.text}})-join [Environment]::NewLine
-  $feedback.Text=if($current.error){$current.error}else{'每条最多 200 字。语录在你的电脑上保存。'}
-  $editor.FindName('Save').Add_Click({
-    try{
-      $rows=@(foreach($line in ($script:quoteEditor.FindName('Lines').Text -split '\r?\n')){
-        $text=$line.Trim();if(!$text){continue}
-        if($text-match '^\s*(\d+(?:\.\d+)?)\s*\|\s*(.+)$'){@{text=$Matches[2].Trim();weight=[double]::Parse($Matches[1],[Globalization.CultureInfo]::InvariantCulture)}}
-        else{@{text=$text;weight=1}}
-      })
-      $saved=Save-WidgetQuotes $script:dataDir $rows
-      $script:quoteEditor.FindName('Feedback').Text="已保存 $($saved.quotes.Count) 句。下一次点击气泡时就会使用。"
-    }catch{$script:quoteEditor.FindName('Feedback').Text=$_.Exception.Message}
-  })
-  $editor.FindName('Defaults').Add_Click({
-    try{
-      $restored=Reset-WidgetQuotes $script:dataDir
-      $script:quoteEditor.FindName('Lines').Text=($restored.quotes|ForEach-Object{$_.text})-join [Environment]::NewLine
-      $script:quoteEditor.FindName('Feedback').Text='已恢复内置语录，你的旧列表已备份。'
-    }catch{$script:quoteEditor.FindName('Feedback').Text=$_.Exception.Message}
-  })
+  $script:quoteEditor=$editor;$editor.Owner=$script:window
+  foreach($name in @('Save','Add','Promote','DeleteBase','DeleteGenerated','Restore','Defaults')){
+    $editor.FindName($name).Tag=$name
+    $editor.FindName($name).Add_Click({param($sender,$event)Invoke-WidgetQuoteEditorAction $sender.Tag})
+  }
   $editor.FindName('Done').Add_Click({$script:quoteEditor.Close()})
-  $editor.Add_KeyDown({param($sender,$event)if($event.Key-eq [Windows.Input.Key]::Escape){$sender.Close();$event.Handled=$true}})
+  $editor.Add_Closed({$script:quoteEditor=$null})
+  Update-WidgetQuoteEditor
+  if($CheckOnly){return $editor}
   $editor.Show()
 }
 
@@ -116,6 +144,8 @@ function Initialize-WidgetSettingsMenu {
   $script:settingsMenuUi.Quote=Add-SettingsAction '换一句台词' {if($script:collapsed){Show-Quota};Switch-Scene 'quote'} -ReturnItem
   Add-SettingsAction '刷新额度' {Request-Refresh}
   Add-SettingsAction '编辑我的语录' {Open-QuoteEditor}
+  Add-SettingsAction '自动补充台词…' {Open-QuoteGenerationSettings}
+  $script:settingsMenuUi.Generate=Add-SettingsAction '立刻生成新语录' {Request-WidgetQuoteGeneration} -Description '会消耗 token；忽略阈值、每日上限和间隔' -ReturnItem
   Add-SettingsDivider
   $script:settingsMenuUi.Display=Add-SettingsSubmenu '显示与位置' {
   $script:settingsMenuUi.Follow=Add-SettingsAction '仅在 Codex 窗口内' {Set-WidgetFollowHost $true;Update-WidgetSettingsMenu;Set-WidgetMenuBounds;Position-WidgetMenuToHost} -Checkable -ReturnItem
@@ -198,7 +228,7 @@ function Add-SettingsSection([string]$Label,[switch]$Divider){if($Divider){Add-S
 function Add-SettingsAction{
   param([string]$Label,[scriptblock]$Action,[string]$Description,[switch]$Checkable,[switch]$StayOpen,[switch]$ReturnItem)
   $item=New-Object Windows.Controls.MenuItem;$item.Style=$script:settingsMenuResources['SettingsItem'];$item.IsCheckable=[bool]$Checkable;$item.StaysOpenOnClick=([bool]$StayOpen -or [bool]$Checkable)
-  if($Description){$p=New-Object Windows.Controls.StackPanel;$main=New-SettingsText $Label 14.5 '#443552';$detail=New-SettingsText $Description 11.5 '#A08EAD';$detail.Margin=[Windows.Thickness]::new(0,3,0,0);$p.Children.Add($main)|Out-Null;$p.Children.Add($detail)|Out-Null;$item.Header=$p}else{$item.Header=$Label}
+  if($Description){$p=New-Object Windows.Controls.StackPanel;$main=New-SettingsText $Label 14.5 '#443552';$detail=New-SettingsText $Description 11.5 '#A08EAD';$detail.TextWrapping=[Windows.TextWrapping]::Wrap;$detail.Margin=[Windows.Thickness]::new(0,3,0,0);$p.Children.Add($main)|Out-Null;$p.Children.Add($detail)|Out-Null;$item.Header=$p}else{$item.Header=$Label}
   $item.Add_Click($Action);$script:settingsMenuTarget.Items.Add($item)|Out-Null;if($ReturnItem){return $item}
 }
 function Add-SettingsSubmenu {
@@ -220,6 +250,7 @@ function Update-WidgetSizePresets{
   foreach($button in $script:settingsMenuUi.SizeButtons){$color=if([Math]::Abs([double]$button.Tag-$script:scale)-lt 0.05){'#E2D2EE'}else{'#F2ECF8'};$button.Background=[Windows.Media.BrushConverter]::new().ConvertFromString($color)}
 }
 function Update-WidgetSettingsMenu{
+  if($script:settingsMenuUi.Generate){$script:settingsMenuUi.Generate.IsEnabled=Test-WidgetManualGenerationAvailable}
   $script:settingsMenuSync=$true
   try{
     Update-WidgetUpdateMenu

@@ -52,6 +52,8 @@ if not required.issubset(files):
 private_names = {
     "installation.json", "settings.json", "runtime.json", "presence.json", "status.json",
     "update-preferences.json", "update-status.json", "update-transaction.json", "binding.json", "update-idle.json", "update-installing.json",
+    "quote-generation.json", "quote-generation-state.json", "quote-history.json", "generated-quotes.json",
+    "quote-library.json", "quote-generation-request.json", "quote-model-request.json", "quote-models.json",
 }
 for name in files:
     path = Path(name)
