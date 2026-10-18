@@ -15,7 +15,7 @@
 - `assets/quotes.json`：内置中文语录。
 - `tests/`：额度解析、刷新队列、Windows 安装与生命周期，以及本地线程计数测试。
 
-`installation.json` 在本机安装时生成，不包含在仓库中。Windows 默认个人数据位于 `%LOCALAPPDATA%\GPTNiangUsage\state`，停用后保留。Mac 数据位于 `~/Library/Application Support/GPTNiangUsage`；下载与安装说明见 [Mac README](../macos/README.md)。
+`installation.json` 在本机安装时生成，不包含在仓库中。Windows 默认个人数据位于 `%USERPROFILE%\.gpt-niang\state`，停用后保留。Mac 数据位于 `~/Library/Application Support/GPTNiangUsage`；下载与安装说明见 [Mac README](../macos/README.md)。
 
 Windows 额度气泡在原有尺寸内显示剩余百分比、进度条和重置时间。展开动画结束后，前 2 秒显示距离重置多久，后 3 秒显示固定日期和重置时刻，然后自动收起；再次点击角色或气泡内刷新时重新计时；菜单刷新不主动打开气泡。重置时刻、今日／明日及更新时间均按当前 Windows 机器的本地时间显示；悬停气泡可查看完整日期、时区偏移与倒计时。缺少重置时间时会明确提示，过期的额度等待刷新。
 
