@@ -107,6 +107,8 @@ export function readUsage(cli, {timeoutMs=18000,spawnProcess=spawn,onAccount=()=
   return new Promise(resolve=>{
     let finished=false,proc,lines,accountKey=null,account=null,planInfo=identifyPlan(null,null),expectedId=1;
     const failure=(error,errorCode)=>({ok:false,queryOk:false,error,windows:[],...planInfo,accountKey,clearPrevious:!accountKey,...(errorCode?{errorCode}:{})});
+    const routingFailure=error=>typeof error?.message==='string' && error.message.includes('workspace routing discovery')
+      ?failure('Codex 工作区路由服务暂不可用，请稍后刷新','WORKSPACE_ROUTING_UNAVAILABLE'):null;
     const stopChild=()=>{try{proc?.stdin.end();proc?.kill();}catch{}};
     const finish=data=>{
       if(finished)return; finished=true; clearTimeout(timer);
@@ -139,7 +141,7 @@ export function readUsage(cli, {timeoutMs=18000,spawnProcess=spawn,onAccount=()=
         expectedId=2;
         send({id:2,method:'account/read',params:{refreshToken:false}});
       } else if(m.id===2){
-        if(m.error)return finish(failure('暂时无法读取登录状态'));
+        if(m.error)return finish(routingFailure(m.error) || failure('暂时无法读取登录状态'));
         const type=m.result?.account?.type;
         account=m.result?.account;
         planInfo=identifyPlan(account?.planType,null,type??null);
@@ -150,7 +152,7 @@ export function readUsage(cli, {timeoutMs=18000,spawnProcess=spawn,onAccount=()=
         expectedId=3;
         send({id:3,method:'account/rateLimits/read',params:{}});
       } else if(m.id===3){
-        if(m.error)return finish(failure('暂时无法读取额度，请检查登录状态或稍后重试','RATE_LIMITS_READ_FAILED'));
+        if(m.error)return finish(routingFailure(m.error) || failure('暂时无法读取额度，请检查登录状态或稍后重试','RATE_LIMITS_READ_FAILED'));
         const data=normalizeLimits(m.result);
         planInfo=identifyPlan(account?.planType,data.plan,account?.type);
         Object.assign(data,planInfo);

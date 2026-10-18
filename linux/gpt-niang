@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+set -euo pipefail
+gpt_niang_dir="$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+gpt_niang_node="${GPT_NIANG_NODE:-}"
+if [[ -z "$gpt_niang_node" && -r "$gpt_niang_dir/.runtime-paths.json" && -x /usr/bin/python3 ]]; then
+    gpt_niang_saved_node="$(/usr/bin/python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["node"])' "$gpt_niang_dir/.runtime-paths.json" 2>/dev/null || true)"
+    if [[ -x "$gpt_niang_saved_node" ]]; then gpt_niang_node="$gpt_niang_saved_node"; fi
+fi
+if [[ -z "$gpt_niang_node" ]] && command -v node >/dev/null 2>&1; then
+    gpt_niang_node="$(command -v node)"
+fi
+if [[ -z "$gpt_niang_node" ]]; then
+    printf '%s\n' '需要 Node.js 20+；安装后重新运行。' >&2
+    exit 1
+fi
+export GPT_NIANG_NODE="$gpt_niang_node"
+exec "$gpt_niang_node" "$gpt_niang_dir/runtime/cli.mjs" "$@"

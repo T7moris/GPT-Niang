@@ -4,6 +4,8 @@
 
 **Windows / macOS 桌面挂件 · 自动识别套餐与额度窗口 · 中文语录 · 当前正式版 1.3.4**
 
+本分支新增 **[Linux KDE 预览适配](linux/README.md)**：独立 Qt Quick 界面、KWin 窗口跟随、桌面模式与用户级安装入口。**仅在 Fedora KDE / KOS 环境实测过；Debian / Ubuntu、Arch 等其他发行版的 KDE 尚未实测，理论上可兼容，但不保证可用。** 它尚未纳入上游正式发布包，验证范围见 [Linux 说明](linux/README.md)。
+
 1.3.4 按 PR #20 的只移动窗口方案整合 Windows DPI 修复，并补齐 Business 个人额度的双平台兼容。交互以 Windows 为基准：Mac 连续点击不再打开设置，支持相同的大小范围、桌面置顶开关和独立位置保存；保留 SwiftUI／AppKit 原生实现及双平台自动更新、回滚与历史版本清理。
 
 [**下载最新版**](https://github.com/T7moris/GPT-Niang/releases/latest) · [Windows 安装](#windows-安装) · [macOS 安装](#macos-安装) · [更新记录](更新记录.md) · [反馈问题](https://github.com/T7moris/GPT-Niang/issues/new)

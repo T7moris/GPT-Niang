@@ -26,3 +26,9 @@ Thumbs.db
 **/gui.lock
 **/worker-ownership.lock
 **/worker.log
+
+# Linux host-local paths, bytecode and UI acceptance captures
+linux/.runtime-paths.json
+**/__pycache__/
+linux/.test-output/
+*.tar.gz
