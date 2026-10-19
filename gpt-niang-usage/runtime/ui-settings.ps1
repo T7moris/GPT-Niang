@@ -187,6 +187,7 @@ function Initialize-WidgetSettingsMenu {
   }
   Add-SettingsDivider
   $script:settingsMenuUi.Tap=Add-SettingsAction '点角色也切换内容' {param($sender,$event)$script:bubbleTapAdvance=$sender.IsChecked;Save-Settings} -Description '开启后，连续点角色就能看下一句' -Checkable -ReturnItem
+  $script:settingsMenuUi.QuoteRepeat=Add-SettingsAction '点角色连续换语录' {param($sender,$event)$script:characterQuoteRepeat=[bool]$sender.IsChecked;Save-Settings} -Description '展开气泡后，每次点角色换一句语录' -Checkable -ReturnItem
   } -ReturnItem
   Add-SettingsAction '编辑我的语录' {Open-QuoteEditor}
   $script:settingsMenuUi.MusicEnabled=Add-SettingsAction '音乐律动' {param($sender,$event)Set-WidgetMusicEnabled ([bool]$sender.IsChecked);$script:context.IsOpen=$false} -Checkable -ReturnItem
@@ -278,6 +279,7 @@ function Update-WidgetSettingsMenu{
     $desktopVisibility=if($script:followHost){[Windows.Visibility]::Collapsed}else{[Windows.Visibility]::Visible}
     $script:settingsMenuUi.Topmost.Visibility=$desktopVisibility;$script:settingsMenuUi.TopmostDivider.Visibility=$desktopVisibility
     $script:settingsMenuUi.Tap.IsChecked=$script:bubbleTapAdvance;$script:settingsMenuUi.Sound.IsChecked=$script:soundOn;$script:settingsMenuUi.Hide.IsChecked=$script:hideMenu
+    $script:settingsMenuUi.QuoteRepeat.IsChecked=$script:characterQuoteRepeat
     $script:settingsMenuUi.ColorLinked.IsChecked=$script:colorMode-eq 'linked';$script:settingsMenuUi.ColorRainbow.IsChecked=$script:colorMode-eq 'rainbow';$script:settingsMenuUi.ColorOriginal.IsChecked=$script:colorMode-eq 'original'
     $script:settingsMenuUi.ColorSurprise.IsChecked=$script:colorMode-eq 'surprise';$script:settingsMenuUi.ColorRare.IsChecked=$script:colorMode-eq 'rare';$script:settingsMenuUi.ColorSpecial.IsChecked=$script:colorMode-eq 'special'
     $script:settingsMenuUi.ColorMixed.IsChecked=$script:colorMode-eq 'mixed'
