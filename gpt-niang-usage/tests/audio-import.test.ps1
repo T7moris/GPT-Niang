@@ -2,6 +2,8 @@
 $ErrorActionPreference='Stop'
 Add-Type -AssemblyName PresentationFramework,PresentationCore,WindowsBase,System
 $appDir=Split-Path $TestRoot -Parent
+. (Join-Path $appDir 'runtime/update-common.ps1')
+function Get-FileHash {throw 'Get-FileHash module is unavailable in this fixture.'}
 . (Join-Path $appDir 'runtime/audio.ps1')
 . (Join-Path $appDir 'runtime/update-common.ps1')
 function Get-FileHash {throw 'Get-FileHash module is unavailable in this fixture.'}

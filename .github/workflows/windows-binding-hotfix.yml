@@ -1,0 +1,82 @@
+name: Replace Windows v1.3.5 binding hotfix
+on:
+  push:
+    branches: [fix/windows-missing-update-binding]
+    paths: [.github/workflows/windows-binding-hotfix.yml]
+permissions:
+  contents: read
+jobs:
+  replace-windows:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Prepare isolated installer fixture
+        shell: pwsh
+        run: |
+          $fixture = Join-Path $env:RUNNER_TEMP 'gpt-niang-test-bin'
+          New-Item -ItemType Directory -Path $fixture -Force | Out-Null
+          Copy-Item (Get-Command node.exe).Source (Join-Path $fixture 'codex.exe')
+          $fixture | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
+      - name: Verify installer, updater and hash-dependent regressions
+        working-directory: gpt-niang-usage
+        shell: powershell
+        run: |
+          & powershell.exe -NoProfile -STA -ExecutionPolicy Bypass -File tests/installation.test.ps1
+          if ($LASTEXITCODE -ne 0) { throw 'Installer regression failed' }
+          & powershell.exe -NoProfile -STA -ExecutionPolicy Bypass -File tests/update.test.ps1
+          if ($LASTEXITCODE -ne 0) { throw 'Updater regression failed' }
+          & powershell.exe -NoProfile -STA -ExecutionPolicy Bypass -File tests/lifecycle.test.ps1
+          if ($LASTEXITCODE -ne 0) { throw 'Lifecycle regression failed' }
+          & powershell.exe -NoProfile -STA -ExecutionPolicy Bypass -File tests/entrypoint.test.ps1
+          if ($LASTEXITCODE -ne 0) { throw 'Entrypoint regression failed' }
+          & powershell.exe -NoProfile -STA -ExecutionPolicy Bypass -File tests/audio-import.test.ps1
+          if ($LASTEXITCODE -ne 0) { throw 'Audio import regression failed' }
+          & powershell.exe -NoProfile -STA -ExecutionPolicy Bypass -File tests/placement-settings.test.ps1
+          if ($LASTEXITCODE -ne 0) { throw 'Placement settings regression failed' }
+      - name: Build Windows archive
+        run: python scripts/build-release.py
+      - name: Replace Windows asset and checksums, preserve macOS
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: T7moris/GPT-Niang
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $tag = 'v1.3.5'
+          $archive = 'gpt-niang-usage-widget-v1.3.5-windows.zip'
+          $release = gh api repos/T7moris/GPT-Niang/releases/tags/$tag | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot read release' }
+          $original = Join-Path $env:RUNNER_TEMP 'original-release-checksums'
+          New-Item -ItemType Directory -Path $original -Force | Out-Null
+          gh release download $tag --pattern SHA256SUMS.txt --dir $original
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot preserve original checksums' }
+          $lines = [IO.File]::ReadAllLines((Join-Path $original 'SHA256SUMS.txt'))
+          $pattern = '^([A-Fa-f0-9]{64})\s+\*?' + [regex]::Escape($archive) + '$'
+          $matchesFound = @($lines | Where-Object { $_ -match $pattern })
+          if ($matchesFound.Count -ne 1) { throw 'Expected exactly one Windows checksum' }
+          $oldHash = [regex]::Match($matchesFound[0], $pattern).Groups[1].Value
+          . ./gpt-niang-usage/runtime/update-common.ps1
+          $hash = Get-WidgetFileHash (Join-Path $PWD ('dist/' + $archive))
+          $newLines = @($lines | ForEach-Object { if ($_ -match $pattern) { $hash + '  ' + $archive } else { $_ } })
+          $utf8 = [Text.UTF8Encoding]::new($false)
+          [IO.File]::WriteAllText((Join-Path $PWD 'dist/SHA256SUMS.txt'), ($newLines -join "`n") + "`n", $utf8)
+          $body = [regex]::Replace($release.body, [regex]::Escape($oldHash), $hash, [Text.RegularExpressions.RegexOptions]::IgnoreCase)
+          $body = [regex]::Replace($body, '^Windows installer hotfix[^\r\n]*[\r\n]+', '')
+          $body = "Windows hotfix (2026-10-20): recover missing update-agent/binding.json and remove the Get-FileHash test dependency. Installer, updater, lifecycle, full WPF entrypoint, audio import and placement settings regressions passed. macOS asset unchanged. See PR #57.`n`n" + $body
+          $notes = Join-Path $env:RUNNER_TEMP 'windows-hotfix-release-notes.md'
+          [IO.File]::WriteAllText($notes, $body, $utf8)
+          gh release upload $tag (Join-Path 'dist' $archive) dist/SHA256SUMS.txt --clobber
+          if ($LASTEXITCODE -ne 0) { throw 'Release asset upload failed' }
+          gh release edit $tag --notes-file $notes
+          if ($LASTEXITCODE -ne 0) { throw 'Release notes update failed' }
+          $assets = (gh api repos/T7moris/GPT-Niang/releases/tags/$tag | ConvertFrom-Json).assets
+          if ($LASTEXITCODE -ne 0) { throw 'Release verification failed' }
+          $asset = @($assets | Where-Object name -eq $archive)
+          if ($asset.Count -ne 1 -or $asset[0].digest -ne ('sha256:' + $hash.ToLowerInvariant())) { throw 'Uploaded Windows digest mismatch' }
+          Write-Output ('Replaced Windows asset: SHA256 ' + $hash)
