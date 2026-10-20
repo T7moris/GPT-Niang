@@ -84,6 +84,10 @@ try {
   [IO.File]::WriteAllText((Join-Path $journal.root 'screenshot.png'),'personal screenshot')
   $personal=Join-Path $journal.root 'my downloads';$null=New-Item -ItemType Directory -Path $personal
   [IO.File]::WriteAllText((Join-Path $personal 'old-package.zip'),'manually downloaded archive')
+  $installedDocs=Join-Path $journal.root 'docs';$null=New-Item -ItemType Directory -Path $installedDocs
+  [IO.File]::WriteAllText((Join-Path $installedDocs 'development-alignment.md'),'old release docs')
+  $candidateDocs=Join-Path $journal.candidate 'docs';$null=New-Item -ItemType Directory -Path $candidateDocs
+  [IO.File]::WriteAllText((Join-Path $candidateDocs 'development-alignment.md'),'new release docs')
   Invoke-WidgetUpdateTransaction $journal $script:agent $journal.token
   Assert ($journal.phase-eq 'committed') 'upgrade commits after registration and real heartbeat validation'
   Assert ((Read-WidgetUpdateJson (Join-Path $journal.appDir 'installation.json')).version-eq '1.3.3') 'new plugin version registered'
@@ -93,6 +97,7 @@ try {
   Assert (!(Read-WidgetUpdateJson (Join-Path $journal.dataDir 'update-preferences.json')).automatic) 'disabled automatic-update preference preserved'
   Assert ([IO.File]::ReadAllText((Join-Path $journal.root 'screenshot.png'))-eq 'personal screenshot') 'unrelated screenshots remain at their original active path'
   Assert ([IO.File]::ReadAllText((Join-Path $journal.root 'my downloads\old-package.zip'))-eq 'manually downloaded archive') 'unmanaged download folders survive old-version cleanup'
+  Assert ([IO.File]::ReadAllText((Join-Path $journal.root 'docs\development-alignment.md'))-eq 'new release docs') 'release-managed docs replace the prior package docs without colliding with personal files'
 
   $journal=New-Fixture 'personal-collision'
   [IO.File]::WriteAllText((Join-Path $journal.root 'user.txt'),'personal file')
