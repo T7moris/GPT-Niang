@@ -40,6 +40,9 @@ try{
   $shortcut.TargetPath=Join-Path $testRoot 'foreign.exe'
   Assert (!(Test-WidgetStartupShortcutIdentity $shortcut $moved)) 'foreign shortcut executable is rejected'
 
+  $pluginVerifier=Get-Content -LiteralPath (Join-Path $moved 'runtime\install-preflight.ps1') -Raw -Encoding UTF8
+  Assert ($pluginVerifier.Contains('plugin list --marketplace gpt-niang-local --json')) 'plugin registration verification stays within the local marketplace'
+
   # Stubs prevent reading or changing actual per-user task and startup registrations.
   $global:widgetInstallerTestStartup=Join-Path ([Environment]::GetFolderPath('Startup')) 'GPT Niang Usage.lnk'
   function Test-Path {
