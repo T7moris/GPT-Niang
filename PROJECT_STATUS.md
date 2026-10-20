@@ -1,10 +1,10 @@
 # GPT Niang integration status
 
-Updated: 2026-10-20 (Asia/Shanghai)
+Updated: 2026-10-21 (Asia/Shanghai)
 
 ## Goal
 
-Merge upstream 1.3.5 (`f906d61`) into the custom Windows branch while retaining pixel idle/working/drag animations, quote blips, completion voice, desktop work tracking and outside-click menu dismissal. Development package version: 1.3.13; this is not an upstream release.
+Merge upstream `main` at `b6f5eb8` into the custom Windows branch while retaining pixel idle/working/drag animations, quote blips, completion voice, desktop work tracking and outside-click menu dismissal. Development package version: 1.3.13; this is not an upstream release.
 
 ## Implementation
 
@@ -12,6 +12,7 @@ Merge upstream 1.3.5 (`f906d61`) into the custom Windows branch while retaining 
 - Retained upstream gallery, independent sizing, WAV import, music, auto-quotes, reply reminders, window/occlusion behavior and runtime fixes.
 - Kept custom pixel modes and voice preferences. Gallery selection updates the static animation source; frame changes update alpha/color masks; music pauses and resumes frame playback.
 - Restored long quote playback without weakening the five-second click-import limit.
+- Merged upstream's native click-audio worker and stable PowerShell supervisor/binding recovery. Kept 60-second quote playback and voice/click mutual exclusion; preserved compatibility with the previous `wscript.exe` supervisor task paths.
 - Work tracking now handles ChatGPT caller identity, an installation-scoped user-temp context relay, up to 500 recent tasks subject to the host's advertised limit, local desktop task status, streaming/queued states, unknown-status follow-up reads and safe failure diagnostics. Context changes reconnect automatically; endpoints and identities are never guessed or scanned.
 - Local work starts/ends now coexist with upstream completion filtering and monitor restart recovery. Work tracking and completion voice remain independent of the bubble toggle.
 - No question/answer experiment or completion animation assets were enabled.
@@ -21,16 +22,17 @@ Merge upstream 1.3.5 (`f906d61`) into the custom Windows branch while retaining 
 - 20 local monitor tests, 7 desktop aggregation/context tests and 8 new recovery/protocol tests passed.
 - Native WPF working/drag, menu, gallery, rendering, quote voice, completion voice and 50 completion-reminder checks passed.
 - All PowerShell source files parse successfully. Changed text has passed whitespace checks.
-- Full Node run: 140 passed, 26 failed, 1 skipped. Failures involve sandbox-blocked process creation/named-pipe IPC; this is not a full green run.
-- Windows validation covered 61 test scripts: 56 produced passing results, including independent reruns of the drag, menu and widget harnesses. Five checks remain unpassed: the Node child-pipe check, two unchanged native occlusion checks, installation Startup-directory access and updater file replacement. The executor denies the necessary process/desktop/filesystem access; these checks are not recorded as passed.
+- Full Node run after the sync: 166 passed, 0 failed, 1 macOS-only test skipped.
+- Windows regression: 58 of 60 scripts passed, and widget-only passed. `host-occlusion` and `occlusion-reminder` both failed at the real full-foreign-coverage/DWM-cloak assertion; the underlying occlusion source was not changed in this sync, and the cause remains unconfirmed.
+- Installation/supervisor isolation passed all 44 assertions, including old `wscript.exe` task paths, read-only missing-binding recovery and rejection of foreign tasks. Audio import, native click queue, quote/completion voice, settings, gallery, drag/working animation and WPF entrypoint checks passed. PowerShell parsing and `git diff --check` passed.
 - The real WPF drag checks include 27 size/DPI cases with 2,214 samples, 108 vertical cases with 5,400 positions, and 216 horizontal cases with 18,144 positions. The nested menu lifecycle check passed 44 assertions.
-- The Windows package built and passed archive integrity, runtime manifest and version validation. Upstream source, pixel assets and voice assets remain in the bundle; maintainer status is excluded from installation archives.
-- The live desktop app pipe returned access denied in this executor. Actual ordinary-chat/other-project start/end verification is still pending; protocol fixtures are not a substitute for live verification.
+- The earlier 1.3.13 development package passed archive integrity, runtime manifest and version validation before this latest merge. No package was rebuilt after the sync, and the local 1.3.12 installation was not replaced.
+- Actual ordinary-chat/other-project start/end verification is still pending; protocol fixtures are not a substitute for live verification.
 
 ## Published state and remaining limits
 
-- Fork `main` now matches upstream `f906d61`.
-- Merge commit `851e97e` is available on `integration/upstream-20261020` and `codex/dragon-voice-and-settings`. Original PR #46 is open and GitHub reports it mergeable.
-- The two upstream Actions runs are `action_required`: the upstream maintainer must approve them before they can execute. No CI success is claimed.
-- The installed 1.3.12 widget has not been replaced. The installer preflight's Startup write and live app pipe access are denied in this executor. Do not treat a packaged build or protocol fixtures as a completed installation or live cross-project acceptance.
+- Fork `main` matches upstream `b6f5eb8972d1802821006b7208d20a834fa6a08b`.
+- Merge commit `3424ca2` is pushed to `codex/dragon-voice-and-settings`; PR #46 remains open and GitHub reports it mergeable.
+- The two upstream Actions runs are `action_required`; no CI success is claimed.
+- The installed 1.3.12 widget has not been replaced. Do not treat the earlier package build or protocol fixtures as a completed installation or live cross-project acceptance.
 - Later verification should use the normal desktop execution context, preserve the existing settings, and observe ordinary-chat and other-project work start/end before claiming live acceptance. The paused question/answer experiment remains excluded.
