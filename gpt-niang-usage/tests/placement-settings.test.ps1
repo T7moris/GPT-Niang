@@ -1,5 +1,7 @@
 param([string]$AppUnderTest=(Split-Path $PSScriptRoot -Parent),[string]$ResultPath)
 $ErrorActionPreference='Stop'
+. (Join-Path $AppUnderTest 'runtime\update-common.ps1')
+function Get-FileHash {throw 'Get-FileHash module is unavailable in this fixture.'}
 $testRoot=Join-Path ([IO.Path]::GetTempPath()) ('gpt-placement-settings-'+[Guid]::NewGuid().ToString('N'))
 $app=Join-Path $testRoot 'app';$data=Join-Path $testRoot 'state'
 $native=Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\powershell.exe'
@@ -28,13 +30,13 @@ try{
     if($case.version){$settings.layoutVersion=$case.version}
     $settingsFile=Join-Path $data 'settings.json'
     [IO.File]::WriteAllText($settingsFile,($settings|ConvertTo-Json),$utf8)
-    $before=(Get-FileHash -LiteralPath $settingsFile).Hash
+    $before=Get-WidgetFileHash $settingsFile
     $output=& $native -NoProfile -STA -ExecutionPolicy Bypass -File (Join-Path $app 'runtime\start-widget.ps1') -WidgetPath (Join-Path $app 'widget.ps1') -CheckOnly
     if($LASTEXITCODE-ne 0){throw ('Full startup check failed: '+$case.name)}
     $state=($output -join [Environment]::NewLine)|ConvertFrom-Json
     if(!$state.ok -or [double]$state.placement.bottom-ne $case.expected){throw ($case.name+': expected '+$case.expected+', got '+$state.placement.bottom)}
     if([double]$state.sizing.character-ne 0.6 -or [double]$state.sizing.bubble-ne 1.0){throw ('Sizing was changed by settings read: '+$case.name)}
-    if((Get-FileHash -LiteralPath $settingsFile).Hash-ne $before){throw ('Check-only rewrote preferences: '+$case.name)}
+    if((Get-WidgetFileHash $settingsFile)-ne $before){throw ('Check-only rewrote preferences: '+$case.name)}
     $results+=@{name=$case.name;expected=$case.expected;actual=$state.placement.bottom;settingsUnchanged=$true}
   }
   if($ResultPath){[IO.File]::WriteAllText($ResultPath,(@{passed=$true;cases=$results;fullNativeStartup=$true;uiShown=$false;liveSettingsReadOrWritten=$false}|ConvertTo-Json -Depth 5),$utf8)}

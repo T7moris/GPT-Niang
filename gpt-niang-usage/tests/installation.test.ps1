@@ -93,6 +93,65 @@ try{
   Assert-Throws {& (Join-Path $moved 'Install.ps1') -CheckOnly} '*task action path mismatch*' 'foreign task is rejected during CheckOnly'
   Assert ([Convert]::ToBase64String([IO.File]::ReadAllBytes($configFile))-eq $initialConfigBytes) 'foreign task rejection preserves config'
 
+  # Reproduce a surviving stable task/shortcut after update-agent state was lost.
+  # Keep every read and recreated agent inside the isolated fixture.
+  . $commonFile
+  $bindingFile=Join-Path $isolatedAgent 'binding.json'
+  $installed=@{appDir=$moved;dataDir=$data;updateAgent=$isolatedAgent}
+  Write-WidgetSupervisorJson $configFile $installed
+  $installedBytes=[Convert]::ToBase64String([IO.File]::ReadAllBytes($configFile))
+  $stableInfo=Get-WidgetSupervisorInfo $moved $installed
+  $stableTask=[pscustomobject]@{TaskName=$stableInfo.TaskName;TaskPath=$stableInfo.TaskPath;State='Ready';Principal=@{UserId=$stableInfo.Sid;LogonType='Interactive';RunLevel='Limited'};Actions=@(@{Execute=$stableInfo.Execute;Arguments=$stableInfo.Arguments;WorkingDirectory=$stableInfo.WorkingDirectory})}
+  $global:widgetInstallerTestTasks=@($stableTask)
+  $wscript=Join-Path $env:WINDIR 'System32\wscript.exe'
+  $logicalAgent=Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'GPTNiangUsage\update-agent'
+  foreach($oldAgent in @($isolatedAgent,$logicalAgent)){
+    $oldStableTask=[pscustomobject]@{TaskName=$stableInfo.TaskName;TaskPath=$stableInfo.TaskPath;Principal=$stableTask.Principal;Actions=@(@{Execute=$wscript;Arguments=('"'+(Join-Path $oldAgent 'agent-supervisor.vbs')+'"');WorkingDirectory=$oldAgent})}
+    $oldStableAccepted=$true
+    try{Assert-WidgetSupervisorTaskIdentity $oldStableTask $stableInfo}catch{$oldStableAccepted=$false}
+    Assert $oldStableAccepted 'previous stable wscript supervisor path remains accepted'
+  }
+  $stableShortcut=@{TargetPath=(Join-Path $env:WINDIR 'System32\wscript.exe');Arguments=('"'+(Join-Path $isolatedAgent 'agent-launch.vbs')+'"')}
+  $result=(& (Join-Path $moved 'Install.ps1') -CheckOnly)|ConvertFrom-Json
+  Assert ($result.ok) 'missing binding with a verified existing task passes installer preflight'
+  Assert (!(Test-Path -LiteralPath $bindingFile)) 'CheckOnly does not recreate missing binding'
+  Assert ([Convert]::ToBase64String([IO.File]::ReadAllBytes($configFile))-eq $installedBytes) 'binding recovery preflight preserves installation config'
+  Assert (Test-WidgetStartupShortcutIdentity $stableShortcut $moved) 'existing stable shortcut accepts verified missing binding'
+  Stop-WidgetSupervisorTask -AppDir $moved -Configuration $installed
+  Assert (!(Test-Path -LiteralPath $bindingFile)) 'stop can validate surviving task before binding is recreated'
+
+  Remove-Item -LiteralPath $configFile
+  Assert-Throws {Get-WidgetSupervisorTask $stableInfo} '*binding.json is missing*' 'missing binding without original install record is rejected'
+  Assert (!(Test-WidgetStartupShortcutIdentity $stableShortcut $moved)) 'shortcut without any ownership record is rejected'
+  foreach($foreign in @(
+    @{appDir=$old;dataDir=$data;updateAgent=$isolatedAgent},
+    @{appDir=$moved;dataDir=$data;updateAgent=(Join-Path $testRoot 'foreign-agent')},
+    @{appDir=$moved;dataDir=(Join-Path $testRoot 'foreign-data');updateAgent=$isolatedAgent},
+    @{appDir=$moved;dataDir=$data}
+  )){
+    Write-WidgetSupervisorJson $configFile $foreign
+    Assert-Throws {Get-WidgetSupervisorTask $stableInfo} '*binding*' 'missing binding cannot claim mismatched installation paths'
+  }
+  Write-WidgetSupervisorJson $configFile $installed
+  $stableTask.Actions[0].Execute=Join-Path $testRoot 'foreign.exe'
+  Assert-Throws {Get-WidgetSupervisorTask $stableInfo} '*task action path mismatch*' 'missing binding recovery still rejects foreign task executable'
+  $stableTask.Actions[0].Execute=$stableInfo.Execute
+  $stableTask.Principal.UserId='S-1-5-18'
+  Assert-Throws {Get-WidgetSupervisorTask $stableInfo} '*task owner mismatch*' 'missing binding recovery still rejects foreign task owner'
+  $stableTask.Principal.UserId=$stableInfo.Sid
+
+  Install-WidgetUpdateAgent $moved $data
+  $repaired=Get-Content -LiteralPath $bindingFile -Raw -Encoding UTF8|ConvertFrom-Json
+  Assert ($repaired.sid-eq $stableInfo.Sid -and $repaired.appDir-eq $moved -and $repaired.dataDir-eq $data) 'normal agent installation recreates binding with verified identity'
+  Assert ([bool](Get-WidgetSupervisorTask $stableInfo)) 'surviving task validates against the recreated binding'
+  Write-WidgetSupervisorJson $bindingFile @{sid=$stableInfo.Sid;appDir=$old;dataDir=$data}
+  Assert-Throws {Get-WidgetSupervisorTask $stableInfo} '*Stable task binding mismatch*' 'existing foreign binding cannot fall back to installation record'
+  Assert (!(Test-WidgetStartupShortcutIdentity $stableShortcut $moved)) 'existing foreign binding rejects stable shortcut'
+  [IO.File]::WriteAllText($bindingFile,'{invalid json')
+  Assert-Throws {Get-WidgetSupervisorTask $stableInfo} '*' 'malformed binding cannot fall back to installation record'
+  Remove-Item -LiteralPath $bindingFile
+  Install-WidgetUpdateAgent $moved $data
+
   $global:widgetInstallerTestTasks=@()
   $fakeCodex=Join-Path $testRoot 'codex-stub.cmd'
   [IO.File]::WriteAllText($fakeCodex,"@exit /b 0`r`n",[Text.UTF8Encoding]::new($false))

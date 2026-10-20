@@ -4,6 +4,10 @@ $ErrorActionPreference='Stop'
 
 $source=Split-Path $PSScriptRoot -Parent
 
+. (Join-Path $source 'runtime\update-common.ps1')
+
+function Get-FileHash {throw 'Get-FileHash module is unavailable in this fixture.'}
+
 $testRoot=Join-Path ([IO.Path]::GetTempPath()) ('gpt-niang-entrypoint-'+[Guid]::NewGuid().ToString('N'))
 
 $testApp=Join-Path $testRoot 'app'
@@ -62,7 +66,7 @@ try{
 
     if(!(Test-Path -LiteralPath $preview) -or [IO.File]::ReadAllBytes($preview).Length-lt 1000){throw 'The WPF preview is missing or empty.'}
 
-    $hash=(Get-FileHash -LiteralPath $preview -Algorithm SHA256).Hash
+    $hash=Get-WidgetFileHash $preview
 
     if($previousHash -and $hash-eq $previousHash){throw 'The saved alternate character was not applied by the full WPF entry point.'}
 
