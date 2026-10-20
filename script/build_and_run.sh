@@ -50,6 +50,7 @@ cat > "$APP_BUNDLE/Contents/Info.plist" <<PLIST
 <key>LSUIElement</key><true/>
 <key>NSPrincipalClass</key><string>NSApplication</string>
 <key>NSHighResolutionCapable</key><true/>
+<key>NSAudioCaptureUsageDescription</key><string>GPT 娘使用系统播放音频的节拍驱动音乐律动。不会使用麦克风，也不会保存或上传音频。</string>
 </dict></plist>
 PLIST
 # iCloud/Finder can add presentation metadata to generated bundles.

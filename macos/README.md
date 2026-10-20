@@ -165,3 +165,58 @@ No Windows updater or PowerShell is shipped in the Mac app. Node.js 20+ remains 
 Windows defines shared interaction behavior. Every left click, including double and rapid clicks, performs the normal quota/quote action and press/rebound feedback. Right-click opens an AppKit menu; the hover button and menu bar provide native settings. The scale range is 60–250% with 80/100/140% presets. Desktop mode supports cross-screen dragging, a remembered topmost switch (off by default), and a separately saved position. Returning to host mode immediately returns to the normal window level. Refresh does not open the bubble. Weighted quotes round-trip and custom quotes are backed up before reset.
 
 Business `individualLimit` windows with null minutes decode alongside timed windows. Two compact rows show the personal limit and shortest time window, while hover details retain all valid windows. Interface language follows the system or an explicit Simplified/Traditional choice; authored quotes and backend data remain untouched. UI, menus, drag capture and updates remain native SwiftUI/AppKit implementations.
+## Companion features in source (not yet released)
+
+Source builds add the character gallery, independent sizes, automatic quotes and
+music-reactive mode from Windows v1.3.5. These additions are not included in the
+published macOS v1.3.5 archive. They retain the current window-following, viewport
+clipping, audio customization, completion reminders and worker/update lifecycle.
+
+- **Character gallery:** import PNG/JPEG/BMP/GIF (first frame), select a character,
+  remove it, or undo removal. Imports become owned PNG copies in
+  `characters/`; removing a character retains the copy for undo across restarts.
+  The default dragon cannot be removed. Transparent pixels and aspect ratio are
+  preserved. Input limits match Windows: 20 MB, 4096 pixels per dimension,
+  16 million pixels, normalized to at most 2048 pixels per dimension.
+- **Independent sizes:** character and bubble each support 60–250%. Existing
+  `scale` preferences initialize both sizes so upgrades retain the old appearance.
+  The presets adjust both together; fitting a small host window does not overwrite
+  the requested sizes. Following uses the complete host geometry, never the
+  portion remaining on a physical display. Transparent character regions do not
+  intercept clicks.
+- **Automatic quotes:** off by default, with 1/5/15-minute intervals. A full quiet
+  interval starts after the widget becomes visible and idle. Existing bubbles,
+  interaction, refresh, menus, and settings pause the schedule. Sleep and clock
+  discontinuities reset it. Quotes use the existing pool and five-second lifetime,
+  without activating the app or requesting quota data.
+
+`script/test_companion_features.sh <release-products> <new-scratch-directory>`
+runs the feature checks without XCTest. Set `GPT_NIANG_SDK` to the desired macOS
+SDK. The same assertions are also included in `GPTNiangMacTests`.
+
+### Music-reactive mode
+
+Enable **音乐律动** in the native menu or settings, allow macOS system audio
+recording when prompted, play music and close settings. It is off at launch and
+requires macOS 14.2 or newer; the other companion features still support macOS 13.
+Source compilation of the optional bundle-ID exclusion uses the macOS 26 SDK or
+newer. Core Audio uses a private, unmuted global tap and excludes the companion;
+it does not use the microphone, change the output device, save or upload audio.
+Unlike Windows' preferred-player capture, it analyzes the system playback mix.
+
+The beat detector and motion are Swift ports of upstream v1.3.5
+`music-audio.cs` and `music-visual.cs`: bass/drum onset tracking, tempo lock,
+beat compression/rebound, two landing bounces and drag/throw motion. The artwork
+adds speakers, glasses on the built-in dragon, light beams and a mirror ball.
+**舞台灯光与镜面球** can be disabled separately while retaining character motion.
+The stage ignores mouse input and follows the same validated host visibility.
+Menus, settings and visible bubbles pause movement; disabling the mode restores
+the ordinary position. Sleep, output-device changes and capture failures release
+or recreate the tap. Reduced Motion suppresses movement.
+
+`script/test_music.sh <release-products> <new-scratch-directory>` runs detector,
+motion, PCM, capture-lifecycle and host-placement checks without audio permission.
+These checks are also in XCTest. The original feature build was manually verified
+on Apple Silicon/macOS 27 with system playback, Stage Manager, fullscreen Spaces
+and multiple displays; older systems, Intel and other output devices still need
+real-device verification.

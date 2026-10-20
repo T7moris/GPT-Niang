@@ -17,7 +17,10 @@ struct SettingsView: View {
             Text(model.text("讓小龍娘陪你掌握 Codex 額度。")).foregroundStyle(.secondary)
             section1
             section2
+            characterGallery
             section3
+            musicSection
+            automaticQuotes
             section4
             section5
             if let error = model.settingsError { Text(error).font(.caption).foregroundStyle(.orange) }
@@ -37,6 +40,10 @@ struct SettingsView: View {
         .onChange(of: model.hideMenu) { _ in model.savePreferences() }
         .onChange(of: model.completionEnabled) { _ in model.savePreferences() }
         .onChange(of: model.scale) { _ in model.savePreferences() }
+        .onChange(of: model.bubbleScale) { _ in model.savePreferences() }
+        .onChange(of: model.autoQuoteEnabled) { _ in model.savePreferences() }
+        .onChange(of: model.autoQuoteIntervalSeconds) { _ in model.savePreferences() }
+        .onChange(of: model.musicLights) { _ in model.savePreferences() }
         .onChange(of: model.volume) { _ in model.audio.updateVolume(); model.savePreferences() }
         .onChange(of: model.colorMode) { _ in model.updateAppearance(); model.savePreferences() }
         .onChange(of: model.fullChance) { _ in model.updateAppearance(); model.savePreferences() }
@@ -79,13 +86,18 @@ struct SettingsView: View {
                 VStack(alignment: .leading, spacing: 14) {
                     HStack {
                         ForEach([0.8, 1.0, 1.4], id: \.self) { value in
-                            Button("\(Int(value * 100))%") { model.scale = value }
+                            Button("\(Int(value * 100))%") { model.scale = value; model.bubbleScale = value }
                         }
+                        Spacer()
+                        Button(model.text("重置大小")) { model.scale = 1; model.bubbleScale = 1 }
                     }
                     Toggle(model.text("提示音"), isOn: $model.soundOn)
                     WidgetAudioMenu(audio: model.audio)
                     Toggle(model.text("隐藏设置按钮"), isOn: $model.hideMenu)
                     HStack { Text(model.text("角色大小")).frame(width: 70, alignment: .leading); Slider(value: $model.scale, in: 0.6...2.5, step: 0.1); Text("\(Int(model.scale * 100))% ").monospacedDigit().frame(width: 48) }
+                    HStack { Text(model.text("气泡大小")).frame(width: 70, alignment: .leading); Slider(value: $model.bubbleScale, in: 0.6...2.5, step: 0.1); Text("\(Int(model.bubbleScale * 100))% ").monospacedDigit().frame(width: 48) }
+                    Text(model.text("角色和气泡可分别调整；上方预设同时调整两者。窗口较小时会自动缩小以适应空间。"))
+                        .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                     HStack { Text(model.text("提示音量")).frame(width: 70, alignment: .leading); Slider(value: $model.volume, in: 0...1); Text(model.volume == 0 ? model.text("靜音") : "\(Int(model.volume * 100))% ").frame(width: 48) }
                     Picker(model.text("显示与位置"), selection: $model.followCodex) {
                         Text(model.text("仅在 Codex 窗口内")).tag(true)
@@ -109,6 +121,83 @@ struct SettingsView: View {
                     if let loginError { Text(loginError).font(.caption).foregroundStyle(.orange) }
                 }.padding(10)
             }
+    }
+
+    private var characterGallery: some View {
+        GroupBox(model.text("角色图库")) {
+            VStack(alignment: .leading, spacing: 10) {
+                ScrollView {
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 86))], spacing: 8) {
+                        ForEach(model.characters) { record in
+                            Button { model.selectCharacter(record) } label: {
+                                VStack(spacing: 4) {
+                                    ZStack {
+                                        RoundedRectangle(cornerRadius: 8).fill(Color.primary.opacity(0.04))
+                                        if let image = model.characterThumbnails[record.id] {
+                                            Image(nsImage: image).resizable().scaledToFit().padding(4)
+                                        } else { Image(systemName: "photo.badge.exclamationmark").foregroundStyle(.secondary) }
+                                    }.frame(height: 76)
+                                    Text(record.isBuiltin ? model.text(record.name) : record.name).font(.caption).lineLimit(1)
+                                }
+                                .padding(5)
+                                .background(model.selectedCharacterID == record.id ? Color.accentColor.opacity(0.12) : .clear, in: RoundedRectangle(cornerRadius: 8))
+                                .overlay(RoundedRectangle(cornerRadius: 8).stroke(model.selectedCharacterID == record.id ? Color.accentColor : .clear, lineWidth: 2))
+                            }.buttonStyle(.plain)
+                                .help(record.isBuiltin ? model.text(record.name) : record.name)
+                                .accessibilityAddTraits(model.selectedCharacterID == record.id ? .isSelected : [])
+                        }
+                    }.padding(3)
+                }.frame(height: model.characters.count > 4 ? 220 : 114)
+                HStack {
+                    Button(model.text("导入角色…")) { model.importCharacter() }
+                    Spacer()
+                    Button(model.text("撤销移除")) { model.undoCharacterRemoval() }.disabled(!model.canUndoCharacterRemoval)
+                    Button(model.text("移除当前角色")) { model.removeSelectedCharacter() }
+                        .disabled(model.selectedCharacterID == CharacterRecord.builtin.id)
+                }
+                Text(model.text("支持 PNG、JPG、BMP、GIF（首帧）。透明图片效果更好；导入后会保留独立副本。"))
+                    .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            }.padding(10)
+        }
+    }
+
+    private var automaticQuotes: some View {
+        GroupBox(model.text("定时自动语录")) {
+            VStack(alignment: .leading, spacing: 10) {
+                Toggle(model.text("自动显示一条语录"), isOn: $model.autoQuoteEnabled)
+                Picker(model.text("间隔"), selection: $model.autoQuoteIntervalSeconds) {
+                    ForEach(AutoQuoteSchedule.intervals, id: \.self) { seconds in
+                        Text(model.text("%@ 分钟", String(seconds / 60))).tag(seconds)
+                    }
+                }.pickerStyle(.segmented).disabled(!model.autoQuoteEnabled)
+                Text(model.text("仅在挂件可见且空闲时计时，使用下方语录，显示约 5 秒。查看额度、操作角色或打开设置时暂停；恢复后重新计时。"))
+                    .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            }.padding(10)
+        }
+    }
+
+    private var musicSection: some View {
+        GroupBox(model.text("音乐律动")) {
+            VStack(alignment: .leading, spacing: 10) {
+                Toggle(model.text("跟随系统播放的音乐律动"), isOn: Binding(
+                    get: { model.music.enabled },set: { model.music.setEnabled($0) }))
+                Toggle(model.text("舞台灯光与镜面球"), isOn: $model.musicLights)
+                HStack {
+                    Text(model.text(model.music.status)).font(.caption).foregroundStyle(.secondary)
+                    if model.music.bpm > 0 { Text("\(model.music.bpm) BPM").font(.caption.monospacedDigit()) }
+                    Spacer()
+                    Button(model.text("重试音频连接")) { model.music.retry() }
+                }
+                Text(model.text("播放音乐后关闭设置即可看到动作；点击角色查看额度时暂停。支持拖动和松手回弹。关闭律动会回到原来的位置。"))
+                    .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false,vertical: true)
+                Text(model.text("首次开启需要 macOS 的「系统音频录制」权限。不使用麦克风，不保存或上传音频；每次启动应用后按需开启。"))
+                    .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false,vertical: true)
+                if let error = model.music.error { Text(error).font(.caption).foregroundStyle(.orange).textSelection(.enabled) }
+                Button(model.text("打开系统音频权限设置")) {
+                    if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture") { NSWorkspace.shared.open(url) }
+                }
+            }.padding(10)
+        }
     }
 
     private var section4: some View {

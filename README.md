@@ -38,6 +38,8 @@
 Mac 设置使用 SwiftUI，菜单、窗口与拖动使用 AppKit；没有运行 PowerShell、WPF 或 Windows 更新器。界面可选择跟随系统、简体中文或繁体中文，切换语言不会改写自定义语录。安装／登录启动入口、Windows MCP 插件和 Mac 聊天速度面板保持各平台现有支持范围。
 ### Windows 与 macOS 功能差异（1.3.5）
 
+源码已加入尚未发布的 macOS 角色图库、独立缩放、自动语录和音乐律动，使用与权限要求见 [macOS 源码新增功能](macos/README.md#companion-features-in-source-not-yet-released)。下表仍描述已发布的 1.3.5 安装包。
+
 两个平台共享额度解析和自定义语录，但本版新增功能并非全部同时提供：
 
 | 功能 | Windows 1.3.5 | macOS 1.3.5 |
