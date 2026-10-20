@@ -88,6 +88,9 @@ try {
   [IO.File]::WriteAllText((Join-Path $installedDocs 'development-alignment.md'),'old release docs')
   $candidateDocs=Join-Path $journal.candidate 'docs';$null=New-Item -ItemType Directory -Path $candidateDocs
   [IO.File]::WriteAllText((Join-Path $candidateDocs 'development-alignment.md'),'new release docs')
+  $stopLauncher=([string][char]0x505c)+([string][char]0x7528)+'GPT'+([string][char]0x5A18)+'.cmd'
+  [IO.File]::WriteAllText((Join-Path $journal.root $stopLauncher),'old launcher')
+  [IO.File]::WriteAllText((Join-Path $journal.candidate $stopLauncher),'new launcher')
   Invoke-WidgetUpdateTransaction $journal $script:agent $journal.token
   Assert ($journal.phase-eq 'committed') 'upgrade commits after registration and real heartbeat validation'
   Assert ((Read-WidgetUpdateJson (Join-Path $journal.appDir 'installation.json')).version-eq '1.3.3') 'new plugin version registered'
@@ -98,6 +101,7 @@ try {
   Assert ([IO.File]::ReadAllText((Join-Path $journal.root 'screenshot.png'))-eq 'personal screenshot') 'unrelated screenshots remain at their original active path'
   Assert ([IO.File]::ReadAllText((Join-Path $journal.root 'my downloads\old-package.zip'))-eq 'manually downloaded archive') 'unmanaged download folders survive old-version cleanup'
   Assert ([IO.File]::ReadAllText((Join-Path $journal.root 'docs\development-alignment.md'))-eq 'new release docs') 'release-managed docs replace the prior package docs without colliding with personal files'
+  Assert ([IO.File]::ReadAllText((Join-Path $journal.root $stopLauncher))-eq 'new launcher') 'release-managed Chinese launcher filenames remain valid in Windows PowerShell 5.1'
 
   $journal=New-Fixture 'personal-collision'
   [IO.File]::WriteAllText((Join-Path $journal.root 'user.txt'),'personal file')
