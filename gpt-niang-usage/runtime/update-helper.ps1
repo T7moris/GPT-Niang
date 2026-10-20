@@ -142,7 +142,7 @@ function Wait-WidgetUpdatedHealth($Journal) {
     $status=Read-WidgetUpdateJson (Join-Path $Journal.dataDir 'supervisor-status.json')
     if($status -and ([DateTime]::UtcNow-([DateTime]$status.at).ToUniversalTime()).TotalSeconds-lt 10 -and ([DateTime]$status.at).ToUniversalTime()-ge ([DateTime]$Journal.installStartedAt).ToUniversalTime()) {
       $process=Get-CimInstance Win32_Process -Filter ('ProcessId='+[int]$status.pid) -ErrorAction Stop
-      $expected='"'+(Join-Path (Get-WidgetUpdateAgentDir) 'update-agent.ps1')+'"'
+      $expected='"'+(Join-Path $Journal.appDir 'runtime\supervisor.ps1')+'"'
       if($process -and $process.Name-in @('powershell.exe','pwsh.exe') -and $process.CommandLine.IndexOf($expected,[StringComparison]::OrdinalIgnoreCase)-ge 0){return}
     }
     Start-Sleep -Milliseconds 500

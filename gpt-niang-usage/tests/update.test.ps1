@@ -29,8 +29,9 @@ function Assert-WidgetPluginRegistration([string]$Codex,[string]$Version){
   $catalog=Read-WidgetUpdateJson (Join-Path $testRoot 'catalog.json')
   if($catalog.version-ne $Version -or !$catalog.installed -or !$catalog.enabled){throw 'Isolated plugin registration mismatch.'}
 }
+$script:expectedSupervisorAppDir=$null
 function Get-CimInstance {
-  return [pscustomobject]@{Name='powershell.exe';CommandLine=('powershell.exe -File "'+(Join-Path $script:agent 'update-agent.ps1')+'"')}
+  return [pscustomobject]@{Name='powershell.exe';CommandLine=('powershell.exe -File "'+(Join-Path $script:expectedSupervisorAppDir 'runtime\supervisor.ps1')+'"')}
 }
 $script:healthValidator=(Get-Command Wait-WidgetUpdatedHealth).ScriptBlock
 function Wait-WidgetUpdatedHealth($Journal) {
@@ -39,6 +40,7 @@ function Wait-WidgetUpdatedHealth($Journal) {
 }
 function Invoke-WidgetUpdateInstaller($Journal,[string]$Token) {
   $script:installerCalls++
+  $script:expectedSupervisorAppDir=$Journal.appDir
   $manifest=Read-WidgetUpdateJson (Join-Path $Journal.appDir '.codex-plugin\plugin.json')
   if($script:failureMode-eq 'install' -and $manifest.version-eq '1.3.3'){throw 'Simulated plugin registration failure.'}
   $config=Read-WidgetUpdateJson (Join-Path $Journal.appDir 'installation.json');$config.version=$manifest.version
