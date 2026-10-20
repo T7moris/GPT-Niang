@@ -1,10 +1,20 @@
 {
   "name": "gpt-niang-local",
-  "interface": {"displayName": "GPT娘额度挂件"},
-  "plugins": [{
-    "name": "gpt-niang-usage",
-    "source": {"source": "local", "path": "./gpt-niang-usage"},
-    "policy": {"installation": "AVAILABLE", "authentication": "ON_INSTALL"},
-    "category": "Productivity"
-  }]
+  "interface": {
+    "displayName": "GPT娘额度挂件"
+  },
+  "plugins": [
+    {
+      "name": "gpt-niang-usage",
+      "source": {
+        "source": "local",
+        "path": "./gpt-niang-usage"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
 }

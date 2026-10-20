@@ -1,4 +1,4 @@
-param([string]$Token,[switch]$Recover,[switch]$Cleanup,[switch]$FunctionsOnly)
+﻿param([string]$Token,[switch]$Recover,[switch]$Cleanup,[switch]$FunctionsOnly)
 $ErrorActionPreference='Stop'
 . (Join-Path $PSScriptRoot 'supervisor-task.ps1')
 . (Join-Path $PSScriptRoot 'update-common.ps1')

@@ -28,6 +28,8 @@ final class NativeUpdater: ObservableObject {
     private let data: URL
     private let app: URL
     private let idle: () -> Bool
+    private let workerReady: (String) -> Bool
+    private var launchConfirmed = false
     private let terminate: () -> Void
     private var ticker: Timer?
     private var operation: Task<Void, Never>?
@@ -36,9 +38,10 @@ final class NativeUpdater: ObservableObject {
     private var schedule: MacUpdateSchedule
 
     init(data: URL, app: URL = Bundle.main.bundleURL, version: String? = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String,
-         idle: @escaping () -> Bool, terminate: @escaping () -> Void) {
+         idle: @escaping () -> Bool, workerReady: @escaping (String) -> Bool, terminate: @escaping () -> Void) {
         self.data = UpdateFiles.canonical(data); self.app = UpdateFiles.canonical(app); self.idle = idle; self.terminate = terminate
         currentVersion = version ?? "dev"
+        self.workerReady = workerReady
         schedule = (try? UpdateFiles.read(MacUpdateSchedule.self, at: data.appendingPathComponent("mac-update-schedule.json"))) ?? MacUpdateSchedule()
         automatic = ((try? UpdateFiles.read(MacUpdatePreferences.self, at: data.appendingPathComponent("mac-update-preferences.json"))) ?? MacUpdatePreferences()).automatic
         if let journal = try? UpdateFiles.read(UpdateJournal.self, at: data.appendingPathComponent("mac-update-transaction.json")) {
@@ -50,7 +53,12 @@ final class NativeUpdater: ObservableObject {
     func start() {
         ticker = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
             Task { @MainActor in
-                guard let self, Date().timeIntervalSince(self.started) >= 30 else { return }
+                guard let self else { return }
+                if !self.launchConfirmed {
+                    self.launchConfirmed = Self.confirmLaunch(data: self.data, app: self.app, version: self.currentVersion,
+                        workerReady: { self.workerReady(self.currentVersion) })
+                }
+                guard Date().timeIntervalSince(self.started) >= 30 else { return }
                 if !self.cleanupChecked && !self.busy { self.cleanupChecked = true; self.clean(); return }
                 if self.automatic && Date().timeIntervalSince1970 >= self.schedule.nextCheck { self.check(manual: false) }
             }
@@ -120,17 +128,18 @@ final class NativeUpdater: ObservableObject {
                 }.value
                 try Task.checkCancellation()
                 setStatus("下載已驗證，請關閉設定視窗，等待掛件空閒後安裝。")
-                while !idle() {
-                    if !manual && !automatic { setStatus("自動更新已關閉，下載已清理。"); return }
-                    try await Task.sleep(nanoseconds: 500_000_000)
-                }
-                if !manual && !automatic { setStatus("自動更新已關閉，下載已清理。"); return }
                 try active.createOwned(active.artifact(id), token: id)
                 try await Task.detached {
                     try FileManager.default.copyItem(at: prepared.0, to: active.staged(id))
                     try NativeArchive.validate(active.staged(id), version: selected.version)
                 }.value
                 try Task.checkCancellation()
+                // Staging is asynchronous; wait for idle immediately before the helper handoff.
+                while !idle() {
+                    if !manual && !automatic { setStatus("自動更新已關閉，下載已清理。"); return }
+                    try await Task.sleep(nanoseconds: 500_000_000)
+                }
+                if !manual && !automatic { setStatus("自動更新已關閉，下載已清理。"); return }
                 let journal = UpdateJournal(token: id, app: app, data: data, version: selected.version, oldVersion: currentVersion, hash: prepared.1,
                                             parentPID: ProcessInfo.processInfo.processIdentifier)
                 try active.save(journal); keep = true
@@ -160,11 +169,20 @@ final class NativeUpdater: ObservableObject {
         if let pid = journal.helperPID, kill(pid, 0) == 0 { return false }
         try launchHelper(store: store, recover: true); return true
     }
-    static func confirmLaunch(data: URL) {
-        guard let store = try? UpdateStore(app: Bundle.main.bundleURL, data: data), let journal = try? store.journal(),
-              journal.phase == .replaced, let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String,
-              version == journal.version else { return }
-        let ready = UpdateHealth(token: journal.token, version: version, appPath: store.app.path, pid: ProcessInfo.processInfo.processIdentifier)
-        try? UpdateFiles.write(ready, to: store.data.appendingPathComponent("mac-update-health.json"))
+    @discardableResult
+    static func confirmLaunch(data: URL, app: URL = Bundle.main.bundleURL,
+                              version: String? = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String,
+                              workerReady: () -> Bool,
+                              writeHealth: (UpdateHealth, URL) throws -> Void = { try UpdateFiles.write($0, to: $1) }) -> Bool {
+        do {
+            guard let journal = try UpdateFiles.read(UpdateJournal.self, at: data.appendingPathComponent("mac-update-transaction.json")) else { return true }
+            let store = try UpdateStore(app: app, data: data)
+            try store.validate(journal)
+            if journal.phase.terminal { return true }
+            guard journal.phase == .replaced, let version, version == journal.version, workerReady() else { return false }
+            let ready = UpdateHealth(token: journal.token, version: version, appPath: store.app.path, pid: ProcessInfo.processInfo.processIdentifier)
+            try writeHealth(ready, store.data.appendingPathComponent("mac-update-health.json"))
+            return true
+        } catch { return false } // Retry on the existing one-second updater tick.
     }
 }

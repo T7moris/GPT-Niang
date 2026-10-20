@@ -49,19 +49,21 @@ test('known, unknown, absent and stale account plan metadata are distinguished',
   assert.equal(identifyPlan(null,null).plan,null);
   assert.equal(identifyPlan('pro\nTOKEN',null).plan,null);
 });
-test('a plan change in the quota response invalidates the old plan snapshot before publication',async()=>{
+test('a plan change in the quota response keeps the account snapshot stable',async()=>{
   const account={type:'chatgpt',email:'example@example.test',planType:'plus',accessToken:'private'};
   const server=fakeServer(account,{rateLimits:{planType:'pro',primary:window(300,7)}}),seen=[];
   const result=await readUsage('fake',{spawnProcess:server.spawnProcess,onAccount:key=>seen.push(key)});
   assert.equal(result.plan,'pro');assert.equal(result.planSource,'rateLimits');
-  assert.deepEqual(seen,[accountFingerprint(account),accountFingerprint({...account,planType:'pro'})]);
-  assert.equal(result.accountKey,seen[1]);
+  // The plan label is metadata, not account identity: one account must keep one
+  // snapshot key so a failed refresh can preserve the previous windows.
+  assert.deepEqual(seen,[accountFingerprint(account)]);
+  assert.equal(result.accountKey,accountFingerprint(account));
   assert.deepEqual(server.methods,['initialize','initialized','account/read','account/rateLimits/read']);
   assert.equal(JSON.stringify(result).includes(account.email),false);
   assert.equal(JSON.stringify(result).includes(account.accessToken),false);
   const previous={...result,accountKey:seen[0],windows:[{remaining:99}]};
-  const failed={ok:false,queryOk:false,windows:[],accountKey:seen[1]};
-  assert.deepEqual(mergeUsageSnapshot(previous,failed).windows,[]);
+  const failed={ok:false,queryOk:false,windows:[],accountKey:seen[0],clearPrevious:false};
+  assert.deepEqual(mergeUsageSnapshot(previous,failed).windows,[{remaining:99}]);
 });
 test('account plan remains identifiable when limits omit it or the quota request fails',async()=>{
   const account={type:'chatgpt',email:'pro@example.test',planType:'pro'};

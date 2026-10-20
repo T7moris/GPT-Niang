@@ -30,11 +30,14 @@ public sealed class GptWidgetHostFollower : IDisposable {
  readonly WinEventProc callback;
  IntPtr host,locationHook,lifecycleHook;
  int insetLeft,insetTop,insetRight,insetBottom,width,height,left,right,bottom;
- int hostWidth,hostHeight,clipWidth=-1,clipHeight=-1;
+ int hostWidth,hostHeight,clipLeft=-1,clipTop=-1,clipWidth=-1,clipHeight=-1;
  uint hostDpi;
  IntPtr selectedMonitor;
  string anchor;
  bool enabled,hiddenByHost,disposed;
+ int temporaryX,temporaryY;
+ IntPtr companion;
+ int companionWidth,companionHeight,companionTop;
  public long MovementEvents {get;private set;}
  public long PositionChanges {get;private set;}
  public uint MaxDeliveryMs {get;private set;}
@@ -89,9 +92,20 @@ public sealed class GptWidgetHostFollower : IDisposable {
   if(enabled)Synchronize();
  }
  public void Suspend(){enabled=false;}
+ public void SetTemporaryOffset(int x,int y){temporaryX=x;temporaryY=y;SynchronizeCore(true);}
+ // A decorative companion shares this same host snapshot and native move event.
+ // Its coordinates are never clamped to the desktop work area.
+ public void SetCompanion(IntPtr handle,int width,int height,int top){
+  if(companion==handle&&companionWidth==width&&companionHeight==height&&companionTop==top)return;
+  companion=handle;companionWidth=width;companionHeight=height;companionTop=top;Synchronize();
+ }
+ public int[] GetFrame(){
+  Rect r;if(!GetWindowRect(host,out r))return null;
+  return new[]{r.Left+insetLeft,r.Top+insetTop,r.Right-insetRight,r.Bottom-insetBottom};
+ }
  public void Detach(){
   enabled=false;ReleaseHooks();host=IntPtr.Zero;Moving=false;hiddenByHost=false;
-  clipWidth=-1;clipHeight=-1;SetWindowRgn(widget,IntPtr.Zero,true);
+  clipLeft=-1;clipTop=-1;clipWidth=-1;clipHeight=-1;SetWindowRgn(widget,IntPtr.Zero,true);
  }
  void OnEvent(IntPtr hook,uint ev,IntPtr hwnd,int objectId,int childId,uint threadId,uint time){
   if(disposed||hwnd!=host||objectId!=0||childId!=0)return;
@@ -104,9 +118,11 @@ public sealed class GptWidgetHostFollower : IDisposable {
   }
   Synchronize();
  }
- public bool Synchronize(){
+ public bool Synchronize(){return SynchronizeCore(false);}
+ bool SynchronizeCore(bool musicMove){
   if(disposed||!enabled||!IsWindow(host)||!IsWindow(widget))return false;
   if(!IsWindowVisible(host)||IsIconic(host)){
+   if(companion!=IntPtr.Zero)ShowWindow(companion,0);
    ShowWindow(widget,0);hiddenByHost=true;return false;
   }
   Rect frame,current;if(!GetWindowRect(host,out frame))return false;
@@ -116,28 +132,39 @@ public sealed class GptWidgetHostFollower : IDisposable {
    LayoutDirty=true;if(LayoutRequested!=null)LayoutRequested();
   }
   frame.Left+=insetLeft;frame.Top+=insetTop;frame.Right-=insetRight;frame.Bottom-=insetBottom;
+  if(companion!=IntPtr.Zero&&IsWindow(companion)){
+   int cx=frame.Left+(frame.Right-frame.Left-companionWidth)/2,cy=frame.Top+companionTop;
+   Rect c;if(!GetWindowRect(companion,out c)||c.Left!=cx||c.Top!=cy)
+    SetWindowPos(companion,IntPtr.Zero,cx,cy,0,0,0x215);
+  }
   int px=anchor=="right"?frame.Right-width-right:frame.Left+left;
-  int py=Math.Max(frame.Top,frame.Bottom-height-bottom);
-  IntPtr monitor=MonitorFromPoint(new Point{X=px+width/2,Y=py+height/2},2);
+  int py=frame.Bottom-height-bottom;
+  IntPtr monitor=MonitorFromPoint(new Point{X=px+temporaryX+width/2,Y=py+temporaryY+height/2},2);
   if(selectedMonitor!=IntPtr.Zero&&monitor!=selectedMonitor&&!LayoutDirty){LayoutDirty=true;if(LayoutRequested!=null)LayoutRequested();}
   selectedMonitor=monitor;
+  // Position follows the full host frame. The work area only clips pixels.
+  int x=px+temporaryX,y=py+temporaryY;
   var bounds=Clip(monitor,frame.Left,frame.Top,frame.Right,frame.Bottom);
-  frame.Left=bounds[0];frame.Top=bounds[1];frame.Right=bounds[2];frame.Bottom=bounds[3];
-  int x=anchor=="right"?frame.Right-width-right:frame.Left+left;
-  x=Math.Max(frame.Left,Math.Min(frame.Right-width,x));
-  int y=Math.Max(frame.Top,frame.Bottom-height-bottom);
-  int cw=Math.Max(0,Math.Min(width,frame.Right-x)),ch=Math.Max(0,Math.Min(height,frame.Bottom-y));
-  if(cw!=clipWidth||ch!=clipHeight){
-   IntPtr region=CreateRectRgn(0,0,cw,ch);
+  int cl=Math.Max(0,Math.Max(frame.Left,bounds[0])-x);
+  int ct=Math.Max(0,Math.Max(frame.Top,bounds[1])-y);
+  int cr=Math.Min(width,Math.Min(frame.Right,bounds[2])-x);
+  int cb=Math.Min(height,Math.Min(frame.Bottom,bounds[3])-y);
+  int cw=Math.Max(0,cr-cl),ch=Math.Max(0,cb-ct);
+  if(cw==0||ch==0){cl=0;ct=0;cw=0;ch=0;}
+  if(cl!=clipLeft||ct!=clipTop||cw!=clipWidth||ch!=clipHeight){
+   IntPtr region=CreateRectRgn(cl,ct,cl+cw,ct+ch);
    if(region!=IntPtr.Zero){
-    if(SetWindowRgn(widget,region,true)!=0){clipWidth=cw;clipHeight=ch;}
+    if(SetWindowRgn(widget,region,true)!=0){clipLeft=cl;clipTop=ct;clipWidth=cw;clipHeight=ch;}
     else DeleteObject(region);
    }
   }
   if(!GetWindowRect(widget,out current)||current.Left!=x||current.Top!=y){
    // Position only: WPF owns size and rendering. No resize, activation or
    // z-order changes, and no queued asynchronous SetWindowPos operation.
-   if(!SetWindowPos(widget,IntPtr.Zero,x,y,0,0,0x15))return false;
+   // Music changes position only. Avoid WPF synchronously disabling its
+   // render target for WM_WINDOWPOSCHANGING; WM_WINDOWPOSCHANGED still arrives.
+   // Ordinary host synchronization retains its original notification path.
+   if(!SetWindowPos(widget,IntPtr.Zero,x,y,0,0,musicMove?0x415u:0x15u))return false;
    PositionChanges++;
   }
   if(hiddenByHost){ShowWindow(widget,4);hiddenByHost=false;}

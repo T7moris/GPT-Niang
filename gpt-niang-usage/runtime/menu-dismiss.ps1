@@ -1,4 +1,4 @@
-# The widget is non-activating; focus loss alone cannot dismiss its menu.
+﻿# The widget is non-activating; focus loss alone cannot dismiss its menu.
 # Observe button edges only while open. Never hook or consume mouse input.
 $script:settingsMenuPointerMask=0
 function Get-SettingsMenuPointer {
@@ -41,9 +41,22 @@ function Invoke-SettingsMenuDismissTick {
   $pointer=Get-SettingsMenuPointer
   $previous=$script:settingsMenuPointerMask
   $script:settingsMenuPointerMask=$pointer.Mask
-  if(Test-SettingsMenuOutsidePress $pointer $previous @(Get-SettingsMenuBounds)){$script:context.IsOpen=$false}
+  if(Test-SettingsMenuOutsidePress $pointer $previous @(Get-SettingsMenuBounds)){
+    foreach($item in @($script:settingsSubmenus)){if($item.IsSubmenuOpen){$item.IsSubmenuOpen=$false}}
+    $script:context.IsOpen=$false
+    $script:settingsMenuDismissTimer.Stop();$script:settingsMenuPointerMask=0
+  }
+}
+function Stop-SettingsMenuDismiss {
+  if($script:settingsMenuDismissTimer){$script:settingsMenuDismissTimer.Stop()}
+  if($script:settingsMenuOpenObserver){
+    $observer=$script:settingsMenuOpenObserver;$script:settingsMenuOpenObserver=$null
+    $observer.Descriptor.RemoveValueChanged($observer.Menu,$observer.Handler)
+  }
+  $script:settingsMenuPointerMask=0
 }
 function Initialize-SettingsMenuDismiss {
+  Stop-SettingsMenuDismiss
   if(-not ('GptSettingsMenuPointer' -as [type])){
     Add-Type @'
 using System;
@@ -64,4 +77,11 @@ public static class GptSettingsMenuPointer {
     $script:settingsMenuDismissTimer.Start()
   })
   $script:context.Add_Closed({$script:settingsMenuDismissTimer.Stop();$script:settingsMenuPointerMask=0})
+  # Native popup Closed can arrive after IsOpen already changed. Stop polling
+  # synchronously for manual closes, including a menu with nested popups.
+  $descriptor=[ComponentModel.DependencyPropertyDescriptor]::FromProperty([Windows.Controls.ContextMenu]::IsOpenProperty,[Windows.Controls.ContextMenu])
+  $handler=[EventHandler]{param($sender,$event)if(!$sender.IsOpen){$script:settingsMenuDismissTimer.Stop();$script:settingsMenuPointerMask=0}}
+  $descriptor.AddValueChanged($script:context,$handler)
+  $script:settingsMenuOpenObserver=@{Descriptor=$descriptor;Menu=$script:context;Handler=$handler}
+
 }

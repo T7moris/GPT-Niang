@@ -59,7 +59,11 @@ export function accountFingerprint(account) {
   const fields=['id','accountId','chatgptAccountId','email'];
   const identity=fields.map(key=>[key,typeof account?.[key]==='string'?account[key].trim():null]).filter(([,value])=>value);
   if(identity.length===0)return null;
-  return createHash('sha256').update(JSON.stringify([account.type,account.planType??null,identity])).digest('hex');
+  // Plan labels can lag behind the account or change without a different
+  // account/read identity. They must not split one account into two snapshot
+  // keys, otherwise every refresh writes an empty placeholder and a failed
+  // quota read loses the previous snapshot.
+  return createHash('sha256').update(JSON.stringify([account.type,identity])).digest('hex');
 }
 
 // The desktop app replaces its hash-named CLI folder during updates. Resolve
@@ -73,7 +77,9 @@ export function resolveCodexExecutable(configuredPath,{env=process.env,platform=
     // An explicit app root also lets tests isolate themselves from real logins.
     const applications=env.GPT_NIANG_CODEX_APP?[env.GPT_NIANG_CODEX_APP]:[
       '/Applications/Codex.app',
-      ...(env.HOME?[path.join(env.HOME,'Applications','Codex.app')]:[])
+      ...(env.HOME?[path.join(env.HOME,'Applications','Codex.app')]:[]),
+      '/Applications/ChatGPT.app',
+      ...(env.HOME?[path.join(env.HOME,'Applications','ChatGPT.app')]:[])
     ];
     for(const app of applications){
       for(const relative of ['Contents/Resources/codex-cli/bin/codex','Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex','Contents/Resources/codex']){

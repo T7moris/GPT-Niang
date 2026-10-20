@@ -20,7 +20,7 @@ try{
   Assert ($script:requestedActions-eq 1 -and $script:completionQueue.Count-eq 0) 'Error turn triggered animation or text while bubbles were disabled'
   $script:completionNotificationsEnabled=$true
   Receive-CompletionMonitorLine '{"message":"failed","eventType":"task_complete","success":false,"turnId":"error"}' $true
-  Assert ($script:requestedActions-eq 1 -and $script:completionQueue.Count-eq 1 -and $script:completionQueue.Peek()-eq 'failed') 'Text notification behavior changed for an error turn'
+  Assert ($script:requestedActions-eq 1 -and $script:completionQueue.Count-eq 0 -and !$script:completionPending) 'Failed turns must clear work without creating a successful-completion reminder'
   $script:completionNotificationsEnabled=$false;$script:characterMode='original'
   Assert (!(Test-CompletionMonitorNeeded)) 'Monitor remained needed without bubbles or a pixel completion action'
   $script:characterMode='pixel';$script:availableActions=@('working')
@@ -29,7 +29,7 @@ try{
   Receive-CompletionMonitorLine '{"eventType":"work_state","working":false,"activeTurns":0}' $false
   Receive-CompletionMonitorLine '{"eventType":"work_state","working":"false"}' $true
   Assert ($script:workSignals.Count-eq 2 -and $script:workSignals[0] -and !$script:workSignals[1]) 'Work state parsing or malformed-state handling failed'
-  Write-Output 'PASS: completion and working actions independent of bubble toggle; work signals and malformed input; failed turns remain text-only'
+  Write-Output 'PASS: completion and working actions independent of bubble toggle; work signals and malformed input; failed turns do not create success reminders'
 }finally{
   if($script:completionProcess){Stop-CompletionMonitor}
 }

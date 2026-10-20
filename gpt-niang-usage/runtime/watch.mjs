@@ -6,25 +6,40 @@ import {acquireWorkerLock,processAlive,readJson} from './worker-state.mjs';
 import {readPendingRequests,completeRequests,cleanRefreshResults,widgetUpdating,updatingSnapshot} from './refresh-client.mjs';
 
 import {createPipeRefreshHandler} from './worker-ipc.mjs';
+import {pluginVersion} from './metadata.mjs';
 
 const config=readJson(process.argv[2]);
 if(!config?.dataDir || !config?.codexPath)throw new Error('Invalid widget installation configuration');
 if(widgetUpdating(config.dataDir))process.exit(0);
 const parentPid=Number(process.argv[3]??0);
 if(!Number.isSafeInteger(parentPid) || parentPid<0)throw new Error('Invalid parent process id');
+const inheritStop=process.argv[4]==='--inherit-stop';
+const handoffSupported=process.platform==='darwin' || inheritStop;
 let refresh;
 const ipc=createPipeRefreshHandler(()=>{if(refresh)void refresh.request();});
 const lock=await acquireWorkerLock(config.dataDir,parentPid,{onLost:()=>process.exit(1),onConnection:ipc.onConnection});
 if(!lock)process.exit(0);
 const statusFile=path.join(config.dataDir,'status.json');
 const healthFile=path.join(config.dataDir,'worker-status.json');
+const handoffFile=handoffSupported?path.join(config.dataDir,'worker-handoff-'+lock.owner.token+'.flag'):null;
 let status=null,requestToken=readRefreshRequest(path.join(config.dataDir,'refresh.flag')),lastActivity=Date.now(),heartbeat;
 const activeRequestIds=new Set();
 const initialStop=readRefreshRequest(path.join(config.dataDir,'stop.flag'));
 const save=data=>{atomicJson(statusFile,data);status=data;};
-const health=()=>atomicJson(healthFile,{...lock.owner,at:Date.now(),busy:refresh.busy,lastRefresh:refresh.lastRefresh});
+const health=()=>atomicJson(healthFile,{...lock.owner,version:pluginVersion,...(handoffSupported?{handoffProtocol:1}:{}),at:Date.now(),busy:refresh.busy,lastRefresh:refresh.lastRefresh});
+function stopForOwner(request) {
+  if(request===null)return false;
+  if(handoffSupported){
+    const fields=request.split(':');
+    const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if(fields.length===4 && fields[1]==='worker-handoff' && uuid.test(fields[2]) && uuid.test(fields[3]))return fields[2]===lock.owner.token;
+  }
+  return true;
+}
 function exit() {
   clearInterval(heartbeat);
+  // This path belongs only to the exiting owner's token; general stop.flag stays intact.
+  try{if(handoffFile)fs.unlinkSync(handoffFile);}catch{}
   try{if(readJson(healthFile)?.token===lock.owner.token)fs.unlinkSync(healthFile);}catch{}
   try{lock.release();}catch{}
 }
@@ -62,8 +77,16 @@ health();
 if(parentPid)void refresh.request();
 heartbeat=setInterval(()=>{
   if(widgetUpdating(config.dataDir)){completeRequests(config.dataDir,readPendingRequests(config.dataDir),updatingSnapshot());ipc.complete(ipc.takeBatch(),updatingSnapshot());process.exit(0);}
+  const handingOff=handoffFile && readRefreshRequest(handoffFile)!==null;
   const stop=readRefreshRequest(path.join(config.dataDir,'stop.flag'));
-  if((parentPid && (!processAlive(parentPid) || stop!==null)) || (stop!==null && stop!==initialStop))process.exit(0);
+  const stopApplies=stopForOwner(stop);
+  // Mac GUI startup opts in to inheriting old requests; other GUI callers retain their stop behavior.
+  if((parentPid && (!processAlive(parentPid) || (!inheritStop && stopApplies))) || (stopApplies && stop!==initialStop))process.exit(0);
+  if(handingOff){
+    if(!refresh.busy)process.exit(0);
+    try{health();}catch{}
+    return; // Finish the current query; leave new file requests for the next owner.
+  }
   // No background queries while Codex is not visible; a fresh query on return.
   const now=Date.now(),presence=readJson(path.join(config.dataDir,'presence.json'));
   const active=presence?.visible && now-presence.at>=0 && now-presence.at<5000 && processAlive(presence.pid);

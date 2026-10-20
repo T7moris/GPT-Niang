@@ -54,6 +54,8 @@ struct WidgetView: View {
             Button(model.text("刷新額度")) { model.refresh() }
             Button(model.text("來一句語錄")) { model.showQuote() }
             Divider()
+            Toggle(model.text("回答结束提醒"), isOn: Binding(get: { model.completionEnabled }, set: { model.completionEnabled = $0; model.savePreferences() }))
+            WidgetAudioMenu(audio: model.audio)
             Button(model.text("設定…"), action: onSettings)
             Button(model.text("退出 GPT 娘")) { NSApp.terminate(nil) }
         }
@@ -118,10 +120,14 @@ struct WidgetView: View {
     private func scene(now: Date, phase: Double) -> some View {
         Group {
             if let quote = displayedMessage {
+                if model.isCompletionMessage {
+                    VStack(spacing: 0) { Text("Codex"); Text(model.text("有回复已结束")) }.font(.system(size: 30, weight: .bold)).lineLimit(1).fixedSize().foregroundStyle(ink)
+                } else {
                 Text(quote).font(.system(size: 24, weight: .bold)).multilineTextAlignment(.center)
                     .minimumScaleFactor(0.3).lineLimit(6).padding(.horizontal, 12)
                     .foregroundStyle(model.colorScope == .none ? AnyShapeStyle(ink) : style("ink", phase: phase))
                     .help(quote)
+                }
             } else {
                 VStack(spacing: 2) {
                     Text(quotaTitle(now: now)).font(.system(size: 12, weight: .semibold)).foregroundStyle(style("ink", phase: phase))

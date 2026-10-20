@@ -65,12 +65,15 @@ function Pump-QuoteVoice([bool]$Visible){
     if(!$file.StartsWith($root,[StringComparison]::OrdinalIgnoreCase) -or [IO.Path]::GetFileName($file)-notmatch '^[a-f0-9]{64}\.wav$'){throw 'Invalid quote asset'}
     if(!(Test-CompletionVoiceBusy)){
       Stop-WidgetAudio
-      $script:quoteVoiceSound=New-WidgetScaledSoundPlayer $file 1.0
+      $script:quoteVoiceSound=New-WidgetScaledSoundPlayer $file 1.0 -MaxSeconds 60
       Invoke-QuoteVoiceAudio
-      $script:quoteVoiceBusyUntil=[DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()+[long]((Get-WidgetWaveSeconds $file)*1000)+60
+      $script:quoteVoiceBusyUntil=[DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()+[long]((Get-WidgetWaveSeconds $file -MaxSeconds 60)*1000)+60
       # A long quote may outlast the normal five-second bubble. Quota TTL is untouched.
       $script:sceneDeadline=[Math]::Max($script:sceneDeadline,$script:quoteVoiceBusyUntil+200)
     }
-  }catch{$script:quoteVoiceError='Quote voice could not play'}
+  }catch{
+    $script:quoteVoiceError='Quote voice could not play: '+$_.Exception.Message
+    if($script:quoteVoiceSound){Close-WidgetSoundPlayer $script:quoteVoiceSound.Player $script:quoteVoiceSound.Stream;$script:quoteVoiceSound=$null}
+  }
   finally{if($script:quoteVoiceProcess -eq $process -and $process.HasExited){$process.Dispose();$script:quoteVoiceProcess=$null;if($script:quoteVoiceTimer){$script:quoteVoiceTimer.Stop()}}}
 }

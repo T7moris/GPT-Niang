@@ -9,7 +9,7 @@ $tokens=$null;$parseErrors=$null
 $source=[IO.File]::ReadAllText((Join-Path $appDir 'widget.ps1'),[Text.Encoding]::UTF8)
 $ast=[Management.Automation.Language.Parser]::ParseInput($source,[ref]$tokens,[ref]$parseErrors)
 if($parseErrors.Count){throw ($parseErrors|Out-String)}
-foreach($name in @('Write-WidgetJson','Save-Settings','Set-Appearance','Set-WidgetFollowHost','Set-WidgetPixelSize','Test-WidgetPlacementFrame')){
+foreach($name in @('Write-WidgetJson','Save-Settings','Get-WidgetLayoutScale','Set-WidgetIndependentLayout','Set-Appearance','Set-WidgetFollowHost','Set-WidgetPixelSize','Test-WidgetPlacementFrame')){
   $definition=$ast.Find({param($node)$node-is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name-eq $name},$true)
   . ([ScriptBlock]::Create($definition.Extent.Text))
 }

@@ -2,6 +2,37 @@ import Foundation
 import CoreGraphics
 
 public enum WidgetPlacement {
+    /// Follow the complete host, never its screen intersection. Cropping is a
+    /// presentation concern and must not change the saved position or scale.
+    public static func followFrame(host: CGRect, size: CGSize, x: Double, y: Double) -> CGRect? {
+        guard finite(host), host.width > 0, host.height > 0,
+              size.width.isFinite, size.height.isFinite, size.width > 0, size.height > 0,
+              x.isFinite, y.isFinite else { return nil }
+        let insetX = min(12, max(0, host.width - size.width))
+        let insetY = min(12, max(0, host.height - size.height))
+        let horizontal = max(0, host.width - size.width - 24)
+        let vertical = max(0, host.height - size.height - 24)
+        let frame = CGRect(x: host.minX + insetX + horizontal * min(1, max(0, x)),
+                           y: host.minY + insetY + vertical * min(1, max(0, y)),
+                           width: size.width, height: size.height)
+        return finite(frame) ? frame : nil
+    }
+
+    /// The native window shows only this viewport; its content keeps `frame`'s
+    /// original size and offset. `nil` means that no pixels should be shown.
+    public static func viewport(frame: CGRect, host: CGRect?) -> CGRect? {
+        guard finite(frame), frame.width > 0, frame.height > 0 else { return nil }
+        guard let host else { return frame }
+        guard finite(host), host.width > 0, host.height > 0 else { return nil }
+        let visible = frame.intersection(host)
+        return finite(visible) && visible.width > 0 && visible.height > 0 ? visible : nil
+    }
+
+    private static func finite(_ rect: CGRect) -> Bool {
+        !rect.isNull && !rect.isInfinite &&
+            [rect.origin.x, rect.origin.y, rect.width, rect.height, rect.maxX, rect.maxY].allSatisfy { $0.isFinite }
+    }
+
     public static func desktopFrame(area: CGRect, size: CGSize, origin: CGPoint) -> CGRect {
         let width = min(size.width, area.width), height = min(size.height, area.height)
         return CGRect(x: max(area.minX, min(area.maxX-width, origin.x)),

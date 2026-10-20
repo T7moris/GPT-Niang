@@ -11,11 +11,28 @@ public static class GptWidgetZOrderNative {
  [DllImport("user32.dll")]public static extern bool SetWindowPos(IntPtr h,IntPtr after,int x,int y,int width,int height,uint flags);
  [DllImport("dwmapi.dll")]static extern int DwmGetWindowAttribute(IntPtr h,int attribute,out uint value,int size);
  public static bool Topmost(IntPtr h){return (GetWindowLongPtr(h,-20).ToInt64()&8)!=0;}
+ public static bool NonActivatingOverlay(long extended){return (extended&0x08000080)==0x08000080;}
  public static bool VisibleSurface(IntPtr h){uint cloaked;return IsWindowVisible(h)&&(DwmGetWindowAttribute(h,14,out cloaked,4)!=0||cloaked==0);}
  public static IntPtr PreviousVisible(IntPtr h){
   IntPtr prior=GetWindow(h,3);for(int n=0;n<10000&&prior!=IntPtr.Zero;n++){
    if(VisibleSurface(prior))return prior;prior=GetWindow(prior,3);
   }return IntPtr.Zero;
+ }
+ public static bool AboveHostWithOwnedPeers(IntPtr widget,IntPtr host,IntPtr companion){
+  IntPtr prior=PreviousVisible(host);
+  for(int n=0;n<10000&&prior!=IntPtr.Zero;n++){
+   if(prior==widget)return true;
+   if(companion!=IntPtr.Zero&&prior==companion){prior=PreviousVisible(prior);continue;}
+   // Ordinary dialogs must keep the original placement policy. Only a tool
+   // window that cannot activate is eligible to coexist as an overlay peer.
+   if(!NonActivatingOverlay(GetWindowLongPtr(prior,-20).ToInt64()))return false;
+   IntPtr owner=GetWindow(prior,4);bool related=false;
+   for(int depth=0;depth<256&&owner!=IntPtr.Zero;depth++){
+    if(owner==host){related=true;break;}owner=GetWindow(owner,4);
+   }
+   if(!related)return false;
+   prior=PreviousVisible(prior);
+  }return false;
  }
 }
 '@
@@ -31,7 +48,7 @@ function Set-WidgetDesktopLayer([IntPtr]$Widget,[bool]$Topmost=$true){
     [GptWidgetZOrderNative]::SetWindowPos($Widget,$band,0,0,0,0,0x13)|Out-Null
   }
 }
-function Set-WidgetAboveHost([IntPtr]$Widget,[IntPtr]$HostWindowHandle){
+function Set-WidgetAboveHost([IntPtr]$Widget,[IntPtr]$HostWindowHandle,[IntPtr]$Companion=[IntPtr]::Zero){
   if(![GptWidgetZOrderNative]::IsWindow($Widget) -or ![GptWidgetZOrderNative]::IsWindow($HostWindowHandle)){
     return [pscustomobject]@{ok=$false;changed=$false;reason='invalid-window'}
   }
@@ -62,12 +79,21 @@ function Set-WidgetAboveHost([IntPtr]$Widget,[IntPtr]$HostWindowHandle){
   # WPF may create invisible owner windows. Visible adjacency, rather than raw
   # HWND adjacency, avoids reordering forever against an invisible owner.
   $previous=[GptWidgetZOrderNative]::PreviousVisible($HostWindowHandle)
+  # The music light surface is deliberately between the pet and its host.
+  # Treat that one known surface as part of the pair, avoiding z-order churn.
+  if($Companion-ne [IntPtr]::Zero -and $previous-eq $Companion){
+    $previous=[GptWidgetZOrderNative]::PreviousVisible($Companion)
+  }
   if($previous-eq $Widget){return [pscustomobject]@{ok=$true;changed=$changed;adjacent=$true;hostTopmost=$hostBand}}
+  if([GptWidgetZOrderNative]::AboveHostWithOwnedPeers($Widget,$HostWindowHandle,$Companion)){
+    return [pscustomobject]@{ok=$true;changed=$changed;adjacent=$false;ownedPeers=$true;hostTopmost=$hostBand}
+  }
   $after=$previous
   if($after-eq [IntPtr]::Zero -or (!$hostBand -and [GptWidgetZOrderNative]::Topmost($after))){$after=[IntPtr]::Zero}
   if(![GptWidgetZOrderNative]::SetWindowPos($Widget,$after,0,0,0,0,0x13)){
     return [pscustomobject]@{ok=$false;changed=$changed;reason='placement-failed'}
   }
-  $adjacent=[GptWidgetZOrderNative]::PreviousVisible($HostWindowHandle)-eq $Widget
+  $aboveHost=[GptWidgetZOrderNative]::PreviousVisible($HostWindowHandle)
+  $adjacent=$aboveHost-eq $Widget -or ($Companion-ne [IntPtr]::Zero -and $aboveHost-eq $Companion -and [GptWidgetZOrderNative]::PreviousVisible($Companion)-eq $Widget)
   [pscustomobject]@{ok=$adjacent;changed=$true;adjacent=$adjacent;hostTopmost=$hostBand}
 }

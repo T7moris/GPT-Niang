@@ -71,7 +71,14 @@ function Fit-QuoteText {
   $display=$full
   if($script:quoteLayoutMap.ContainsKey($full)){$display=$script:quoteLayoutMap[$full]}
   $expectedLines=if($display.Contains("`n")){($display-split "`n").Count}else{0}
-  $script:quoteLayout=Get-WidgetQuoteLayout $display $text $expectedLines
+  try{$script:quoteLayout=Get-WidgetQuoteLayout $display $text $expectedLines}
+  catch{
+    # Reflow only a failed display attempt; Tag retains the full original
+    # for the tooltip and copy action, including its explicit line breaks.
+    $display=($full-replace '\s+',' ').Trim()
+    try{$script:quoteLayout=Get-WidgetQuoteLayout $display $text}
+    catch{$display='…';$script:quoteLayout=Get-WidgetQuoteLayout $display $text}
+  }
   $text.Text=$display;$text.Width=$script:quoteLayout.width;$text.FontSize=$script:quoteLayout.fontSize;$text.LineHeight=$script:quoteLayout.lineHeight
   $text.LineStackingStrategy=[Windows.LineStackingStrategy]::BlockLineHeight
   $text.RenderTransform=[Windows.Media.TranslateTransform]::new($script:quoteLayout.offsetX,$script:quoteLayout.offsetY)

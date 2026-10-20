@@ -31,19 +31,43 @@ function Test-WidgetStartupShortcutIdentity {
 function Stop-WidgetGui {
   param([Parameter(Mandatory=$true)][string]$AppDir,[Parameter(Mandatory=$true)][string]$DataDir)
   $null=New-Item -ItemType Directory -Path $DataDir -Force
-  [IO.File]::WriteAllText((Join-Path $DataDir 'stop.flag'),'stop')
+  $stopFile=Join-Path $DataDir 'stop.flag'
   $runtime=$null
   try{$runtime=Get-Content -LiteralPath (Join-Path $DataDir 'runtime.json') -Raw -Encoding UTF8|ConvertFrom-Json}catch{}
   $guiPid=0
-  if(!$runtime -or ![int]::TryParse([string]$runtime.pid,[ref]$guiPid) -or $guiPid-le 0){return}
+  if(!$runtime -or ![int]::TryParse([string]$runtime.pid,[ref]$guiPid) -or $guiPid-le 0){
+    # runtime.json is written late in startup. A GUI that is still between
+    # start-widget.ps1 and that write would otherwise keep running after the
+    # stop request (and delete stop.flag itself), leaving an unsupervised pet.
+    $expectedStart='"'+(Join-Path $AppDir 'runtime\start-widget.ps1')+'"'
+    $expectedWidget='"'+(Join-Path $AppDir 'widget.ps1')+'"'
+    $launching=@(Get-CimInstance Win32_Process -Filter "Name='powershell.exe' OR Name='pwsh.exe'" -ErrorAction Stop|Where-Object{
+      $_.ProcessId-ne $PID -and [string]$_.CommandLine -and ($_.CommandLine.IndexOf($expectedStart,[StringComparison]::OrdinalIgnoreCase)-ge 0 -or $_.CommandLine.IndexOf($expectedWidget,[StringComparison]::OrdinalIgnoreCase)-ge 0)
+    })
+    # Do not leave a stop request behind when there is nothing to stop: the
+    # next normal launch would otherwise be swallowed by that stale flag.
+    if(!$launching.Count){Remove-Item -LiteralPath $stopFile -ErrorAction SilentlyContinue;return}
+    [IO.File]::WriteAllText($stopFile,'stop')
+    $deadline=[DateTime]::UtcNow.AddSeconds(6)
+    do{
+      $alive=@($launching|Where-Object{
+        $current=Get-CimInstance Win32_Process -Filter ('ProcessId='+[int]$_.ProcessId) -ErrorAction SilentlyContinue
+        $current -and $current.CreationDate-eq $_.CreationDate
+      })
+      if(!$alive.Count){Remove-Item -LiteralPath $stopFile -ErrorAction SilentlyContinue;return}
+      Start-Sleep -Milliseconds 100
+    }while([DateTime]::UtcNow-lt $deadline)
+    throw 'The starting widget did not stop within 6 seconds.'
+  }
   $process=Get-CimInstance Win32_Process -Filter ('ProcessId='+$guiPid) -ErrorAction Stop
   $expectedGui='"'+(Join-Path $AppDir 'widget.ps1')+'"'
-  if(!$process -or $process.Name-notin @('powershell.exe','pwsh.exe') -or ![string]$process.CommandLine -or $process.CommandLine.IndexOf($expectedGui,[StringComparison]::OrdinalIgnoreCase)-lt 0){return}
+  if(!$process -or $process.Name-notin @('powershell.exe','pwsh.exe') -or ![string]$process.CommandLine -or $process.CommandLine.IndexOf($expectedGui,[StringComparison]::OrdinalIgnoreCase)-lt 0){Remove-Item -LiteralPath $stopFile -ErrorAction SilentlyContinue;return}
+  [IO.File]::WriteAllText($stopFile,'stop')
   $deadline=[DateTime]::UtcNow.AddSeconds(6)
   do{
     $current=Get-CimInstance Win32_Process -Filter ('ProcessId='+$guiPid) -ErrorAction Stop
     # Do not wait for an unrelated process that reused the previous GUI's PID.
-    if(!$current -or $current.CreationDate-ne $process.CreationDate){return}
+    if(!$current -or $current.CreationDate-ne $process.CreationDate){Remove-Item -LiteralPath $stopFile -ErrorAction SilentlyContinue;return}
     Start-Sleep -Milliseconds 100
   }while([DateTime]::UtcNow-lt $deadline)
   throw 'The previous widget did not stop within 6 seconds.'

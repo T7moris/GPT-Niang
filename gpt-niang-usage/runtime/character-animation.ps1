@@ -1,4 +1,4 @@
-function New-WidgetCharacterFrame($Bitmap,[int]$Duration=280) {
+﻿function New-WidgetCharacterFrame($Bitmap,[int]$Duration=280) {
   $alpha=[Windows.Media.Imaging.FormatConvertedBitmap]::new($Bitmap,[Windows.Media.PixelFormats]::Bgra32,$null,0)
   $stride=$Bitmap.PixelWidth*4;$pixels=New-Object byte[] ($stride*$Bitmap.PixelHeight)
   $alpha.CopyPixels($pixels,$stride,0);$alpha.Freeze()
@@ -9,6 +9,7 @@ function Set-WidgetCharacterFrame($Frame) {
   $script:bitmap=$Frame.Bitmap;$script:alphaBitmap=$Frame.Alpha
   $script:alphaPixels=$Frame.Pixels;$script:alphaStride=$Frame.Stride
   $script:ui.Girl.Source=$Frame.Bitmap
+  if($script:widgetColors){foreach($overlay in @($script:widgetColors.halo,$script:widgetColors.tint)){if($overlay -and $overlay.OpacityMask){$overlay.OpacityMask.ImageSource=$Frame.Bitmap}}}
 }
 
 function Write-WidgetCharacterAnimationError([string]$Message) {
@@ -150,7 +151,7 @@ function Update-WidgetCharacterPlayback {
     return
   }
   $clip=Get-WidgetCharacterAction $state.CurrentAction
-  $canPlay=$script:characterMode-eq 'pixel' -and $script:window.IsVisible -and !$script:runtimeClosed -and !$state.Finished -and $clip -and (!$state.Pressed -or $state.CurrentAction-in @('press','drag'))
+  $canPlay=!($script:widgetMusic -and $script:widgetMusic.Enabled) -and $script:characterMode-eq 'pixel' -and $script:window.IsVisible -and !$script:runtimeClosed -and !$state.Finished -and $clip -and (!$state.Pressed -or $state.CurrentAction-in @('press','drag'))
   if($canPlay){
     if(!$state.Timer.IsEnabled){$state.Timer.Interval=[TimeSpan]::FromMilliseconds($clip.Frames[$state.Index].Duration);$state.Timer.Start()}
   }else{$state.Timer.Stop()}
@@ -223,7 +224,7 @@ function Set-WidgetCharacterMode([string]$Mode) {
   $size=if($Mode-eq 'pixel'){192}else{208};$offset=142+(208-$size)/2
   $script:ui.Girl.Width=$size;$script:ui.Girl.Height=$size
   [Windows.Controls.Canvas]::SetLeft($script:ui.Girl,$offset);[Windows.Controls.Canvas]::SetTop($script:ui.Girl,$offset)
-  [Windows.Media.RenderOptions]::SetBitmapScalingMode($script:ui.Girl,$(if($Mode-eq 'pixel'){[Windows.Media.BitmapScalingMode]::NearestNeighbor}else{[Windows.Media.BitmapScalingMode]::Unspecified}))
+  [Windows.Media.RenderOptions]::SetBitmapScalingMode($script:ui.Girl,$(if($Mode-eq 'pixel'){[Windows.Media.BitmapScalingMode]::NearestNeighbor}else{[Windows.Media.BitmapScalingMode]::HighQuality}))
   Update-WidgetCharacterPlayback
   if(Get-Command Update-CompletionMonitor -ErrorAction SilentlyContinue){Update-CompletionMonitor}
 }

@@ -1,170 +1,248 @@
-﻿if(!('GptCompletionMonitorOutput' -as [type])){
+﻿if(!('CompletionWindowLayer' -as [type])){
   Add-Type -TypeDefinition @'
-using System.Diagnostics;
-using System.Collections.Concurrent;
-
-public static class GptCompletionMonitorOutput {
-  private static readonly ConcurrentQueue<string> Lines = new ConcurrentQueue<string>();
-  public static void Attach(Process process) {
-    process.OutputDataReceived += (sender, args) => {
-      if(args.Data != null) Lines.Enqueue(args.Data);
-    };
-    process.ErrorDataReceived += (sender, args) => { };
-  }
-  public static bool TryRead(out string line) { return Lines.TryDequeue(out line); }
-  public static void Clear() { string line; while(Lines.TryDequeue(out line)) { } }
+using System;using System.Runtime.InteropServices;
+public static class CompletionWindowLayer {
+ [StructLayout(LayoutKind.Sequential)]public struct Rect{public int Left,Top,Right,Bottom;}
+ [DllImport("user32.dll")]public static extern bool GetWindowRect(IntPtr h,out Rect r);
+ [DllImport("user32.dll")]public static extern IntPtr GetForegroundWindow();
+ [DllImport("user32.dll")]public static extern IntPtr GetWindow(IntPtr h,uint command);
+ [DllImport("user32.dll")]public static extern bool IsWindowVisible(IntPtr h);
+ [DllImport("user32.dll")]public static extern bool IsWindow(IntPtr h);
+ [DllImport("user32.dll",EntryPoint="GetWindowLongPtrW")]public static extern IntPtr GetWindowLongPtr(IntPtr h,int i);
+ [DllImport("user32.dll",EntryPoint="SetWindowLongPtrW")]public static extern IntPtr SetWindowLongPtr(IntPtr h,int i,IntPtr value);
+ [DllImport("user32.dll")]public static extern bool SetWindowPos(IntPtr h,IntPtr after,int x,int y,int width,int height,uint flags);
 }
 '@
 }
 
-function Initialize-CompletionNotificationState {
-  $script:completionQueue=[Collections.Generic.Queue[string]]::new()
-  $script:completionPendingMessage=$null
-  $script:completionActiveMessage=$null
-  $script:completionProcess=$null
-  $script:completionRetryAfter=0
-  if($null-eq $script:completionNotificationsEnabled){$script:completionNotificationsEnabled=$true}
+function Test-CompletionFullscreen([IntPtr]$Handle){
+  if($Handle-eq [IntPtr]::Zero -or ![CompletionWindowLayer]::IsWindow($Handle)){return $false}
+  $rect=New-Object CompletionWindowLayer+Rect
+  if(![CompletionWindowLayer]::GetWindowRect($Handle,[ref]$rect)){return $false}
+  $area=[Windows.Forms.Screen]::FromHandle($Handle).Bounds
+  return $rect.Left-le $area.Left -and $rect.Top-le $area.Top -and $rect.Right-ge $area.Right -and $rect.Bottom-ge $area.Bottom
+}
+function Stop-TemporaryCompletion {
+  $state=$script:completionTemporary;$script:completionTemporary=$null
+  if(!$state){return}
+  if($state.timer){$state.timer.Stop()}
+  try{
+    if([CompletionWindowLayer]::IsWindow($script:widgetHandle)){
+      $script:window.Topmost=$state.topmost
+      [CompletionWindowLayer]::SetWindowLongPtr($script:widgetHandle,-20,$state.style)|Out-Null
+      $owner=if([CompletionWindowLayer]::IsWindow($state.owner)){$state.owner}else{[IntPtr]::Zero}
+      $band=if(($state.style.ToInt64()-band 8)-ne 0){[IntPtr](-1)}else{[IntPtr](-2)}
+      # Demote and place the detached widget before restoring its owner. An
+      # owned window near the front can otherwise raise Codex with it.
+      [CompletionWindowLayer]::SetWindowPos($script:widgetHandle,$band,0,0,0,0,0x213)|Out-Null
+      if(!$state.visible){$script:window.Hide()}
+      $after=if($owner-ne [IntPtr]::Zero){[CompletionWindowLayer]::GetWindow($owner,3)}else{$state.previous}
+      while($after-ne [IntPtr]::Zero -and [CompletionWindowLayer]::IsWindow($after) -and ($after-eq $script:widgetHandle -or ![CompletionWindowLayer]::IsWindowVisible($after))){$after=[CompletionWindowLayer]::GetWindow($after,3)}
+      if($after-eq $script:widgetHandle -or ![CompletionWindowLayer]::IsWindow($after) -or ([CompletionWindowLayer]::GetWindowLongPtr($after,-20).ToInt64()-band 8)-ne ($state.style.ToInt64()-band 8)){$after=[IntPtr]::Zero}
+      [CompletionWindowLayer]::SetWindowPos($script:widgetHandle,$after,0,0,0,0,0x213)|Out-Null
+      [CompletionWindowLayer]::SetWindowLongPtr($script:widgetHandle,-8,$owner)|Out-Null
+    }
+  }catch{}
+  $script:lastPosition=$null;$script:attachedHost=[IntPtr]::Zero
+}
+function Start-TemporaryCompletion {
+  if($script:completionTemporary){return $true}
+  $foreground=[CompletionWindowLayer]::GetForegroundWindow()
+  $script:completionTemporary=@{owner=[CompletionWindowLayer]::GetWindowLongPtr($script:widgetHandle,-8);style=[CompletionWindowLayer]::GetWindowLongPtr($script:widgetHandle,-20);topmost=$script:window.Topmost;visible=$script:window.IsVisible;previous=[CompletionWindowLayer]::GetWindow($script:widgetHandle,3);foreground=$foreground;fullscreen=(Test-CompletionFullscreen $foreground);expiresAt=[DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()+7000;timer=$null}
+  try{
+    if($script:occlusionRecovery){$script:occlusionRecovery.Configure([IntPtr]::Zero,$false)}
+    if($script:hostFollower){$script:hostFollower.Detach()}
+    [CompletionWindowLayer]::SetWindowLongPtr($script:widgetHandle,-8,[IntPtr]::Zero)|Out-Null
+    $script:window.Show()
+    $style=$script:completionTemporary.style.ToInt64()-bor 0x08000020
+    [CompletionWindowLayer]::SetWindowLongPtr($script:widgetHandle,-20,[IntPtr]$style)|Out-Null
+    $script:window.Topmost=$true
+    if(![CompletionWindowLayer]::SetWindowPos($script:widgetHandle,[IntPtr](-1),0,0,0,0,0x13)){throw 'Temporary reminder layer failed'}
+    $timer=[Windows.Threading.DispatcherTimer]::new();$timer.Interval=[TimeSpan]::FromMilliseconds(100)
+    $timer.Add_Tick({
+      if(!$script:completionTemporary){return}
+      try{
+        $now=[DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+        $active=Test-WidgetCompletionHostForeground
+        $foreground=[CompletionWindowLayer]::GetForegroundWindow()
+        $leftFullscreen=$script:completionTemporary.fullscreen -and ($foreground-ne $script:completionTemporary.foreground -or !(Test-CompletionFullscreen $foreground))
+        if($active -or $leftFullscreen){Dismiss-CompletionNotification;if(!$script:collapsed){Hide-Quota -KeepCompletion}}
+        # An error while opening the scene must never leave a topmost
+        # click-through reminder layer pinned on screen. This independent
+        # deadline works even when sceneDeadline was never set.
+        elseif($now-ge $script:completionTemporary.expiresAt){Hide-Quota}
+        elseif($script:sceneDeadline-gt 0 -and $now-ge $script:sceneDeadline){Hide-Quota}
+      }catch{try{Stop-TemporaryCompletion}catch{}}
+    })
+    $script:completionTemporary.timer=$timer;$timer.Start();return $true
+  }catch{
+    Stop-TemporaryCompletion;$script:completionLastError=$_.Exception.Message;return $false
+  }
 }
 
+if(!('GptCompletionMonitorOutput' -as [type])){
+  Add-Type -TypeDefinition @'
+using System;
+using System.Diagnostics;
+using System.Collections.Generic;
+public static class GptCompletionMonitorOutput {
+  static readonly object Gate=new object();
+  static readonly Queue<string> Lines=new Queue<string>();
+  static string Active=null;
+  public static string LastError {get;private set;}
+  public static void Attach(Process process,string token){
+    lock(Gate){Active=token;Lines.Clear();LastError=null;}
+    process.OutputDataReceived+=(sender,args)=>{
+      if(args.Data==null || args.Data.Length>2048)return;
+      lock(Gate){if(Active!=token)return;if(Lines.Count>=64)Lines.Dequeue();Lines.Enqueue(args.Data);}
+    };
+    process.ErrorDataReceived+=(sender,args)=>{
+      if(args.Data==null)return;
+      lock(Gate){if(Active==token)LastError=args.Data.Length>256?args.Data.Substring(0,256):args.Data;}
+    };
+  }
+  public static bool TryRead(out string line){lock(Gate){if(Lines.Count>0){line=Lines.Dequeue();return true;}line=null;return false;}}
+  public static void Clear(){lock(Gate){Active=null;Lines.Clear();}}
+}
+'@
+}
+
+function Initialize-CompletionNotificationState($Settings=$null) {
+  $script:completionNotificationsEnabled=($Settings.taskCompletionBubble-is [bool] -and $Settings.taskCompletionBubble)
+  $script:completionPending=$false;$script:completionProcess=$null;$script:completionRetryAfter=0
+  $script:completionReceived=0;$script:completionDisplayCount=0;$script:completionLastError=$null
+  $script:completionAcknowledgedAt=0;$script:completionTemporary=$null
+  $script:desktopWorkStatus=$null
+}
 function Get-CompletionNotificationPreference($Settings) {
-  if($null-eq $Settings -or $null-eq $Settings.taskCompletionBubble){return $true}
-  return [bool]$Settings.taskCompletionBubble
+  return ($Settings.taskCompletionBubble-is [bool] -and $Settings.taskCompletionBubble)
 }
-
-function Clear-CompletionNotifications {
-  if($script:completionQueue){$script:completionQueue.Clear()}
-  $script:completionPendingMessage=$null
-  $script:completionActiveMessage=$null
-  [GptCompletionMonitorOutput]::Clear()
-}
-
-function Clear-CompletionNotificationQueue {
-  if($script:completionQueue){$script:completionQueue.Clear()}
-  $script:completionPendingMessage=$null
-  $script:completionActiveMessage=$null
-}
-
 function Test-CompletionMonitorNeeded {
   if($script:completionNotificationsEnabled -or $script:completionVoiceEnabled){return $true}
-  return ($script:characterMode-eq 'pixel' -and (Get-Command Get-WidgetCharacterActionAvailable -ErrorAction SilentlyContinue) -and ((Get-WidgetCharacterActionAvailable 'complete') -or (Get-WidgetCharacterActionAvailable 'working')))
+  return ($script:characterMode-eq 'pixel' -and (Get-Command Get-WidgetCharacterActionAvailable -ErrorAction SilentlyContinue) -and ((Get-WidgetCharacterActionAvailable 'working') -or (Get-WidgetCharacterActionAvailable 'complete')))
 }
-
 function Update-CompletionMonitor {
-  if(Test-CompletionMonitorNeeded){Start-CompletionMonitor}
-  else{Stop-CompletionMonitor}
+  if(Test-CompletionMonitorNeeded){Start-CompletionMonitor}else{Stop-CompletionMonitor}
+}
+function Clear-CompletionNotifications {$script:completionPending=$false;[GptCompletionMonitorOutput]::Clear()}
+function Dismiss-CompletionNotification {
+  Stop-TemporaryCompletion
+  $script:completionAcknowledgedAt=[DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+  $script:completionPending=$false;Reset-WidgetAutoQuoteSchedule
 }
 
 function Start-CompletionMonitor {
   if(!(Test-CompletionMonitorNeeded)){return}
   if($script:completionProcess){
-    try{if(!$script:completionProcess.HasExited){return}}catch{}
-    try{$script:completionProcess.Dispose()}catch{}
-    $script:completionProcess=$null
+    if(!$script:completionProcess.HasExited){return}
+    $script:completionLastError=[GptCompletionMonitorOutput]::LastError
+    $script:completionProcess.Dispose();$script:completionProcess=$null
   }
   $now=[DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
   if($now-lt $script:completionRetryAfter){return}
-  [GptCompletionMonitorOutput]::Clear()
   $process=$null
   try{
     $start=New-Object Diagnostics.ProcessStartInfo
     $start.FileName=[string]$script:config.nodePath
-    $start.Arguments='"'+(Join-Path $script:appDir 'runtime\completion-monitor.mjs')+'"'
-    $start.WorkingDirectory=$script:appDir
-    $start.UseShellExecute=$false;$start.CreateNoWindow=$true
+    # The state file lets a restarted monitor recover completions that landed
+    # between its crash and the restart instead of baselining them away. Tests
+    # and partial harnesses may not have a data directory yet.
+    $monitorArguments='"'+(Join-Path $script:appDir 'runtime\completion-monitor.mjs')+'"'
+    if($script:dataDir){$monitorArguments+=' "'+(Join-Path $script:dataDir 'completion-monitor-state.json')+'"'}
+    $start.Arguments=$monitorArguments
+    $start.WorkingDirectory=$script:appDir;$start.UseShellExecute=$false;$start.CreateNoWindow=$true
+    if($script:config.codexHome){$start.EnvironmentVariables['CODEX_HOME']=[IO.Path]::GetFullPath([string]$script:config.codexHome)}
     $start.RedirectStandardInput=$true;$start.RedirectStandardOutput=$true;$start.RedirectStandardError=$true
-    $start.StandardOutputEncoding=[Text.UTF8Encoding]::new($false)
-    $start.StandardErrorEncoding=[Text.UTF8Encoding]::new($false)
-    $process=New-Object Diagnostics.Process
-    $process.StartInfo=$start
-    [GptCompletionMonitorOutput]::Attach($process)
-    if(!$process.Start()){throw 'Node.js did not start the completion monitor.'}
+    $start.StandardOutputEncoding=[Text.UTF8Encoding]::new($false);$start.StandardErrorEncoding=[Text.UTF8Encoding]::new($false)
+    $process=New-Object Diagnostics.Process;$process.StartInfo=$start
+    [GptCompletionMonitorOutput]::Attach($process,[Guid]::NewGuid().ToString('N'))
+    if(!$process.Start()){throw 'The reply monitor did not start.'}
     $process.BeginOutputReadLine();$process.BeginErrorReadLine()
-    $script:completionProcess=$process
-    $script:completionRetryAfter=$now+5000
+    $script:completionProcess=$process;$script:completionLastError=$null;$script:completionRetryAfter=$now+5000
   }catch{
-    if($process){try{$process.Dispose()}catch{}}
-    $script:completionProcess=$null
-    $script:completionRetryAfter=$now+5000
+    [GptCompletionMonitorOutput]::Clear()
+    if($process){try{if(!$process.HasExited){$process.Kill();$null=$process.WaitForExit(200)}}catch{};$process.Dispose()};$script:completionProcess=$null
+    $script:completionLastError=$_.Exception.Message;$script:completionRetryAfter=$now+5000
   }
 }
-
 function Stop-CompletionMonitor {
-  if($script:completionProcess){
-    try{
-      if(!$script:completionProcess.HasExited){
-        $script:completionProcess.Kill()
-        $null=$script:completionProcess.WaitForExit(1500)
-      }
-    }catch{}
-    try{$script:completionProcess.Dispose()}catch{}
-    $script:completionProcess=$null
-  }
-  [GptCompletionMonitorOutput]::Clear()
+  Stop-TemporaryCompletion
   if(Get-Command Set-WidgetCharacterWorking -ErrorAction SilentlyContinue){Set-WidgetCharacterWorking $false}
-}
-
-function Set-CompletionNotificationEnabled([bool]$Enabled) {
-  $script:completionRetryAfter=0
-  $script:completionNotificationsEnabled=$Enabled
-  if(!$Enabled){
-    Clear-CompletionNotificationQueue
-    if(!$script:collapsed -and $script:bubbleMode-eq 'completion'){
-      $script:completionActiveMessage=$null
-      Hide-Quota
+  [GptCompletionMonitorOutput]::Clear()
+  if(!$script:completionProcess){return}
+  try{
+    if(!$script:completionProcess.HasExited){
+      $script:completionProcess.StandardInput.Close()
+      if(!$script:completionProcess.WaitForExit(200)){$script:completionProcess.Kill();$null=$script:completionProcess.WaitForExit(200)}
     }
+  }catch{}
+  $script:completionProcess.Dispose();$script:completionProcess=$null
+}
+function Set-CompletionNotificationEnabled([bool]$Enabled) {
+  if($Enabled-eq $script:completionNotificationsEnabled){return}
+  $script:completionNotificationsEnabled=$Enabled;$script:completionRetryAfter=0
+  if(!$Enabled){
+    Clear-CompletionNotifications
+    $script:completionLastError=$null
+    if(!$script:collapsed -and $script:bubbleMode-eq 'completion'){Hide-Quota}
   }
   Update-CompletionMonitor
-  Save-Settings
+  Reset-WidgetAutoQuoteSchedule;Save-Settings
 }
-
-function Queue-CompletionNotification {
-  param([string]$Message,[bool]$Visible)
-  if(!$script:completionNotificationsEnabled -or [string]::IsNullOrWhiteSpace($Message)){return}
-  if(!$Visible){
-    while($script:completionQueue.Count-gt 0){$script:completionPendingMessage=$script:completionQueue.Dequeue()}
-    $script:completionPendingMessage=$Message
-    return
-  }
-  if($script:completionPendingMessage){$script:completionQueue.Enqueue($script:completionPendingMessage);$script:completionPendingMessage=$null}
-  $script:completionQueue.Enqueue($Message)
-}
-
-function Receive-CompletionMonitorLine {
-  param([string]$Line,[bool]$Visible)
+function Receive-CompletionMonitorLine([string]$Line,[bool]$Visible=$true) {
+  if($Line.Length-gt 2048){return}
   try{
-    $result=$Line|ConvertFrom-Json
-    if($result.eventType-eq 'work_state'){
-      if($result.working-is [bool] -and (Get-Command Set-WidgetCharacterWorking -ErrorAction SilentlyContinue)){Set-WidgetCharacterWorking ([bool]$result.working)}
+    $event=$Line|ConvertFrom-Json
+    # Accept events from the previous monitor while an installed process is
+    # being replaced; the new monitor always sends the versioned type field.
+    if(!$event.type -and $event.eventType-in @('task_complete','turn_complete','turn_completed') -and $event.success-eq $true){$event|Add-Member -NotePropertyName type -NotePropertyValue 'completion'}
+    if($event.eventType-eq 'work_state'){
+      $script:desktopWorkStatus=$event
+      if($event.working-is [bool] -and (Get-Command Set-WidgetCharacterWorking -ErrorAction SilentlyContinue)){Set-WidgetCharacterWorking $event.working}
       return
     }
-    if(Get-Command Request-CompletionVoice -ErrorAction SilentlyContinue){Request-CompletionVoice -Notification $result -Visible $Visible}
-    if($result.success -eq $true -and (Get-Command Request-WidgetCharacterAction -ErrorAction SilentlyContinue)){Request-WidgetCharacterAction 'complete' -Success $true|Out-Null}
-    if($script:completionNotificationsEnabled -and $result.message-is [string]){Queue-CompletionNotification -Message ([string]$result.message) -Visible $Visible}
+    if($event.type-eq 'completion' -and $event.success-eq $true){
+      if(Get-Command Request-CompletionVoice -ErrorAction SilentlyContinue){Request-CompletionVoice -Notification $event -Visible $Visible}
+      if(Get-Command Request-WidgetCharacterAction -ErrorAction SilentlyContinue){Request-WidgetCharacterAction 'complete' -Success $true|Out-Null}
+    }
+    if(!$script:completionNotificationsEnabled){return}
+    if($event.type-ne 'completion' -or $event.sessionId-isnot [string] -or $event.turnId-isnot [string] -or !$event.sessionId -or !$event.turnId){return}
+    if($null-eq $event.endedAt -or [double]$event.endedAt-lt $script:completionAcknowledgedAt){return}
+    $script:completionReceived++;$script:completionPending=$true
   }catch{}
 }
-
-function Read-CompletionMonitorOutput([bool]$Visible) {
+function Read-CompletionMonitorOutput([bool]$Visible=$true) {
   $line=$null
-  while([GptCompletionMonitorOutput]::TryRead([ref]$line)){
-    Receive-CompletionMonitorLine -Line $line -Visible $Visible
-    $line=$null
+  for($i=0;$i-lt 64 -and [GptCompletionMonitorOutput]::TryRead([ref]$line);$i++){
+    Receive-CompletionMonitorLine $line $Visible;$line=$null
   }
 }
-
-function Pump-CompletionNotifications([bool]$Visible) {
-  Update-CompletionMonitor
-  Read-CompletionMonitorOutput $Visible
+function Test-CompletionDisplayAllowed([bool]$Visible) {
+  return $Visible -and $script:window.IsVisible -and ![bool]$script:drag -and !$script:context.IsOpen -and !$script:settingsSizePreview -and !(Test-WidgetUpdateEditor) -and (Test-WidgetCompletionForeground)
+}
+function Pause-CompletionNotification {
+  Stop-TemporaryCompletion
+  if(!$script:collapsed -and $script:bubbleMode-eq 'completion'){Hide-Quota -KeepCompletion}
+}
+function Tick-CompletionNotifications([bool]$Visible) {
+  Read-CompletionMonitorOutput $Visible;Update-CompletionMonitor
   if(!$script:completionNotificationsEnabled){return}
-  if(!$Visible){
-    while($script:completionQueue.Count-gt 0){$script:completionPendingMessage=$script:completionQueue.Dequeue()}
-    return
+  $busy=[bool]$script:drag -or $script:context.IsOpen -or $script:settingsSizePreview -or (Test-WidgetUpdateEditor)
+  if($busy){Pause-CompletionNotification;return}
+  if($script:completionTemporary){return}
+  $foreground=Test-WidgetCompletionHostForeground
+  if($foreground){
+    if(!(Test-CompletionDisplayAllowed $Visible)){Pause-CompletionNotification;return}
+  }elseif(!$script:collapsed){
+    if($script:bubbleMode-eq 'completion'){Pause-CompletionNotification};return
   }
-  if($script:completionPendingMessage){$script:completionQueue.Enqueue($script:completionPendingMessage);$script:completionPendingMessage=$null}
-  if($script:completionQueue.Count-eq 0){
-    return
-  }
-  if(!$script:collapsed -and $script:bubbleMode-eq 'completion'){return}
-  if($script:closeTimer -and $script:closeTimer.IsEnabled){return}
-  $message=$script:completionQueue.Dequeue()
-  Show-CompletionBubble $message
+  if(!$script:completionPending -or !$script:collapsed -or ($script:closeTimer -and $script:closeTimer.IsEnabled)){return}
+  if(!$foreground -and !(Start-TemporaryCompletion)){return}
+  Open-WidgetBubble 'completion';$script:completionDisplayCount++
+}
+function Pump-CompletionNotifications([bool]$Visible) {Tick-CompletionNotifications $Visible}
+function Get-CompletionNotificationStatus {
+  $monitorPid=0
+  if($script:completionProcess){try{if(!$script:completionProcess.HasExited){$monitorPid=$script:completionProcess.Id}}catch{}}
+  return @{enabled=[bool]$script:completionNotificationsEnabled;pending=[bool]$script:completionPending;temporaryTopmost=[bool]$script:completionTemporary;showing=(!$script:collapsed -and $script:bubbleMode-eq 'completion');received=$script:completionReceived;displayCount=$script:completionDisplayCount;monitorPid=$monitorPid;error=$script:completionLastError}
 }

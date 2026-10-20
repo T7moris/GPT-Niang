@@ -74,6 +74,13 @@ try{
     Remove-Item -LiteralPath $workerFile
     Assert-Throws {& (Join-Path $moved 'Install.ps1') -CheckOnly} '*Missing file: runtime\worker-state.mjs' 'missing worker dependencies are rejected before registration'
   }finally{[IO.File]::WriteAllBytes($workerFile,$workerBytes)}
+  $audioFile=Join-Path $moved 'runtime\audio-import.mjs'
+  $audioBytes=[IO.File]::ReadAllBytes($audioFile)
+  try{
+    Remove-Item -LiteralPath $audioFile
+    Assert-Throws {& (Join-Path $moved 'Install.ps1') -CheckOnly} '*Missing file: runtime\audio-import.mjs' 'missing audio converter is rejected before registration'
+    Assert ([Convert]::ToBase64String([IO.File]::ReadAllBytes($configFile))-eq $initialConfigBytes) 'missing audio converter preserves installation config'
+  }finally{[IO.File]::WriteAllBytes($audioFile,$audioBytes)}
   $colorFile=Join-Path $moved 'runtime\color-theme.ps1'
   $colorBytes=[IO.File]::ReadAllBytes($colorFile)
   try{

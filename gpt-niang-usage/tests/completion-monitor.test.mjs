@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {parseCompletionRecord} from '../runtime/completion-monitor.mjs';
+import {parseTerminalRecord as parseCompletionRecord} from '../runtime/completion-monitor.mjs';
 
 test('successful completion carries the animation signal and keeps its message', () => {
   const result = parseCompletionRecord({

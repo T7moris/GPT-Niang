@@ -24,13 +24,19 @@ credits = (root / 'README.md').read_text(encoding='utf-8-sig').split('## 致谢�
 tracked = subprocess.check_output(
     ["git", "ls-files", "-z"], cwd=root
 ).decode("utf-8").split("\0")
-files = sorted(p for p in tracked if p and not p.startswith((".github/", "scripts/", ".codex/", "macos/", "script/")))
+# Keep maintainer docs in Git. The updater preserves an existing docs directory
+# as personal data, so shipping another docs tree would collide on upgrade.
+files = sorted(p for p in tracked if p and p != "PROJECT_STATUS.md" and not p.startswith((".github/", "scripts/", ".codex/", "macos/", "script/", "docs/")))
 required = {
     "LICENSE", "gpt-niang-usage/LICENSE",
     "gpt-niang-usage/assets/CHARACTER-NOTICE.txt",
     ".agents/plugins/marketplace.json", manifest_path,
     "安装GPT娘.cmd", "停用GPT娘.cmd", "打开GPT娘.cmd",
     "检测套餐.cmd", "gpt-niang-usage/Detect-Plan.ps1",
+    "gpt-niang-usage/runtime/audio-import.mjs",
+    "gpt-niang-usage/runtime/characters.ps1",
+    "gpt-niang-usage/runtime/character-gallery.ps1",
+    "gpt-niang-usage/assets/characters.json",
     "gpt-niang-usage/runtime/plan.mjs", "gpt-niang-usage/runtime/detect-plan.mjs",
     "gpt-niang-usage/runtime/start-widget.ps1",
     "gpt-niang-usage/runtime/refresh-client.mjs",
@@ -47,8 +53,12 @@ required = {
     "gpt-niang-usage/runtime/agent-supervisor.vbs",
     "gpt-niang-usage/assets/gpt-dragon-niang-bust.png",
 }
-if not required.issubset(files):
-    raise SystemExit("Required runtime files missing from the bundle")
+required.update("gpt-niang-usage/" + name for name in json.loads(
+    (root / "gpt-niang-usage/runtime/install-files.json").read_text(encoding="utf-8")
+))
+missing = sorted(name for name in required if name not in files or not (root / name).is_file())
+if missing:
+    raise SystemExit("Required runtime files missing from the bundle: " + ", ".join(missing))
 private_names = {
     "installation.json", "settings.json", "runtime.json", "presence.json", "status.json",
     "update-preferences.json", "update-status.json", "update-transaction.json", "binding.json", "update-idle.json", "update-installing.json",

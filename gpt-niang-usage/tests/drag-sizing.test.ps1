@@ -1,6 +1,12 @@
 ﻿param([string]$TestRoot=$PSScriptRoot,[string]$WidgetSource)
 $ErrorActionPreference='Stop'
 if(!$WidgetSource){$WidgetSource=Join-Path (Split-Path $TestRoot -Parent) 'widget.ps1'}
+. (Join-Path (Split-Path $WidgetSource -Parent) 'runtime\quotes.ps1')
+Initialize-WidgetAutoQuoteSettings $null
+. (Join-Path (Split-Path $WidgetSource -Parent) 'runtime\audio.ps1')
+. (Join-Path (Split-Path $WidgetSource -Parent) 'runtime\completion-notifications.ps1')
+. ([ScriptBlock]::Create([IO.File]::ReadAllText((Join-Path (Split-Path $WidgetSource -Parent) 'runtime/music.ps1'),[Text.Encoding]::UTF8)))
+Initialize-CompletionNotificationState $null
 $source=[IO.File]::ReadAllText($WidgetSource,[Text.Encoding]::UTF8)
 $tokens=$null;$errors=$null
 $ast=[Management.Automation.Language.Parser]::ParseInput($source,[ref]$tokens,[ref]$errors)
@@ -9,6 +15,15 @@ $move=$ast.Find({param($node)$node-is [Management.Automation.Language.Assignment
 $pressMove=[ScriptBlock]::Create($move.Right.Extent.Text.Trim().Substring(1,$move.Right.Extent.Text.Trim().Length-2))
 $tick=$ast.Find({param($node)$node-is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name-eq 'Tick-Widget'},$true)
 . ([ScriptBlock]::Create($tick.Extent.Text))
+$presence=$ast.Find({param($n)$n-is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name-eq 'Write-WidgetPresence'},$true)
+. ([ScriptBlock]::Create($presence.Extent.Text))
+$layoutScale=$ast.Find({param($node)$node-is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name-eq 'Get-WidgetLayoutScale'},$true)
+. ([ScriptBlock]::Create($layoutScale.Extent.Text))
+# Actual character limits are covered by drag-vertical and drag-horizontal.
+function Limit-WidgetHorizontalPosition {param($Frame,$Dpi,$Left)return [int]$Left}
+function Limit-WidgetVerticalPosition {param($Frame,$Dpi,$Top)return [int]$Top}
+$autoTick=$ast.Find({param($node)$node-is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name-eq 'Tick-WidgetAutoQuote'},$true)
+. ([ScriptBlock]::Create($autoTick.Extent.Text))
 Add-Type -TypeDefinition @'
 using System;
 public static class GptWidgetNative {

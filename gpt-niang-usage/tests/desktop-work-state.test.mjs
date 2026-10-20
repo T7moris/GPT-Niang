@@ -20,8 +20,8 @@ function trackerFixture() {
 test('cloud work is aggregated across projects and clears only when all tasks finish', async () => {
   const f = trackerFixture();
   f.setSnapshot(snapshot([chat('a'), chat('b'), {id: 'local', kind: 'codex', hostId: 'local', status: 'active'}]));
-  await f.tracker.poll(); assert.equal(f.states.at(-1).activeCount, 2);
-  f.setSnapshot(snapshot([chat('a', 'idle'), chat('b')]));
+  await f.tracker.poll(); assert.equal(f.states.at(-1).activeCount, 3);
+  f.setSnapshot(snapshot([chat('a', 'idle'), chat('b'), {id: 'local', kind: 'codex', hostId: 'local', status: 'idle'}]));
   await f.tracker.poll(); assert.equal(f.states.at(-1).activeCount, 1);
   f.setSnapshot(snapshot([chat('a', 'idle'), chat('b', 'idle')]));
   await f.tracker.poll(); assert.equal(f.states.at(-1).activeCount, 0);
@@ -79,10 +79,11 @@ test('context registration uses only app-provided local endpoint and a real call
   assert.equal(captureDesktopWorkContext(home, {}, {}), false);
   assert.equal(captureDesktopWorkContext(home, {}, {CODEX_APP_TOOLS_PIPE_PATH: 'https://remote', CODEX_THREAD_ID: caller}), false);
   assert.equal(captureDesktopWorkContext(home, {}, {CODEX_APP_TOOLS_PIPE_PATH: pipe, CODEX_THREAD_ID: caller}), true);
-  assert.equal(captureDesktopWorkContext(home, {}, {CODEX_APP_TOOLS_PIPE_PATH: pipe + '-new'}), true);
+  assert.equal(captureDesktopWorkContext(home, {}, {CODEX_APP_TOOLS_PIPE_PATH: pipe + '-new'}), false);
+  assert.equal(captureDesktopWorkContext(home, {}, {CODEX_APP_TOOLS_PIPE_PATH: pipe + '-new', CODEX_THREAD_ID: caller}), true);
   const saved = JSON.parse(fs.readFileSync(path.join(dataDir, 'desktop-work-context.json')));
   assert.equal(saved.callerThreadId, caller); assert.equal(saved.pipePath, pipe + '-new');
-  assert.deepEqual(Object.keys(saved).sort(), ['callerThreadId', 'capturedAt', 'pipePath', 'schemaVersion']);
+  assert.deepEqual(Object.keys(saved).sort(), ['callerSource', 'callerThreadId', 'capturedAt', 'pipePath', 'schemaVersion']);
 }));
 test('bundled MCP protocol, read-only allowlist, version selection, endpoint refresh and shutdown', async () => withHome(async home => {
   const dataDir = path.join(home, 'state'); fs.writeFileSync(path.join(home, 'installation.json'), JSON.stringify({dataDir}));
