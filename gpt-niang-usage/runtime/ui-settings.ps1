@@ -205,6 +205,8 @@ function Initialize-WidgetSettingsMenu {
   } -ReturnItem
   $script:settingsMenuUi.Completion=Add-SettingsAction '回答结束提醒' {param($sender,$event)Set-CompletionNotificationEnabled ([bool]$sender.IsChecked);Update-WidgetSettingsMenu} -Checkable -ReturnItem
   $script:settingsMenuUi.Completion.ToolTip='回答结束后在当前位置提醒；后台时临时置顶，显示后恢复'
+  $script:settingsMenuUi.QuotaStepReminder=Add-SettingsAction '5小时/7天额度每跨5%提醒' {param($sender,$event)Set-QuotaStepReminderEnabled ([bool]$sender.IsChecked);Update-WidgetSettingsMenu} -Checkable -ReturnItem
+  $script:settingsMenuUi.QuotaStepReminder.ToolTip='5小时或7天剩余额度向下跨过45%、40%等档位时显示额度气泡。两种额度独立计数，首次读取不提醒，一次更新只弹一次。'
   Add-SettingsDivider
   $script:settingsMenuUi.Display=Add-SettingsSubmenu '显示与位置' {
   $script:settingsMenuUi.Follow=Add-SettingsAction '仅在 Codex 窗口内' {Set-WidgetFollowHost $true;Update-WidgetSettingsMenu;Set-WidgetMenuBounds;Position-WidgetMenuToHost} -Checkable -ReturnItem
@@ -269,6 +271,7 @@ function Update-WidgetSettingsMenu{
     Update-WidgetUpdateMenu
     $script:settingsMenuUi.MusicEnabled.IsChecked=Test-WidgetMusicActive
     $script:settingsMenuUi.Completion.IsChecked=$script:completionNotificationsEnabled
+    $script:settingsMenuUi.QuotaStepReminder.IsChecked=$script:quotaStepReminderEnabled
     $script:settingsMenuUi.AutoQuoteEnabled.IsChecked=$script:autoQuoteEnabled
     foreach($choice in $script:settingsMenuUi.AutoQuoteIntervals){$choice.IsChecked=[int]$choice.Tag-eq $script:autoQuoteIntervalSeconds}
     if($script:settingsMenuUi.Character){$script:settingsMenuUi.Character.ToolTip=if($script:activeCharacter){'当前形象：'+$script:activeCharacter.name}else{'选择形象或添加电脑上的图片'}}

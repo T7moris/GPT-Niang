@@ -82,13 +82,21 @@ function Test-WidgetColorActive([string]$Text){
   }
   return $script:widgetColors.lucky
 }
+function Get-QuotaBarColor($Window,[bool]$Expired) {
+  if(!$Window){return '#AA95CD'}
+  if($Expired){return '#B3A7C0'}
+  if($Window.minutes-in @(300,10080) -and [double]$Window.remaining-lt 10){return '#DC2626'}
+  if([double]$Window.used-ge 90){return '#D77659'}
+  if([double]$Window.used-ge 75){return '#D0A051'}
+  return '#9B86C1'
+}
 function Restore-WidgetOriginalColors([switch]$KeepAnimation) {
   foreach($binding in $script:widgetColors.original){$binding.element.($binding.property)=$binding.value}
   foreach($row in (Get-QuotaRows)){
     $q=$row.window
     $expired=$q -and $q.resetsAt -and [double]$q.resetsAt-le [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
     $ink=if(!$q -or $expired){'#95889F'}elseif([double]$q.used-ge 90){'#B74839'}elseif([double]$q.used-ge 75){'#A06C1C'}else{'#745A98'}
-    $bar=if(!$q){'#AA95CD'}elseif($expired){'#B3A7C0'}elseif([double]$q.used-ge 90){'#D77659'}elseif([double]$q.used-ge 75){'#D0A051'}else{'#9B86C1'}
+    $bar=Get-QuotaBarColor $q ([bool]$expired)
     $script:ui[$row.prefix+'Left'].Foreground=[Windows.Media.BrushConverter]::new().ConvertFromString($ink)
     $script:ui[$row.prefix+'Bar'].Background=[Windows.Media.BrushConverter]::new().ConvertFromString($bar)
   }
@@ -232,7 +240,7 @@ function Update-WidgetColorScene {
     $q=$row.window
     $expired=$q -and $q.resetsAt -and [double]$q.resetsAt-le [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
     # Preserve existing orange/red quota warnings and unavailable values.
-    if($q -and !$expired -and [double]$q.used-lt 75){
+    if($q -and !$expired -and [double]$q.used-lt 75 -and !($q.minutes-in @(300,10080) -and [double]$q.remaining-lt 10)){
       $script:ui[$row.prefix+'Left'].Foreground=$ink;$script:ui[$row.prefix+'Bar'].Background=$accent
     }
   }

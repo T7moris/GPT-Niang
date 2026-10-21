@@ -122,6 +122,8 @@ $script:hostReadiness=New-WidgetReadinessState
 $script:bubbleMode='quota';$script:sceneStartedAt=0;$script:sceneDeadline=0;$script:sceneTimer=$null;$script:sceneRevision=0
 $script:resetTimeMode='countdown';$script:resetPhaseTimer=$null
 $script:displayRequestToken=$null
+$script:quotaStepReminderEnabled=$true
+$script:quotaStepReminderState=@{windows=@{};account=$null;pending=$false;displayCount=0}
 $settingsFile=Join-Path $script:dataDir 'settings.json'
 $script:settingsLoadFailed=$false
 try{$settings=Get-Content -LiteralPath $settingsFile -Raw -Encoding UTF8 | ConvertFrom-Json
@@ -155,6 +157,7 @@ try{$settings=Get-Content -LiteralPath $settingsFile -Raw -Encoding UTF8 | Conve
   if($null-ne $settings.desktopLeft){try{$value=[double]$settings.desktopLeft;if(![double]::IsNaN($value)-and ![double]::IsInfinity($value)-and [Math]::Abs($value)-le 100000){$script:desktopLeft=$value}}catch{}}
   if($null-ne $settings.desktopTop){try{$value=[double]$settings.desktopTop;if(![double]::IsNaN($value)-and ![double]::IsInfinity($value)-and [Math]::Abs($value)-le 100000){$script:desktopTop=$value}}catch{}}
   if($settings.characterId-is [string]){$script:characterId=$settings.characterId}
+  if($settings.quotaStepReminder-is [bool]){$script:quotaStepReminderEnabled=$settings.quotaStepReminder}
 }catch{$script:settingsLoadFailed=$true}
 Initialize-WidgetAutoQuoteSettings $settings
 Initialize-CompletionNotificationState $settings
@@ -162,7 +165,7 @@ function Write-WidgetJson($file,$value){
   $temp=$file+'.tmp';[IO.File]::WriteAllText($temp,($value|ConvertTo-Json -Depth 6),[Text.UTF8Encoding]::new($false))
   if([IO.File]::Exists($file)){[IO.File]::Replace($temp,$file,($file+'.bak'),$true)}else{[IO.File]::Move($temp,$file)}
 }
-function Save-Settings {Write-WidgetJson $settingsFile @{layoutVersion=2;right=$script:offsetRight;left=$script:offsetLeft;bottom=$script:offsetBottom;anchor=$script:anchor;side=$script:side;scale=$script:scale;bubbleScale=$script:bubbleScale;collapsed=$script:collapsed;soundOn=$script:soundOn;soundVolume=$script:soundVolume;bubbleTapAdvance=$script:bubbleTapAdvance;hideMenu=$script:hideMenu;colorMode=$script:colorMode;colorChance=$script:colorChance;colorTextChance=$script:colorTextChance;colorPaused=$script:colorPaused;followHost=$script:followHost;desktopTopmost=$script:desktopTopmost;desktopLeft=$script:desktopLeft;desktopTop=$script:desktopTop;characterId=$script:characterId;autoQuoteEnabled=$script:autoQuoteEnabled;autoQuoteIntervalSeconds=$script:autoQuoteIntervalSeconds;taskCompletionBubble=$script:completionNotificationsEnabled}}
+function Save-Settings {Write-WidgetJson $settingsFile @{layoutVersion=2;right=$script:offsetRight;left=$script:offsetLeft;bottom=$script:offsetBottom;anchor=$script:anchor;side=$script:side;scale=$script:scale;bubbleScale=$script:bubbleScale;collapsed=$script:collapsed;soundOn=$script:soundOn;soundVolume=$script:soundVolume;bubbleTapAdvance=$script:bubbleTapAdvance;hideMenu=$script:hideMenu;colorMode=$script:colorMode;colorChance=$script:colorChance;colorTextChance=$script:colorTextChance;colorPaused=$script:colorPaused;followHost=$script:followHost;desktopTopmost=$script:desktopTopmost;desktopLeft=$script:desktopLeft;desktopTop=$script:desktopTop;characterId=$script:characterId;autoQuoteEnabled=$script:autoQuoteEnabled;autoQuoteIntervalSeconds=$script:autoQuoteIntervalSeconds;taskCompletionBubble=$script:completionNotificationsEnabled;quotaStepReminder=$script:quotaStepReminderEnabled}}
 function Set-WidgetCharacter([string]$Id,[switch]$NoSave) {
   if($script:widgetMusic -and $script:widgetMusic.Enabled){Stop-WidgetMusic}
   $character=Get-WidgetCharacter $script:appDir $script:dataDir $Id
@@ -661,12 +664,50 @@ function Set-ResetTimeMode([string]$mode,[long]$nowMilliseconds){
     if($q -and $null-ne $q.resetsAt -and [double]$q.resetsAt-gt 0){$script:ui[$row.prefix+'Reset'].Text=Format-ResetDisplay ([long]$q.resetsAt) $now}
   }
 }
+function Update-QuotaStepState($State,$Status,[long]$Now=[DateTimeOffset]::UtcNow.ToUnixTimeSeconds()) {
+  if(!$Status -or $Status.queryOk-ne $true -or !$Status.ok -or $Status.error){return}
+  if($State.account-ne [string]$Status.accountKey){$State.windows.Clear();$State.account=[string]$Status.accountKey}
+  $present=@{}
+  foreach($q in @($Status.windows|Where-Object{$_.minutes-in @(300,10080) -and $_.kind-ne 'individual'})){
+    if($null-eq $q.remaining -or ($q.resetsAt -and [double]$q.resetsAt-le $Now)){continue}
+    $key=[string]$q.minutes;$present[$key]=$true
+    $bucket=[int][Math]::Ceiling([double]$q.remaining/5)
+    $window=$State.windows[$key]
+    if(!$window -or $window.resetsAt-ne [string]$q.resetsAt){
+      $State.windows[$key]=@{bucket=$bucket;resetsAt=[string]$q.resetsAt;pending=$false}
+    }elseif($bucket-lt $window.bucket){
+      # Track each window independently and do not repeat corrected estimates.
+      $window.bucket=$bucket;$window.pending=$true
+    }
+  }
+  foreach($key in @($State.windows.Keys)){if(!$present.ContainsKey($key)){$State.windows.Remove($key)}}
+  $State.pending=@($State.windows.Values|Where-Object{$_.pending}).Count-gt 0
+}
+function Set-QuotaStepReminderEnabled([bool]$Enabled) {
+  $script:quotaStepReminderEnabled=$Enabled
+  $script:quotaStepReminderState.windows.Clear();$script:quotaStepReminderState.pending=$false
+  if($Enabled){Update-QuotaStepState $script:quotaStepReminderState $script:status}
+  Save-Settings
+}
+function Tick-QuotaStepReminder([bool]$Visible) {
+  if(!$script:quotaStepReminderEnabled -or !$script:quotaStepReminderState.pending -or !$Visible -or !$script:window.IsVisible){return}
+  if($script:status.queryOk-ne $true -or !$script:status.ok -or $script:status.error){return}
+  if($script:drag -or $script:context.IsOpen -or $script:settingsSizePreview -or (Test-WidgetUpdateEditor) -or $script:completionPending -or $script:completionTemporary){return}
+  if(!$script:collapsed -and $script:bubbleMode-ne 'quota'){return}
+  if($script:closeTimer -and $script:closeTimer.IsEnabled){return}
+  # The update already contains fresh quota data; opening the bubble should
+  # not start another quota query.
+  Open-WidgetBubble 'quota'
+  foreach($window in $script:quotaStepReminderState.windows.Values){$window.pending=$false}
+  $script:quotaStepReminderState.pending=$false;$script:quotaStepReminderState.displayCount++
+}
 function Update-Quota {
   $file=Join-Path $script:dataDir 'status.json'
   try{$stamp=[IO.File]::GetLastWriteTimeUtc($file).Ticks
     if(!(Test-Path -LiteralPath $file)){$script:status=$null;$script:statusStamp=0}
     elseif($stamp-ne $script:statusStamp){$script:status=Get-Content -LiteralPath $file -Raw -Encoding UTF8 | ConvertFrom-Json;$script:statusStamp=$stamp}
   }catch{$script:status=$null;$script:statusStamp=0}
+  if($script:quotaStepReminderEnabled){Update-QuotaStepState $script:quotaStepReminderState $script:status}
   $now=[DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
   foreach($row in (Get-QuotaRows)){
     $prefix=$row.prefix;$q=$row.window
@@ -686,7 +727,7 @@ function Update-Quota {
     $script:ui[$prefix+'Reset'].Text=if($hasReset){Format-ResetDisplay ([long]$q.resetsAt) $now}else{'未提供重置时间'}
     if($hasReset){$script:ui[$prefix+'Reset'].ToolTip='本机时间 '+[DateTimeOffset]::FromUnixTimeSeconds([long]$q.resetsAt).ToLocalTime().ToString('yyyy-MM-dd HH:mm zzz')+' 重置 · '+(Reset-Label ([double]$q.resetsAt-$now))}
     $script:ui[$prefix+'Bar'].Width=if($expired){0}else{184*[double]$q.remaining/100}
-    $color=if($expired){'#B3A7C0'}elseif([double]$q.used-ge 90){'#D77659'}elseif([double]$q.used-ge 75){'#D0A051'}else{'#9B86C1'}
+    $color=Get-QuotaBarColor $q $expired
     $script:ui[$prefix+'Bar'].Background=[Windows.Media.BrushConverter]::new().ConvertFromString($color)
     $valueColor=if($expired){'#95889F'}elseif([double]$q.used-ge 90){'#B74839'}elseif([double]$q.used-ge 75){'#A06C1C'}else{'#745A98'}
     $script:ui[$prefix+'Left'].Foreground=[Windows.Media.BrushConverter]::new().ConvertFromString($valueColor)
@@ -1017,6 +1058,7 @@ function Tick-Widget {
     Update-Quota;$script:lastPresence=$now
     Read-DisplayRequest
     Tick-CompletionNotifications ([bool]$visible)
+    Tick-QuotaStepReminder ([bool]$visible)
     Tick-WidgetAutoQuote $now ([bool]$visible)
   }
   }finally{$script:updating=$false}
