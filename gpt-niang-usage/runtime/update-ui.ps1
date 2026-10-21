@@ -4,7 +4,7 @@ function Initialize-WidgetUpdater {
   $script:autoUpdate=!($preferences -and $preferences.automatic-eq $false)
 }
 function Test-WidgetUpdateEditor {
-  return [bool]($script:audioDialogOpen -or ($script:quoteEditor -and $script:quoteEditor.IsVisible) -or ($script:colorTriggerEditor -and $script:colorTriggerEditor.IsVisible) -or ($script:characterGallery -and $script:characterGallery.IsVisible))
+  return [bool]($script:audioDialogOpen -or ($script:characterThemeEditor -and $script:characterThemeEditor.IsVisible) -or ($script:quoteEditor -and $script:quoteEditor.IsVisible) -or ($script:colorTriggerEditor -and $script:colorTriggerEditor.IsVisible) -or ($script:characterGallery -and $script:characterGallery.IsVisible))
 }
 function Start-WidgetUpdate([string]$Mode='manual') {
   if($script:updateProcess){if(!$script:updateProcess.HasExited){return};$script:updateProcess.Dispose();$script:updateProcess=$null}

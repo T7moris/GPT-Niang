@@ -1,4 +1,4 @@
-# Native WPF flowing colours. One shared phase keeps every surface in sync.
+﻿# Native WPF flowing colours. One shared phase keeps every surface in sync.
 $script:colorMode='mixed'
 $script:colorChance=0.5
 $script:colorTextChance=3
@@ -42,7 +42,7 @@ function Save-WidgetColorTriggers($Lines){
 }
 function Open-ColorTriggerEditor {
   if($script:colorTriggerEditor -and $script:colorTriggerEditor.IsVisible){$script:colorTriggerEditor.Activate()|Out-Null;return}
-  $editor=[Windows.Markup.XamlReader]::Parse(@'
+  $editor=Read-WidgetThemedXaml (@'
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" Title="GPT 娘 · 特殊台词" Width="540" Height="430" MinWidth="440" MinHeight="330" ShowInTaskbar="False" FontFamily="Microsoft YaHei UI" FontSize="14" Background="#FAF8FD" WindowStartupLocation="CenterScreen">
  <Grid Margin="22"><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
   <TextBlock Text="一行一句。仅用于按台词匹配的变色模式；独立随机模式忽略此名单。台词请在我的语录中添加。" TextWrapping="Wrap" Foreground="#745A98" Margin="0,0,0,14"/>
@@ -95,6 +95,7 @@ function Restore-WidgetOriginalColors([switch]$KeepAnimation) {
   $script:widgetColors.halo.Visibility=[Windows.Visibility]::Collapsed
   $script:widgetColors.tint.Visibility=[Windows.Visibility]::Collapsed
   if(!$KeepAnimation){Set-WidgetColorAnimation $false}
+  if(Get-Command Set-WidgetCharacterBubbleTheme -ErrorAction SilentlyContinue){Set-WidgetCharacterBubbleTheme}
 }
 
 function Get-WidgetColorPalette([string]$Name){

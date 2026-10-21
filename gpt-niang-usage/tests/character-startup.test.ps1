@@ -26,6 +26,8 @@ $source=[IO.File]::ReadAllText((Join-Path $AppDir 'widget.ps1'),[Text.Encoding]:
   $catalog=@{version=1;characters=@(@{id=$customId;name='Broken startup fixture';file=$customId+'.png'})}|ConvertTo-Json -Depth 5
   [IO.File]::WriteAllText((Join-Path $fixtureData 'characters.json'),$catalog,[Text.UTF8Encoding]::new($false))
   $settings=Join-Path $fixtureData 'settings.json'
+  # Exercise the complete startup path with the character theme enabled too.
+  [IO.File]::WriteAllText((Join-Path $fixtureData 'character-themes.json'),'{"version":1,"mode":"character","characters":{}}',[Text.UTF8Encoding]::new($false))
   $cases=@(@{name='no settings';id=$null;follow=$true;volume=0.9;expected='gpt-dragon'})
   foreach($follow in @($true,$false)){
     $mode=if($follow){'follow host'}else{'desktop'}
@@ -68,6 +70,7 @@ $source=[IO.File]::ReadAllText((Join-Path $AppDir 'widget.ps1'),[Text.Encoding]:
     $output=& $powerShell -NoProfile -STA -ExecutionPolicy Bypass -File $wrapper -AppDir $fixtureApp
     if($LASTEXITCODE-ne 0){throw ($case.name+' startup failed: '+($output|Out-String))}
     $result=($output|Out-String)|ConvertFrom-Json
+    if($result.theme.mode-ne 'character' -or $result.theme.color-notmatch '^#[0-9A-Fa-f]{6}$'){throw ($case.name+' startup did not apply the persisted character theme')}
     if(!$result.ok -or !$result.imageLoaded -or $result.characterId-ne $case.expected){throw ($case.name+' startup returned an unexpected character: '+($output|Out-String))}
     if($null-eq $result.soundVolume -or [Math]::Abs([double]$result.soundVolume-[double]$case.volume)-gt 0.000000000001){throw ($case.name+' startup did not restore fractional sound volume '+$case.volume+': '+($output|Out-String))}
     if($null-ne $case.id){

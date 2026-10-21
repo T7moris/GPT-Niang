@@ -16,6 +16,8 @@ $testData=Join-Path $testRoot 'state'
 
 $files=@('widget.ps1','widget.xaml','runtime\start-widget.ps1','runtime\quotes.ps1','runtime\completion-notifications.ps1','runtime\ui-settings.ps1','runtime\characters.ps1','runtime\character-gallery.ps1','runtime\update-ui.ps1','runtime\update-common.ps1','runtime\color-theme.ps1','runtime\music.ps1','runtime\music-audio.cs','runtime\music-visual.cs','runtime\quote-layout.ps1','runtime\audio.ps1','runtime\audio-import.mjs','runtime\host-layer.ps1','runtime\host-follow.ps1','runtime\host-ready.ps1','runtime\host-occlusion.ps1','runtime\supervisor-task.ps1','assets\quotes.json','assets\quote-layouts.json','assets\gpt-dragon-niang-bust.png','assets\characters.json')
 
+$files+=@('runtime\character-theme.ps1')
+
 $directories=@($testRoot,$testApp,$testData,(Join-Path $testApp 'runtime'),(Join-Path $testApp 'assets'),(Join-Path $testApp 'assets\characters'))
 
 try{

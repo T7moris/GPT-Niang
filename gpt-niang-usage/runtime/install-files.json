@@ -20,6 +20,7 @@
   "runtime/quotes.ps1",
   "runtime/ui-settings.ps1",
   "runtime/color-theme.ps1",
+  "runtime/character-theme.ps1",
   "runtime/quote-layout.ps1",
   "runtime/audio.ps1",
   "runtime/audio-import.mjs",

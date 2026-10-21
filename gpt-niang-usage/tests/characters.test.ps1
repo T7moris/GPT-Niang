@@ -3,6 +3,7 @@ $ErrorActionPreference='Stop'
 Add-Type -AssemblyName PresentationFramework,PresentationCore,WindowsBase
 $appDir=Split-Path $TestRoot -Parent
 $sourceAppDir=$appDir
+. ([ScriptBlock]::Create([IO.File]::ReadAllText((Join-Path $appDir 'runtime\character-theme.ps1'),[Text.Encoding]::UTF8)))
 . ([ScriptBlock]::Create([IO.File]::ReadAllText((Join-Path $appDir 'runtime\characters.ps1'),[Text.Encoding]::UTF8)))
 function Assert-Equal($Actual,$Expected,[string]$Message){if($Actual-ne $Expected){throw "$Message : expected '$Expected', got '$Actual'"}}
 function Assert-Throws([scriptblock]$Action,[string]$Message){$failed=$false;try{& $Action|Out-Null}catch{$failed=$true};if(!$failed){throw $Message}}

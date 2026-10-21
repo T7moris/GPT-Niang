@@ -5,8 +5,8 @@
     $card=[Windows.Controls.Grid]::new();$card.Tag=$character.id;$card.Height=216;$card.Margin=[Windows.Thickness]::new(0,0,12,12)
     $button=[Windows.Controls.Button]::new();$button.Style=$gallery.Resources['CharacterCard'];$button.Tag=$character.id;$button.ToolTip=$character.name
     if($character.id-eq $script:characterId){
-      $button.Background=[Windows.Media.BrushConverter]::new().ConvertFromString('#EEE2F8')
-      $button.BorderBrush=[Windows.Media.BrushConverter]::new().ConvertFromString('#A483C5')
+      $button.Background=(Get-WidgetThemeBrush '#EEE2F8')
+      $button.BorderBrush=(Get-WidgetThemeBrush '#A483C5')
     }
     $panel=[Windows.Controls.StackPanel]::new()
     $preview=[Windows.Controls.Image]::new();$preview.Height=128;$preview.Stretch=[Windows.Media.Stretch]::Uniform
@@ -17,7 +17,7 @@
     $title.HorizontalAlignment=[Windows.HorizontalAlignment]::Center;$title.Margin=[Windows.Thickness]::new(0,10,0,5)
     $title.TextTrimming=[Windows.TextTrimming]::CharacterEllipsis;$title.MaxWidth=190;$panel.Children.Add($title)|Out-Null
     $detail=[Windows.Controls.TextBlock]::new();$detail.HorizontalAlignment=[Windows.HorizontalAlignment]::Center;$detail.FontSize=11.5
-    $detail.Foreground=[Windows.Media.BrushConverter]::new().ConvertFromString('#917BA1')
+    $detail.Foreground=(Get-WidgetThemeBrush '#917BA1')
     $detail.Text=if(!$button.IsEnabled){'图片不可用'}elseif($character.id-eq $script:characterId){'✓ 当前使用'}elseif($character.kind-eq 'custom'){'我的导入'}else{'内置角色'}
     $panel.Children.Add($detail)|Out-Null;$button.Content=$panel
     $button.Add_Click({param($sender,$event)
@@ -42,16 +42,16 @@
   # The import entry always follows every available character.
   $addCard=[Windows.Controls.Grid]::new();$addCard.Tag='add-character';$addCard.Height=216;$addCard.Margin=[Windows.Thickness]::new(0,0,12,12)
   $add=[Windows.Controls.Button]::new();$add.Style=$gallery.Resources['CharacterCard'];$add.Tag='add-character'
-  $add.Background=[Windows.Media.BrushConverter]::new().ConvertFromString('#F5EFFA')
+  $add.Background=(Get-WidgetThemeBrush '#F5EFFA')
   $add.ToolTip='添加形象：PNG / JPG / BMP / GIF（第一帧）；上限 20 MB、4096 边长及 1600 万像素。'
   [Windows.Automation.AutomationProperties]::SetName($add,'添加形象')
   $addPanel=[Windows.Controls.StackPanel]::new();$addPanel.VerticalAlignment=[Windows.VerticalAlignment]::Center
   $circle=[Windows.Controls.Border]::new();$circle.Width=54;$circle.Height=54;$circle.CornerRadius=[Windows.CornerRadius]::new(27)
-  $circle.Background=[Windows.Media.BrushConverter]::new().ConvertFromString('#EDE2F6');$circle.HorizontalAlignment=[Windows.HorizontalAlignment]::Center
+  $circle.Background=(Get-WidgetThemeBrush '#EDE2F6');$circle.HorizontalAlignment=[Windows.HorizontalAlignment]::Center
   $plus=New-WidgetGalleryIcon 'add';$plus.HorizontalAlignment=[Windows.HorizontalAlignment]::Center;$plus.VerticalAlignment=[Windows.VerticalAlignment]::Center
   $circle.Child=$plus;$addPanel.Children.Add($circle)|Out-Null
   $caption=[Windows.Controls.TextBlock]::new();$caption.Text='添加形象';$caption.FontSize=14.5;$caption.FontWeight=[Windows.FontWeights]::SemiBold
-  $caption.Foreground=[Windows.Media.BrushConverter]::new().ConvertFromString('#745A98');$caption.HorizontalAlignment=[Windows.HorizontalAlignment]::Center;$caption.Margin=[Windows.Thickness]::new(0,14,0,0)
+  $caption.Foreground=(Get-WidgetThemeBrush '#745A98');$caption.HorizontalAlignment=[Windows.HorizontalAlignment]::Center;$caption.Margin=[Windows.Thickness]::new(0,14,0,0)
   $addPanel.Children.Add($caption)|Out-Null;$add.Content=$addPanel
   $add.Add_Click({param($sender,$event)
     try{Open-WidgetCharacterPicker}catch{if($script:characterGallery){$script:characterGallery.FindName('CharacterFeedback').Text=$_.Exception.Message}}
@@ -65,7 +65,7 @@
 
 function New-WidgetGalleryIcon([ValidateSet('close','remove','add')][string]$Kind) {
   $icon=[Windows.Shapes.Path]::new();$icon.Width=12;$icon.Height=12;$icon.Stretch=[Windows.Media.Stretch]::None
-  $icon.Stroke=[Windows.Media.BrushConverter]::new().ConvertFromString('#8461B0');$icon.StrokeThickness=1.6
+  $icon.Stroke=(Get-WidgetThemeBrush '#8461B0');$icon.StrokeThickness=1.6
   $icon.StrokeStartLineCap=[Windows.Media.PenLineCap]::Round;$icon.StrokeEndLineCap=[Windows.Media.PenLineCap]::Round
   $icon.IsHitTestVisible=$false
   $geometry=switch($Kind){'close'{'M2,2 L10,10 M10,2 L2,10'}'remove'{'M2,6 L10,6'}'add'{'M2,10 L18,10 M10,2 L10,18'}}
@@ -104,7 +104,7 @@ function Import-WidgetGalleryCharacter([string]$SourcePath) {
 
 function Open-WidgetCharacterGallery {
   if($script:characterGallery -and $script:characterGallery.IsVisible){$script:characterGallery.Activate()|Out-Null;return}
-  $gallery=[Windows.Markup.XamlReader]::Parse(@'
+  $gallery=Read-WidgetThemedXaml (@'
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
  Title="GPT 娘 · 选择你喜欢的形象" Width="610" Height="560" WindowStyle="None" ResizeMode="NoResize" AllowsTransparency="True"
  ShowInTaskbar="False" FontFamily="Microsoft YaHei UI" FontSize="14" Background="Transparent" WindowStartupLocation="CenterOwner">

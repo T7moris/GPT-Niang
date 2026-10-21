@@ -1,6 +1,9 @@
-﻿function Open-QuoteEditor {
+﻿if(!(Get-Command Read-WidgetThemedXaml -ErrorAction SilentlyContinue)){
+  . ([ScriptBlock]::Create([IO.File]::ReadAllText((Join-Path $appDir 'runtime\character-theme.ps1'),[Text.Encoding]::UTF8)))
+}
+function Open-QuoteEditor {
   if($script:quoteEditor -and $script:quoteEditor.IsVisible){$script:quoteEditor.Activate()|Out-Null;return}
-  $editor=[Windows.Markup.XamlReader]::Parse(@'
+  $editor=Read-WidgetThemedXaml (@'
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
  Title="GPT 娘 · 我的语录" Width="540" Height="480" MinWidth="440" MinHeight="340" ShowInTaskbar="False"
  FontFamily="Microsoft YaHei UI" FontSize="14" Background="#FAF8FD" WindowStartupLocation="CenterScreen">
@@ -49,7 +52,7 @@
 }
 
 function Initialize-WidgetSettingsMenu {
-  $script:settingsMenuResources=[Windows.Markup.XamlReader]::Parse(@'
+  $script:settingsMenuResources=Read-WidgetThemedXaml (@'
 <ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
  <Style x:Key="SettingsItem" TargetType="MenuItem">
   <Setter Property="Foreground" Value="#443552"/><Setter Property="FontSize" Value="14.5"/>
@@ -110,7 +113,7 @@ function Initialize-WidgetSettingsMenu {
   $script:context.Resources['SettingsSubmenuWidth']=[double]300
   $script:context.Resources['SettingsSubmenuMaxHeight']=[double]600
   $script:settingsMenuTarget=$script:context
-  $script:context.Template=[Windows.Markup.XamlReader]::Parse(@'
+  $script:context.Template=Read-WidgetThemedXaml (@'
 <ControlTemplate xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" TargetType="ContextMenu"><Border Background="#FFFCFF" BorderBrush="#DFD1EC" BorderThickness="1" CornerRadius="12" Padding="9,8"><ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" CanContentScroll="False"><ItemsPresenter/></ScrollViewer></Border></ControlTemplate>
 '@)
   $script:settingsMenuUi.Bubble=Add-SettingsAction '查看额度' {if(!$script:collapsed -and $script:bubbleMode-eq 'quota'){Hide-Quota}else{Show-Quota}} -ReturnItem
@@ -139,6 +142,13 @@ function Initialize-WidgetSettingsMenu {
   Register-WidgetSizePreview $bubbleSize.Slider
   Add-SettingsPanel $bubbleSize.Panel
   $script:settingsMenuUi.Hide=Add-SettingsAction '隐藏设置按钮' {param($sender,$event)$script:hideMenu=$sender.IsChecked;Set-MenuVisible $false;Save-Settings} -Description '仍可右键点角色打开设置' -Checkable -ReturnItem
+  Add-SettingsDivider
+  $script:settingsMenuUi.CharacterTheme=Add-SettingsSubmenu '界面主题' {
+    $script:settingsMenuUi.ThemeFollow=Add-SettingsAction '跟随角色配色' {param($sender,$event)$mode=if($sender.IsChecked){'character'}else{'default'};Set-WidgetCharacterThemeMode $mode} -Description '气泡和菜单使用角色图片的代表色' -Checkable -ReturnItem
+    Add-SettingsAction '选择或自定义主题色…' {Open-WidgetCharacterThemeEditor}
+    Add-SettingsAction '重新从当前图片取色' {Reset-WidgetCharacterThemeColor}
+    Add-SettingsAction '恢复默认紫色' {Set-WidgetCharacterThemeMode 'default'}
+  } -ReturnItem
   } -ReturnItem
   $script:settingsMenuUi.Colors=Add-SettingsSubmenu '配色效果' {
   $script:settingsMenuUi.ColorMixed=Add-SettingsAction '台词与颜色独立随机' {Set-WidgetColorMode 'mixed';Save-Settings;Update-WidgetSettingsMenu} -Description '先抽台词，再抽变色；每句都能触发' -Checkable -ReturnItem
@@ -231,13 +241,13 @@ function Initialize-WidgetSettingsMenu {
   Update-WidgetSettingsMenu;$script:window.ContextMenu=$script:context
 }
 
-function New-SettingsText([string]$Text,[double]$Size,[string]$Color){$t=New-Object Windows.Controls.TextBlock;$t.Text=$Text;$t.FontSize=$Size;$t.Foreground=[Windows.Media.BrushConverter]::new().ConvertFromString($Color);return $t}
+function New-SettingsText([string]$Text,[double]$Size,[string]$Color){$t=New-Object Windows.Controls.TextBlock;$t.Text=$Text;$t.FontSize=$Size;Set-WidgetThemeProperty $t 'Foreground' $Color;return $t}
 function Add-SettingsPanel($Panel,[switch]$Passive,[switch]$ReturnItem){
   $item=New-Object Windows.Controls.MenuItem;$item.Header=$Panel;$item.StaysOpenOnClick=$true;$item.Padding=[Windows.Thickness]::new(10,0,10,0);$item.Style=$script:settingsMenuResources['SettingsItem']
   $item.MinHeight=0
   if($Passive){$item.IsHitTestVisible=$false;$item.Focusable=$false};$script:settingsMenuTarget.Items.Add($item)|Out-Null;if($ReturnItem){return $item}
 }
-function Add-SettingsDivider([switch]$ReturnItem){$line=New-Object Windows.Controls.Border;$line.Height=1;$line.Margin=[Windows.Thickness]::new(10,7,10,7);$line.Background=[Windows.Media.BrushConverter]::new().ConvertFromString('#EEE6F4');Add-SettingsPanel $line -Passive -ReturnItem:$ReturnItem}
+function Add-SettingsDivider([switch]$ReturnItem){$line=New-Object Windows.Controls.Border;$line.Height=1;$line.Margin=[Windows.Thickness]::new(10,7,10,7);Set-WidgetThemeProperty $line 'Background' '#EEE6F4';Add-SettingsPanel $line -Passive -ReturnItem:$ReturnItem}
 function Add-SettingsSection([string]$Label,[switch]$Divider){if($Divider){Add-SettingsDivider};$t=New-SettingsText $Label 11.5 '#A28DAF';$t.FontWeight=[Windows.FontWeights]::SemiBold;$t.Margin=[Windows.Thickness]::new(10,3,0,3);Add-SettingsPanel $t -Passive}
 function Add-SettingsAction{
   param([string]$Label,[scriptblock]$Action,[string]$Description,[switch]$Checkable,[switch]$StayOpen,[switch]$ReturnItem)
@@ -261,11 +271,12 @@ function New-SettingsSlider([string]$Label,[double]$Minimum,[double]$Maximum,[do
   $panel.Children.Add($row)|Out-Null;$panel.Children.Add($slider)|Out-Null;return @{Panel=$panel;Slider=$slider;Value=$value}
 }
 function Update-WidgetSizePresets{
-  foreach($button in $script:settingsMenuUi.SizeButtons){$color=if([Math]::Abs([double]$button.Tag-$script:scale)-lt 0.05){'#E2D2EE'}else{'#F2ECF8'};$button.Background=[Windows.Media.BrushConverter]::new().ConvertFromString($color)}
+  foreach($button in $script:settingsMenuUi.SizeButtons){$color=if([Math]::Abs([double]$button.Tag-$script:scale)-lt 0.05){'#E2D2EE'}else{'#F2ECF8'};Set-WidgetThemeProperty $button 'Background' $color}
 }
 function Update-WidgetSettingsMenu{
   $script:settingsMenuSync=$true
   try{
+    if($script:settingsMenuUi.ThemeFollow){$script:settingsMenuUi.ThemeFollow.IsChecked=$script:characterThemeState.mode-eq 'character'}
     Update-WidgetUpdateMenu
     $script:settingsMenuUi.MusicEnabled.IsChecked=Test-WidgetMusicActive
     $script:settingsMenuUi.Completion.IsChecked=$script:completionNotificationsEnabled
