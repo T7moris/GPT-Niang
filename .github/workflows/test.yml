@@ -29,6 +29,10 @@ jobs:
         run: npm run test:windows
       - name: Verify Windows packaging
         run: python scripts/build-release.py
+      - name: Verify manual-start Windows packaging
+        run: python scripts/build-release.py --startup-mode manual
+      - name: Verify isolated manual installer and updater behavior
+        run: powershell.exe -NoProfile -File scripts/test-manual-install.ps1
   macos:
     runs-on: macos-latest
     timeout-minutes: 20
