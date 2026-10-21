@@ -34,7 +34,7 @@ Merge upstream `main` at `b6f5eb8` into the custom Windows branch while retainin
 
 - Fork `main` matches upstream `b6f5eb8972d1802821006b7208d20a834fa6a08b`.
 - The upstream merge and PR #46 remain on `codex/dragon-voice-and-settings`; stale-work fix `204a948` and startup visibility fix `d455015` are pushed, and `git ls-remote` verified the remote head is `d455015`.
-- PR #46 now also contains the 1.3.15 stale-turn fix and release metadata; GitHub verified the updated head as `16c84582f1515a15341cda9377fd6ca216175852`.
+- PR #46 now also contains the 1.3.15 stale-turn fix and release metadata; GitHub confirms the PR remains open and mergeable.
 - The two upstream Actions runs are `action_required`; no CI success is claimed.
 - The installed widget is now 1.3.15 and is visibly idle. The cloud RPC still times out; do not treat its zero cached active count as live cross-project acceptance.
 - Later verification should use the normal desktop execution context, preserve the existing settings, and observe ordinary-chat and other-project work start/end before claiming live acceptance. The paused question/answer experiment remains excluded.
