@@ -29,8 +29,11 @@ function Assert-WidgetPluginRegistration([string]$Codex,[string]$Version){
   $catalog=Read-WidgetUpdateJson (Join-Path $testRoot 'catalog.json')
   if($catalog.version-ne $Version -or !$catalog.installed -or !$catalog.enabled){throw 'Isolated plugin registration mismatch.'}
 }
+$script:expectedUpdateAgentPath=$null
 function Get-CimInstance {
-  return [pscustomobject]@{Name='powershell.exe';CommandLine=('powershell.exe -File "'+(Join-Path $script:agent 'update-agent.ps1')+'"')}
+  $command="& '$script:expectedUpdateAgentPath' -Supervisor"
+  $encoded=[Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($command))
+  return [pscustomobject]@{Name='powershell.exe';CommandLine=('powershell.exe -NoProfile -EncodedCommand '+$encoded)}
 }
 $script:healthValidator=(Get-Command Wait-WidgetUpdatedHealth).ScriptBlock
 function Wait-WidgetUpdatedHealth($Journal) {
@@ -39,6 +42,7 @@ function Wait-WidgetUpdatedHealth($Journal) {
 }
 function Invoke-WidgetUpdateInstaller($Journal,[string]$Token) {
   $script:installerCalls++
+  $script:expectedUpdateAgentPath=Join-Path $script:agent 'update-agent.ps1'
   $manifest=Read-WidgetUpdateJson (Join-Path $Journal.appDir '.codex-plugin\plugin.json')
   if($script:failureMode-eq 'install' -and $manifest.version-eq '1.3.3'){throw 'Simulated plugin registration failure.'}
   $config=Read-WidgetUpdateJson (Join-Path $Journal.appDir 'installation.json');$config.version=$manifest.version
@@ -84,6 +88,13 @@ try {
   [IO.File]::WriteAllText((Join-Path $journal.root 'screenshot.png'),'personal screenshot')
   $personal=Join-Path $journal.root 'my downloads';$null=New-Item -ItemType Directory -Path $personal
   [IO.File]::WriteAllText((Join-Path $personal 'old-package.zip'),'manually downloaded archive')
+  $installedDocs=Join-Path $journal.root 'docs';$null=New-Item -ItemType Directory -Path $installedDocs
+  [IO.File]::WriteAllText((Join-Path $installedDocs 'development-alignment.md'),'old release docs')
+  $candidateDocs=Join-Path $journal.candidate 'docs';$null=New-Item -ItemType Directory -Path $candidateDocs
+  [IO.File]::WriteAllText((Join-Path $candidateDocs 'development-alignment.md'),'new release docs')
+  $stopLauncher=([string][char]0x505c)+([string][char]0x7528)+'GPT'+([string][char]0x5A18)+'.cmd'
+  [IO.File]::WriteAllText((Join-Path $journal.root $stopLauncher),'old launcher')
+  [IO.File]::WriteAllText((Join-Path $journal.candidate $stopLauncher),'new launcher')
   Invoke-WidgetUpdateTransaction $journal $script:agent $journal.token
   Assert ($journal.phase-eq 'committed') 'upgrade commits after registration and real heartbeat validation'
   Assert ((Read-WidgetUpdateJson (Join-Path $journal.appDir 'installation.json')).version-eq '1.3.3') 'new plugin version registered'
@@ -93,6 +104,8 @@ try {
   Assert (!(Read-WidgetUpdateJson (Join-Path $journal.dataDir 'update-preferences.json')).automatic) 'disabled automatic-update preference preserved'
   Assert ([IO.File]::ReadAllText((Join-Path $journal.root 'screenshot.png'))-eq 'personal screenshot') 'unrelated screenshots remain at their original active path'
   Assert ([IO.File]::ReadAllText((Join-Path $journal.root 'my downloads\old-package.zip'))-eq 'manually downloaded archive') 'unmanaged download folders survive old-version cleanup'
+  Assert ([IO.File]::ReadAllText((Join-Path $journal.root 'docs\development-alignment.md'))-eq 'new release docs') 'release-managed docs replace the prior package docs without colliding with personal files'
+  Assert ([IO.File]::ReadAllText((Join-Path $journal.root $stopLauncher))-eq 'new launcher') 'release-managed Chinese launcher filenames remain valid in Windows PowerShell 5.1'
 
   $journal=New-Fixture 'personal-collision'
   [IO.File]::WriteAllText((Join-Path $journal.root 'user.txt'),'personal file')

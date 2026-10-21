@@ -1,4 +1,4 @@
-# Optional real Codex CLI / Task Scheduler test. It uses a private Codex home,
+﻿# Optional real Codex CLI / Task Scheduler test. It uses a private Codex home,
 # a dedicated task name, temporary shortcut and launcher, and never opens a GUI.
 $ErrorActionPreference='Stop'
 $source=Split-Path $PSScriptRoot -Parent
@@ -20,7 +20,7 @@ function Copy-TestPackage([string]$Root,[string]$Version) {
     [IO.File]::WriteAllText($file,($value|ConvertTo-Json -Depth 12),[Text.UTF8Encoding]::new($false))
   }
   $files=@{
-    'update-common.ps1'=@{Before="(Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'GPTNiangUsage\update-agent')";After=("'"+$agent.Replace("'","''")+"'")}
+    'update-common.ps1'=@{Before="Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'GPTNiangUsage\update-agent'";After=("'"+$agent.Replace("'","''")+"'")}
     'supervisor-task.ps1'=@{Before='(''GPT Niang Usage - ''+$sid)';After='(''GPT Niang Usage Updater Test - ''+$sid)'}
     'install-preflight.ps1'=@{Before="[Environment]::GetFolderPath('Startup')";After=("'"+(Join-Path $testRoot 'startup').Replace("'","''")+"'")}
     'supervisor.ps1'=@{Before='$hosts=@([GptWidgetSupervisorNative]::Hosts())';After='$hosts=@()'}

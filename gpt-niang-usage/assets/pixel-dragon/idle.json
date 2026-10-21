@@ -1,0 +1,46 @@
+{
+  "width": 192,
+  "height": 192,
+  "anchor": {
+    "x": 85,
+    "y": 184
+  },
+  "frames": [
+    {
+      "file": "idle-01.png",
+      "durationMs": 280
+    },
+    {
+      "file": "idle-02.png",
+      "durationMs": 280
+    },
+    {
+      "file": "idle-03.png",
+      "durationMs": 280
+    },
+    {
+      "file": "idle-04.png",
+      "durationMs": 280
+    },
+    {
+      "file": "idle-05.png",
+      "durationMs": 280
+    },
+    {
+      "file": "idle-06.png",
+      "durationMs": 280
+    },
+    {
+      "file": "idle-07.png",
+      "durationMs": 280
+    },
+    {
+      "file": "idle-08.png",
+      "durationMs": 280
+    },
+    {
+      "file": "idle-09.png",
+      "durationMs": 280
+    }
+  ]
+}

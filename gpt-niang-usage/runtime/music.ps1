@@ -1,4 +1,4 @@
-$script:widgetMusic=$null
+﻿$script:widgetMusic=$null
 $script:musicColorEnabled=$false
 $script:musicLastError=$null
 function Initialize-WidgetMusicTypes {
@@ -27,6 +27,7 @@ function Stop-WidgetMusic([switch]$KeepPosition) {
     try{$state.Stop([bool]$KeepPosition)}finally{if($state.Error){$script:musicLastError=$state.Error}}
   }
   $script:musicColorEnabled=$false
+  if(Get-Command Update-WidgetCharacterPlayback -ErrorAction SilentlyContinue){Update-WidgetCharacterPlayback}
   $script:lastPosition=$null
   if($script:widgetColors){Update-WidgetColorScene}
   if($script:settingsMenuUi -and $script:settingsMenuUi.MusicEnabled){$script:settingsMenuUi.MusicEnabled.IsChecked=$false}
@@ -44,6 +45,7 @@ function Set-WidgetMusicEnabled([bool]$Enabled) {
     $normal=New-Object GptWidgetNative+Rect;[GptWidgetNative]::GetWindowRect($script:widgetHandle,[ref]$normal)|Out-Null
     $script:musicLastError=$null;$script:musicColorEnabled=$false
     $script:widgetMusic=[GptMusicVisual]::new($script:window,$script:ui.Girl,$script:ui.Bubble,$move,$colors,($script:characterId-eq 'gpt-dragon'))
+    if(Get-Command Update-WidgetCharacterPlayback -ErrorAction SilentlyContinue){Update-WidgetCharacterPlayback}
     $script:widgetMusic.FollowLamp=[Delegate]::CreateDelegate([Action[IntPtr,int,int,int]],$script:hostFollower,'SetCompanion')
     $script:widgetMusic.HostFrame=[Delegate]::CreateDelegate([Func[int[]]],$script:hostFollower,'GetFrame')
     Update-WidgetMusicPlacement (Get-WidgetPlacementFrame) (Get-WidgetPlacementDpi) $normal.Left $normal.Top $true

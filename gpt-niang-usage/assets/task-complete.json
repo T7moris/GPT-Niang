@@ -1,0 +1,13 @@
+{
+  "options": {
+    "speed": 0.9,
+    "pitch": 2,
+    "variation": 99,
+    "length": 57,
+    "volume": 45,
+    "mood": "normal"
+  },
+  "events": 4,
+  "text": "任务完成",
+  "source": "Original synthesized moon-blips v3.5; user screenshot parameters"
+}

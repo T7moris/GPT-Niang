@@ -26,7 +26,7 @@ tracked = subprocess.check_output(
 ).decode("utf-8").split("\0")
 # Keep maintainer docs in Git. The updater preserves an existing docs directory
 # as personal data, so shipping another docs tree would collide on upgrade.
-files = sorted(p for p in tracked if p and not p.startswith((".github/", "scripts/", ".codex/", "macos/", "script/", "docs/")))
+files = sorted(p for p in tracked if p and p != "PROJECT_STATUS.md" and not p.startswith((".github/", "scripts/", ".codex/", "macos/", "script/", "docs/")))
 required = {
     "LICENSE", "gpt-niang-usage/LICENSE",
     "gpt-niang-usage/assets/CHARACTER-NOTICE.txt",

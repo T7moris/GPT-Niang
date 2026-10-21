@@ -1,4 +1,4 @@
-param([switch]$CheckOnly,[switch]$Preview,[string]$AppDir=$PSScriptRoot)
+﻿param([switch]$CheckOnly,[switch]$Preview,[string]$AppDir=$PSScriptRoot)
 $ErrorActionPreference='Stop'
 $script:appDir=$AppDir
 $script:configPath=Join-Path $script:appDir 'installation.json'
@@ -12,6 +12,9 @@ $null=New-Item -ItemType Directory -Path $script:dataDir -Force
 . ([ScriptBlock]::Create([IO.File]::ReadAllText((Join-Path $script:appDir 'runtime\characters.ps1'),[Text.Encoding]::UTF8)))
 . ([ScriptBlock]::Create([IO.File]::ReadAllText((Join-Path $script:appDir 'runtime\character-gallery.ps1'),[Text.Encoding]::UTF8)))
 . (Join-Path $script:appDir 'runtime\audio.ps1')
+. (Join-Path $script:appDir 'runtime\completion-voice.ps1')
+. (Join-Path $script:appDir 'runtime\quote-voice.ps1')
+. (Join-Path $script:appDir 'runtime\character-animation.ps1')
 . (Join-Path $script:appDir 'runtime\host-layer.ps1')
 . (Join-Path $script:appDir 'runtime\host-follow.ps1')
 . (Join-Path $script:appDir 'runtime\host-ready.ps1')
@@ -113,15 +116,19 @@ $script:designHeight=[double]$script:window.FindName('AnimationStage').Height
 $script:ui=@{}
 foreach($name in @('Root','Bubble','Tail','TailNear','SceneText','QuotaText','QuoteText','BubbleShape','Girl','PressScale','FacingScale','TextFacingScale','Header','Refresh','MenuButton','Status','LiveDot','ShortRow','WeekRow','ShortLabel','WeekLabel','ShortUsed','ShortLeft','ShortReset','ShortBar','WeekUsed','WeekLeft','WeekReset','WeekBar')){$script:ui[$name]=$script:window.FindName($name)}
 $script:characterId='gpt-dragon';$script:activeCharacter=$null
+$script:characterMode='original'
 $script:status=$null
 $script:statusStamp=0
 $script:offsetRight=0.0;$script:offsetBottom=0.0;$script:offsetLeft=$null;$script:anchor='right';$script:side='right';$script:scale=1.0;$script:bubbleScale=1.0;$script:collapsed=$true
 $script:soundOn=$true;$script:soundVolume=0.9;$script:bubbleTapAdvance=$false;$script:hideMenu=$false
+$script:completionNotificationsEnabled=$true;$script:completionVoiceEnabled=$true;$script:quoteVoiceEnabled=$true
+$script:completionQueue=$null;$script:completionPendingMessage=$null;$script:completionActiveMessage=$null
 $script:followHost=$true;$script:desktopTopmost=$false;$script:desktopLeft=$null;$script:desktopTop=$null
 $script:hostReadiness=New-WidgetReadinessState
 $script:bubbleMode='quota';$script:sceneStartedAt=0;$script:sceneDeadline=0;$script:sceneTimer=$null;$script:sceneRevision=0
 $script:resetTimeMode='countdown';$script:resetPhaseTimer=$null
 $script:displayRequestToken=$null
+Initialize-CompletionNotificationState
 $settingsFile=Join-Path $script:dataDir 'settings.json'
 $script:settingsLoadFailed=$false
 try{$settings=Get-Content -LiteralPath $settingsFile -Raw -Encoding UTF8 | ConvertFrom-Json
@@ -142,6 +149,9 @@ try{$settings=Get-Content -LiteralPath $settingsFile -Raw -Encoding UTF8 | Conve
     if(@('left','right','free')-contains $settings.anchor){$script:anchor=$settings.anchor}
     if(@('left','right')-contains $settings.side){$script:side=$settings.side}
   }else{$script:offsetBottom=0;if($script:offsetRight-gt 18){$script:anchor='free'}}
+  if($settings.characterMode-in @('original','pixel')){$script:characterMode=[string]$settings.characterMode}
+  $script:completionVoiceEnabled=Get-CompletionVoicePreference $settings
+  $script:quoteVoiceEnabled=Get-QuoteVoicePreference $settings
   if($null-ne $settings.soundOn){$script:soundOn=($settings.soundOn-is [bool] -and $settings.soundOn)}
   if($null-ne $settings.soundVolume){try{$value=[double]$settings.soundVolume;if(![double]::IsNaN($value)-and ![double]::IsInfinity($value)){$script:soundVolume=[Math]::Min(1.0,[Math]::Max(0.0,$value))}}catch{}}
   if($null-ne $settings.bubbleTapAdvance){$script:bubbleTapAdvance=($settings.bubbleTapAdvance-is [bool] -and $settings.bubbleTapAdvance)}
@@ -162,7 +172,7 @@ function Write-WidgetJson($file,$value){
   $temp=$file+'.tmp';[IO.File]::WriteAllText($temp,($value|ConvertTo-Json -Depth 6),[Text.UTF8Encoding]::new($false))
   if([IO.File]::Exists($file)){[IO.File]::Replace($temp,$file,($file+'.bak'),$true)}else{[IO.File]::Move($temp,$file)}
 }
-function Save-Settings {Write-WidgetJson $settingsFile @{layoutVersion=2;right=$script:offsetRight;left=$script:offsetLeft;bottom=$script:offsetBottom;anchor=$script:anchor;side=$script:side;scale=$script:scale;bubbleScale=$script:bubbleScale;collapsed=$script:collapsed;soundOn=$script:soundOn;soundVolume=$script:soundVolume;bubbleTapAdvance=$script:bubbleTapAdvance;hideMenu=$script:hideMenu;colorMode=$script:colorMode;colorChance=$script:colorChance;colorTextChance=$script:colorTextChance;colorPaused=$script:colorPaused;followHost=$script:followHost;desktopTopmost=$script:desktopTopmost;desktopLeft=$script:desktopLeft;desktopTop=$script:desktopTop;characterId=$script:characterId;autoQuoteEnabled=$script:autoQuoteEnabled;autoQuoteIntervalSeconds=$script:autoQuoteIntervalSeconds;taskCompletionBubble=$script:completionNotificationsEnabled}}
+function Save-Settings {Write-WidgetJson $settingsFile @{characterMode=$script:characterMode;taskCompletionVoice=$script:completionVoiceEnabled;quoteVoice=$script:quoteVoiceEnabled;layoutVersion=2;right=$script:offsetRight;left=$script:offsetLeft;bottom=$script:offsetBottom;anchor=$script:anchor;side=$script:side;scale=$script:scale;bubbleScale=$script:bubbleScale;collapsed=$script:collapsed;soundOn=$script:soundOn;soundVolume=$script:soundVolume;bubbleTapAdvance=$script:bubbleTapAdvance;hideMenu=$script:hideMenu;colorMode=$script:colorMode;colorChance=$script:colorChance;colorTextChance=$script:colorTextChance;colorPaused=$script:colorPaused;followHost=$script:followHost;desktopTopmost=$script:desktopTopmost;desktopLeft=$script:desktopLeft;desktopTop=$script:desktopTop;characterId=$script:characterId;autoQuoteEnabled=$script:autoQuoteEnabled;autoQuoteIntervalSeconds=$script:autoQuoteIntervalSeconds;taskCompletionBubble=$script:completionNotificationsEnabled}}
 function Set-WidgetCharacter([string]$Id,[switch]$NoSave) {
   if($script:widgetMusic -and $script:widgetMusic.Enabled){Stop-WidgetMusic}
   $character=Get-WidgetCharacter $script:appDir $script:dataDir $Id
@@ -171,10 +181,14 @@ function Set-WidgetCharacter([string]$Id,[switch]$NoSave) {
   $alpha=[Windows.Media.Imaging.FormatConvertedBitmap]::new($image,[Windows.Media.PixelFormats]::Bgra32,$null,0)
   $alpha.Freeze();$stride=$image.PixelWidth*4;$pixels=New-Object byte[] ($stride*$image.PixelHeight)
   $alpha.CopyPixels($pixels,$stride,0)
-  $previous=@{bitmap=$script:bitmap;alpha=$script:alphaBitmap;stride=$script:alphaStride;pixels=$script:alphaPixels;id=$script:characterId;character=$script:activeCharacter}
+  $previous=@{bitmap=$script:bitmap;alpha=$script:alphaBitmap;stride=$script:alphaStride;pixels=$script:alphaPixels;id=$script:characterId;character=$script:activeCharacter;mode=$script:characterMode;original=if($script:characterAnimation){$script:characterAnimation.Original}else{$null}}
   try{
     $script:bitmap=$image;$script:alphaBitmap=$alpha;$script:alphaStride=$stride;$script:alphaPixels=$pixels
     $script:characterId=$character.id;$script:activeCharacter=$character;$script:ui.Girl.Source=$image
+    if($script:characterAnimation){
+      $script:characterAnimation.Original=New-WidgetCharacterFrame $image
+      Set-WidgetCharacterMode 'original'
+    }
     if($script:widgetColors){
       foreach($overlay in @($script:widgetColors.halo,$script:widgetColors.tint)){
         if($overlay -and $overlay.OpacityMask){$overlay.OpacityMask.ImageSource=$image;$overlay.OpacityMask.Stretch=[Windows.Media.Stretch]::Uniform}
@@ -184,6 +198,7 @@ function Set-WidgetCharacter([string]$Id,[switch]$NoSave) {
   }catch{
     $script:bitmap=$previous.bitmap;$script:alphaBitmap=$previous.alpha;$script:alphaStride=$previous.stride;$script:alphaPixels=$previous.pixels
     $script:characterId=$previous.id;$script:activeCharacter=$previous.character;$script:ui.Girl.Source=$previous.bitmap
+    if($script:characterAnimation){$script:characterAnimation.Original=$previous.original;Set-WidgetCharacterMode $previous.mode}
     if($script:widgetColors){foreach($overlay in @($script:widgetColors.halo,$script:widgetColors.tint)){if($overlay -and $overlay.OpacityMask){$overlay.OpacityMask.ImageSource=$previous.bitmap}}}
     throw
   }
@@ -192,6 +207,7 @@ function Set-WidgetCharacter([string]$Id,[switch]$NoSave) {
 }
 try{$null=Set-WidgetCharacter $script:characterId -NoSave}
 catch{$script:characterLoadNotice='上次使用的图片无法读取，已恢复龙娘1。';$null=Set-WidgetCharacter 'gpt-dragon' -NoSave}
+Initialize-WidgetCharacter
 function Get-WidgetPlacementFrame {
   if($script:followHost){return [GptWidgetNative]::Frame($script:hostHandle)}
   $point=if($null-ne $script:desktopLeft -and $null-ne $script:desktopTop){[Drawing.Point]::new([int]$script:desktopLeft,[int]$script:desktopTop)}else{[Drawing.Point]::new(0,0)}
@@ -292,6 +308,14 @@ function Test-WidgetPlacementFrame($Frame,[double]$Dpi=1) {
   return $Frame -and $Dpi-gt 0 -and ($Frame.Right-$Frame.Left)-ge 64*$Dpi -and ($Frame.Bottom-$Frame.Top)-ge 64*$Dpi
 }
 function Limit-WidgetHorizontalPosition($Frame,[double]$Dpi,[double]$Left) {
+  # The first placement happens before Show(), when PointToScreen has no presentation source.
+  $presentation=[Windows.PresentationSource]::FromVisual($script:window)
+  if($null-eq $presentation){
+    $width=[double]$script:designWidth*[double]$script:displayScale*$Dpi
+    $maximum=$Frame.Right-$width
+    if($maximum-lt $Frame.Left){return [int][Math]::Round($Frame.Left)}
+    return [int][Math]::Round([Math]::Max($Frame.Left,[Math]::Min($maximum,$Left)))
+  }
   # Mirror-aware character bounds; transparent bubble space may extend outside.
   # Use the resting layout so press/rebound never changes the drag limits.
   $root=$script:ui.Root;$girl=$script:ui.Girl
@@ -309,6 +333,14 @@ function Limit-WidgetHorizontalPosition($Frame,[double]$Dpi,[double]$Left) {
   return [int][Math]::Round([Math]::Max($minimum,[Math]::Min($maximum,$Left)))
 }
 function Limit-WidgetVerticalPosition($Frame,[double]$Dpi,[double]$Top) {
+  # Use the full window bounds until Show() attaches it to a presentation source.
+  $presentation=[Windows.PresentationSource]::FromVisual($script:window)
+  if($null-eq $presentation){
+    $height=[double]$script:designHeight*[double]$script:displayScale*$Dpi
+    $maximum=$Frame.Bottom-$height
+    if($maximum-lt $Frame.Top){return [int][Math]::Round($Frame.Top)}
+    return [int][Math]::Round([Math]::Max($Frame.Top,[Math]::Min($maximum,$Top)))
+  }
   # Keep the character inside the frame; the transparent space reserved for
   # its bubble may extend above it. Ignore transient press/rebound transforms.
   $root=$script:ui.Root;$girl=$script:ui.Girl
@@ -435,8 +467,9 @@ function Apply-Scene {
   Set-WidgetSceneLayout
   if($script:widgetColors){Update-WidgetColorScene}
   $quota=$script:bubbleMode-eq 'quota'
+  $quote=$script:bubbleMode-in @('quote','completion')
   $script:ui.QuotaText.Visibility=if($quota){[Windows.Visibility]::Visible}else{[Windows.Visibility]::Collapsed}
-  $script:ui.QuoteText.Visibility=if($quota){[Windows.Visibility]::Collapsed}else{[Windows.Visibility]::Visible}
+  $script:ui.QuoteText.Visibility=if($quote){[Windows.Visibility]::Visible}else{[Windows.Visibility]::Collapsed}
   $script:ui.Refresh.Visibility=$script:ui.QuotaText.Visibility;$script:ui.LiveDot.Visibility=[Windows.Visibility]::Collapsed
   Update-BubbleTooltip
 }
@@ -479,10 +512,12 @@ function Update-BubbleTooltip {
 
 function Switch-Scene([string]$mode){
   if($script:collapsed){return}
+  if(Get-Command Stop-QuoteVoice -ErrorAction SilentlyContinue){Stop-QuoteVoice}
   if($script:bubbleMode-eq 'completion' -and $mode-ne 'completion'){Dismiss-CompletionNotification}
   Reset-WidgetAutoQuoteSchedule
   $script:sceneRevision++;$script:bubbleMode=$mode
-  if($mode-eq 'quote'){$script:ui.QuoteText.Text=Get-WidgetBubbleQuote $script:dataDir;Fit-QuoteText}
+  if($mode-eq 'quote'){$script:ui.QuoteText.Text=Get-WidgetBubbleQuote $script:dataDir;Fit-QuoteText;if(Get-Command Request-QuoteVoice -ErrorAction SilentlyContinue){Request-QuoteVoice ([string]$script:ui.QuoteText.Text)}}
+  if($mode-eq 'completion'){$script:ui.QuoteText.Text="Codex`n有回复已结束";Fit-QuoteText}
   if($script:sceneTimer){$script:sceneTimer.Stop()}
   Animate-Value $script:ui.SceneText ([Windows.UIElement]::OpacityProperty) 0 120
   $script:sceneTimer=New-Object Windows.Threading.DispatcherTimer
@@ -534,7 +569,7 @@ function Open-WidgetBubble([ValidateSet('quota','quote','completion')][string]$M
   if(!$script:collapsed){if($Mode-eq 'quote' -or $script:bubbleMode-ne $Mode){Switch-Scene $Mode}else{Restart-SceneTtl};return}
   $script:bubbleEpoch++;$script:collapsed=$false;$script:sceneRevision++
   $script:bubbleMode=$Mode
-  if($Mode-eq 'quote'){$script:ui.QuoteText.Text=Get-WidgetBubbleQuote $script:dataDir;Fit-QuoteText}
+  if($Mode-eq 'quote'){$script:ui.QuoteText.Text=Get-WidgetBubbleQuote $script:dataDir;Fit-QuoteText;if(Get-Command Request-QuoteVoice -ErrorAction SilentlyContinue){Request-QuoteVoice ([string]$script:ui.QuoteText.Text)}}
   if($Mode-eq 'completion'){$script:ui.QuoteText.Text="Codex`n有回复已结束";Fit-QuoteText}
   Apply-Scene
   if($script:sceneTimer){$script:sceneTimer.Stop()}
@@ -555,6 +590,7 @@ function Open-WidgetBubble([ValidateSet('quota','quote','completion')][string]$M
 }
 function Hide-Quota([switch]$KeepCompletion) {
   if($script:collapsed){return}
+  if(Get-Command Stop-QuoteVoice -ErrorAction SilentlyContinue){Stop-QuoteVoice}
   if($script:bubbleMode-eq 'completion' -and !$KeepCompletion){Dismiss-CompletionNotification}
   Reset-WidgetAutoQuoteSchedule
   $script:collapsed=$true;$script:bubbleEpoch++
@@ -587,7 +623,7 @@ function Animate-Press([bool]$down) {
 function Request-Refresh {[IO.File]::WriteAllText((Join-Path $script:dataDir 'refresh.flag'),([DateTime]::UtcNow.ToString('o')+' '+[Guid]::NewGuid().ToString('N')))}
 function Exit-WidgetForSession {
   if($script:followHost){Set-WidgetSupervisorPause -AppDir $script:appDir -HostHandle $script:hostHandle.ToInt64() -HostPid ([GptWidgetNative]::ProcessId($script:hostHandle))}
-  else{Write-WidgetSupervisorJson (Join-Path $script:dataDir 'supervisor-pause.json') @{desktop=$true;at=[DateTime]::UtcNow.ToString('o')}}
+  else{Write-WidgetSupervisorJson (Join-Path $script:dataDir 'supervisor-pause.json') @{awaitNewHost=$true;exitedAtTicks=[DateTime]::UtcNow.Ticks;at=[DateTime]::UtcNow.ToString('o')}}
   $script:window.Close()
 }
 function Set-MenuVisible([bool]$show){
@@ -739,6 +775,8 @@ if([IO.File]::Exists($stopFlag)){
   }
 }
 Remove-Item -LiteralPath $stopFlag -ErrorAction SilentlyContinue
+Initialize-CompletionVoice -AppDir $script:appDir
+Initialize-QuoteVoice
 $script:worker=$null
 $script:lastWorkerProbe=0;$script:lastWorkerStart=0;$script:runtimeClosed=$false
 $script:hostHandle=[GptWidgetNative]::FindCodex();$script:lastPresence=0;$script:lastHostProbe=0;$script:drag=$null
@@ -769,6 +807,7 @@ $script:messageHook=[Windows.Interop.HwndSourceHook]{param($hwnd,$msg,$w,$l,[ref
 $source.AddHook($script:messageHook)
 Initialize-WidgetUpdater
 Initialize-WidgetSettingsMenu
+Initialize-SettingsMenuDismiss
 $script:ui.Refresh.Add_Click({param($sender,$event)Request-Refresh;Restart-SceneTtl;$script:ui.Status.Text='正在刷新额度…';$event.Handled=$true})
 $script:ui.MenuButton.Add_Click({Open-WidgetMenu})
 $script:menuTimer=New-Object Windows.Threading.DispatcherTimer
@@ -797,7 +836,10 @@ $pressDown={param($sender,$event)
   }
   $script:hostFollower.Suspend()
   $script:drag=@{x=$cursor.X;y=$cursor.Y;left=$rect.Left;top=$rect.Top;moved=$false;control=$sender}
-  $sender.CaptureMouse()|Out-Null;Animate-Press $true;Play-WidgetPressSound;$event.Handled=$true
+  $script:drag.legacyPress=!(Set-WidgetCharacterInteraction 'press')
+  $sender.CaptureMouse()|Out-Null
+  if($script:drag.legacyPress){Animate-Press $true}
+  Play-WidgetPressSound;$event.Handled=$true
 }
 $pressMove={param($sender,$event)
   if(!$script:drag){return}
@@ -811,6 +853,9 @@ $pressMove={param($sender,$event)
     $script:drag.left=$musicRect.Left;$script:drag.top=$musicRect.Top
   }
   $script:drag.moved=$true
+  $hasDragAnimation=Set-WidgetCharacterInteraction 'drag'
+  if($hasDragAnimation -and $script:drag.legacyPress){Animate-Press $false;$script:drag.legacyPress=$false}
+  elseif(!$hasDragAnimation -and !$script:drag.legacyPress){Animate-Press $true;$script:drag.legacyPress=$true}
   if($script:followHost -and $script:hostHandle-eq [IntPtr]::Zero){return}
   if(!$script:followHost){$script:desktopLeft=$script:drag.left+$dx;$script:desktopTop=$script:drag.top+$dy}
   $frame=Get-WidgetPlacementFrame;$dpi=Get-WidgetPlacementDpi
@@ -851,7 +896,9 @@ $pressUp={param($sender,$event)
     $script:hostEventTimer.Start();$event.Handled=$true;return
   }
   $moved=$script:drag.moved;$script:drag=$null;$sender.ReleaseMouseCapture()
-  Animate-Press $false
+  if($script:characterAnimation.Interaction-ne 'idle'){Animate-Press $false}
+  if(!$moved){$null=Set-WidgetCharacterInteraction 'idle' -Click $true}
+  else{$null=Set-WidgetCharacterInteraction 'idle'}
   Play-WidgetReleaseSound
   if(!$moved){Click-Character}
   elseif($script:followHost -and $script:side-eq 'left' -and $script:offsetLeft-ge 0 -and $script:offsetLeft-le 18){$script:anchor='left';$script:offsetLeft=0;$script:side='left';Set-Facing}
@@ -865,7 +912,7 @@ $script:ui.Girl.Add_LostMouseCapture({
     if(Test-WidgetMusicActive){$script:widgetMusic.EndHold()}
     Stop-WidgetAudio;$script:hostEventTimer.Start();return
   }
-  if($script:drag){Reset-WidgetAutoQuoteSchedule;$script:drag=$null;Animate-Press $false;Stop-WidgetAudio;Save-Settings;$script:hostEventTimer.Start()}
+  if($script:drag){Reset-WidgetAutoQuoteSchedule;$legacyPress=$script:drag.legacyPress;$script:drag=$null;if($legacyPress){Animate-Press $false};Set-WidgetCharacterInteraction 'idle'|Out-Null;Stop-WidgetAudio;Save-Settings;$script:hostEventTimer.Start()}
 })
 function Ensure-QuotaWorker([long]$now){
   $updateFlag=Join-Path $script:dataDir 'update-installing.json'
@@ -914,6 +961,10 @@ function Stop-WidgetRuntime {
   foreach($timer in @($script:settingsMenuDismissTimer,$script:timer,$script:hostEventTimer,$script:menuTimer,$script:sceneTimer,$script:resetPhaseTimer,$script:closeTimer)){try{if($timer){$timer.Stop()}}catch{}}
   try{Stop-CompletionMonitor;Clear-CompletionNotifications}catch{}
   try{Close-WidgetAudio}catch{}
+  try{Stop-SettingsMenuDismiss}catch{}
+  try{Stop-WidgetCharacterAnimation}catch{}
+  try{Close-CompletionVoice}catch{}
+  try{Stop-QuoteVoice}catch{}
   foreach($hook in $script:eventHooks){try{if($hook-ne [IntPtr]::Zero){[GptWidgetNative]::UnhookWinEvent($hook)|Out-Null}}catch{}}
   if($script:worker){try{if(!$script:worker.HasExited){$script:worker.Kill()}}catch{}; $script:worker.Dispose();$script:worker=$null}
   foreach($name in @('runtime.json','presence.json')){
@@ -926,7 +977,7 @@ function Stop-WidgetRuntime {
   try{if($script:mutexOwned){$script:mutex.ReleaseMutex();$script:mutexOwned=$false}}catch{};try{$script:mutex.Dispose()}catch{}
 }
 function Write-WidgetPresence([bool]$visible,[long]$now){
-Write-WidgetJson (Join-Path $script:dataDir 'presence.json') @{visible=[bool]$visible;at=$now;host=$script:hostHandle.ToInt64();widget=$script:widgetHandle.ToInt64();pid=$PID;character=@{id=$script:characterId;name=$script:activeCharacter.name;galleryOpen=[bool]($script:characterGallery -and $script:characterGallery.IsVisible)};sound=(Get-WidgetAudioStatus);followHost=$script:followHost;follow=@{ready=$script:hostFollower.Ready;events=$script:hostFollower.MovementEvents;mode='native-immediate';animationPaddingDip=14};sizing=@{character=$script:scale;bubble=$script:bubbleScale;display=$script:displayScale;preview=[bool]$script:settingsSizePreview};autoQuotes=@{enabled=$script:autoQuoteEnabled;intervalSeconds=$script:autoQuoteIntervalSeconds;nextAt=$script:autoQuoteNextAt;displayCount=$script:autoQuoteDisplayCount};completion=(Get-CompletionNotificationStatus);recovery=@{checks=$script:occlusionRecovery.Checks;toggles=$script:occlusionRecovery.Toggles;pending=$script:occlusionRecovery.Pending;cloaked=$script:occlusionRecovery.OwnedCloak;failed=$script:occlusionRecovery.Failed;hresult=$script:occlusionRecovery.LastHresult};music=(Get-WidgetMusicStatus);scene=@{open=!$script:collapsed;mode=$script:bubbleMode;resetTimeMode=$script:resetTimeMode;startedAt=$script:sceneStartedAt;closesAt=$script:sceneDeadline;shortReset=$script:ui.ShortReset.Text;weekReset=$script:ui.WeekReset.Text}}
+Write-WidgetJson (Join-Path $script:dataDir 'presence.json') @{version=[string]$script:config.version;scale=$script:scale;workSource=$script:desktopWorkStatus;quoteVoice=@{enabled=$script:quoteVoiceEnabled;busy=(Test-QuoteVoiceBusy);rendering=($null-ne $script:quoteVoiceProcess);lastError=$script:quoteVoiceError};voice=@{enabled=$script:completionVoiceEnabled;loaded=($null-ne $script:completionVoice);played=$script:completionVoice.Played;lastError=$script:completionVoice.LastError};visible=[bool]$visible;at=$now;host=$script:hostHandle.ToInt64();widget=$script:widgetHandle.ToInt64();pid=$PID;character=@{mode=$script:characterMode;action=$script:characterAnimation.CurrentAction;frame=$script:characterAnimation.Index;frameCount=(Get-WidgetCharacterFrameCount);working=[bool]$script:characterAnimation.Working;availableActions=@($script:characterAnimation.Clips.Keys);playing=$script:characterAnimation.Timer.IsEnabled;pressed=$script:characterAnimation.Pressed;id=$script:characterId;name=$script:activeCharacter.name;galleryOpen=[bool]($script:characterGallery -and $script:characterGallery.IsVisible)};sound=(Get-WidgetAudioStatus);followHost=$script:followHost;follow=@{ready=$script:hostFollower.Ready;events=$script:hostFollower.MovementEvents;mode='native-immediate';animationPaddingDip=14};sizing=@{character=$script:scale;bubble=$script:bubbleScale;display=$script:displayScale;preview=[bool]$script:settingsSizePreview};autoQuotes=@{enabled=$script:autoQuoteEnabled;intervalSeconds=$script:autoQuoteIntervalSeconds;nextAt=$script:autoQuoteNextAt;displayCount=$script:autoQuoteDisplayCount};completion=(Get-CompletionNotificationStatus);recovery=@{checks=$script:occlusionRecovery.Checks;toggles=$script:occlusionRecovery.Toggles;pending=$script:occlusionRecovery.Pending;cloaked=$script:occlusionRecovery.OwnedCloak;failed=$script:occlusionRecovery.Failed;hresult=$script:occlusionRecovery.LastHresult};music=(Get-WidgetMusicStatus);scene=@{open=!$script:collapsed;mode=$script:bubbleMode;resetTimeMode=$script:resetTimeMode;startedAt=$script:sceneStartedAt;closesAt=$script:sceneDeadline;shortReset=$script:ui.ShortReset.Text;weekReset=$script:ui.WeekReset.Text}}
 }
 function Tick-Widget {
   if($script:updating){return}
@@ -953,7 +1004,8 @@ function Tick-Widget {
   if($script:hostHandle-eq [IntPtr]::Zero -and $now-$script:lastHostProbe-gt 1000){$script:hostHandle=[GptWidgetNative]::FindCodex();$script:lastHostProbe=$now}
   $hostVisible=$script:hostHandle-ne [IntPtr]::Zero -and [GptWidgetZOrderNative]::VisibleSurface($script:hostHandle) -and ![GptWidgetNative]::IsIconic($script:hostHandle)
   $hostReady=Test-WidgetHostReady $script:hostReadiness $script:hostHandle $now
-  if(!$script:followHost -and !$script:hostReadiness.desktopStarted -and ($script:hostHandle-eq [IntPtr]::Zero -or ($hostVisible -and $hostReady))){$script:hostReadiness.desktopStarted=$true}
+  # Desktop mode is independent of Codex accessibility readiness; start it immediately.
+  if(!$script:followHost -and !$script:hostReadiness.desktopStarted){$script:hostReadiness.desktopStarted=$true}
   $visible=if($script:followHost){$hostVisible -and $hostReady}else{$script:hostReadiness.desktopStarted}
   $placementFrame=if($visible){Get-WidgetPlacementFrame}else{$null}
   $placementDpi=if($visible){Get-WidgetPlacementDpi}else{1}
@@ -1005,10 +1057,17 @@ function Tick-Widget {
     Reset-WidgetAutoQuoteSchedule $now
     $script:hostFollower.Suspend()
     $script:context.IsOpen=$false
+    if($script:drag){
+      $gesture=$script:drag;$script:drag=$null
+      try{$gesture.control.ReleaseMouseCapture()}catch{}
+      if($gesture.legacyPress){Animate-Press $false}
+      Set-WidgetCharacterInteraction 'idle'|Out-Null;Stop-WidgetAudio
+    }
     # Also return any owned quote editor to the normal band before hiding the overlay.
     [GptWidgetNative]::SetWindowPos($script:widgetHandle,[IntPtr](-2),0,0,0,0,0x13)|Out-Null
     $script:window.Hide()
   }
+  Pump-QuoteVoice ([bool]$visible)
   $recoverAllowed=$script:followHost -and $visible -and !$script:drag -and !$script:context.IsOpen -and !$script:settingsSizePreview -and !($script:characterGallery -and $script:characterGallery.IsVisible) -and !($script:quoteEditor -and $script:quoteEditor.IsVisible)
   if($script:occlusionRecovery){$script:occlusionRecovery.Configure($script:hostHandle,[bool]$recoverAllowed)}
   if($now-$script:lastPresence-ge 1000){

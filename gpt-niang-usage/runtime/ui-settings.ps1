@@ -138,6 +138,11 @@ function Initialize-WidgetSettingsMenu {
   $bubbleSize.Slider.Add_ValueChanged({param($sender,$event)if($script:settingsMenuSync){return};$script:bubbleScale=[Math]::Round($sender.Value,1);$script:settingsMenuUi.BubbleSizeText.Text=([Math]::Round($script:bubbleScale*100)).ToString()+'%';Set-Appearance;Save-Settings})
   Register-WidgetSizePreview $bubbleSize.Slider
   Add-SettingsPanel $bubbleSize.Panel
+  $script:settingsMenuUi.CharacterMode=Add-SettingsSubmenu '显示模式' {
+    $script:settingsMenuUi.CharacterOriginal=Add-SettingsAction '所选图片' {Set-WidgetCharacterMode 'original';Save-Settings;Update-WidgetSettingsMenu} -Checkable -StayOpen -ReturnItem
+    $script:settingsMenuUi.CharacterPixel=Add-SettingsAction '像素龙娘' {Set-WidgetCharacterMode 'pixel';Save-Settings;Update-WidgetSettingsMenu} -Checkable -StayOpen -ReturnItem
+    $script:settingsMenuUi.CharacterOriginal.Uid='radio';$script:settingsMenuUi.CharacterPixel.Uid='radio'
+  } -ReturnItem
   $script:settingsMenuUi.Hide=Add-SettingsAction '隐藏设置按钮' {param($sender,$event)$script:hideMenu=$sender.IsChecked;Set-MenuVisible $false;Save-Settings} -Description '仍可右键点角色打开设置' -Checkable -ReturnItem
   } -ReturnItem
   $script:settingsMenuUi.Colors=Add-SettingsSubmenu '配色效果' {
@@ -165,6 +170,8 @@ function Initialize-WidgetSettingsMenu {
   $script:context.Items.Remove($script:settingsMenuUi.Colors)
   $script:settingsSubmenus=@($script:settingsSubmenus|Where-Object{$_-ne $script:settingsMenuUi.Colors})
   $script:settingsMenuUi.Audio=Add-SettingsSubmenu '声音与点击' {
+  $script:settingsMenuUi.QuoteVoice=Add-SettingsAction '语录拟声' {param($sender,$event)Set-QuoteVoiceEnabled ([bool]$sender.IsChecked)} -Description '月铃声线 · 额度保持静音' -Checkable -StayOpen -ReturnItem
+  $script:settingsMenuUi.CompletionVoice=Add-SettingsAction '任务完成拟声' {param($sender,$event)Set-CompletionVoiceEnabled ([bool]$sender.IsChecked)} -Description '月铃声线 · 只说“任务完成” · 音量45%' -Checkable -StayOpen -ReturnItem
   $script:settingsMenuUi.Sound=Add-SettingsAction '点击音效' {param($sender,$event)$script:soundOn=$sender.IsChecked;if(!$script:soundOn){Stop-WidgetAudio};$script:settingsMenuUi.Volume.IsEnabled=$script:soundOn;Save-Settings} -Checkable -StayOpen -ReturnItem
   $volume=New-SettingsSlider '音量' 0 1 0.1
   $script:settingsMenuUi.Volume=$volume.Slider;$script:settingsMenuUi.VolumeText=$volume.Value;$volume.Slider.Value=$script:soundVolume
@@ -277,7 +284,7 @@ function Update-WidgetSettingsMenu{
     $script:settingsMenuUi.Topmost.IsChecked=$script:desktopTopmost;$script:settingsMenuUi.Topmost.IsEnabled=!$script:followHost
     $desktopVisibility=if($script:followHost){[Windows.Visibility]::Collapsed}else{[Windows.Visibility]::Visible}
     $script:settingsMenuUi.Topmost.Visibility=$desktopVisibility;$script:settingsMenuUi.TopmostDivider.Visibility=$desktopVisibility
-    $script:settingsMenuUi.Tap.IsChecked=$script:bubbleTapAdvance;$script:settingsMenuUi.Sound.IsChecked=$script:soundOn;$script:settingsMenuUi.Hide.IsChecked=$script:hideMenu
+    $script:settingsMenuUi.Tap.IsChecked=$script:bubbleTapAdvance;$script:settingsMenuUi.Sound.IsChecked=$script:soundOn;$script:settingsMenuUi.CompletionVoice.IsChecked=$script:completionVoiceEnabled;$script:settingsMenuUi.QuoteVoice.IsChecked=$script:quoteVoiceEnabled;$script:settingsMenuUi.Hide.IsChecked=$script:hideMenu
     $script:settingsMenuUi.ColorLinked.IsChecked=$script:colorMode-eq 'linked';$script:settingsMenuUi.ColorRainbow.IsChecked=$script:colorMode-eq 'rainbow';$script:settingsMenuUi.ColorOriginal.IsChecked=$script:colorMode-eq 'original'
     $script:settingsMenuUi.ColorSurprise.IsChecked=$script:colorMode-eq 'surprise';$script:settingsMenuUi.ColorRare.IsChecked=$script:colorMode-eq 'rare';$script:settingsMenuUi.ColorSpecial.IsChecked=$script:colorMode-eq 'special'
     $script:settingsMenuUi.ColorMixed.IsChecked=$script:colorMode-eq 'mixed'
@@ -285,6 +292,7 @@ function Update-WidgetSettingsMenu{
     $script:settingsMenuUi.ColorTextChance.Value=$script:colorTextChance;$script:settingsMenuUi.ColorTextChanceText.Text=$script:colorTextChance.ToString()+'%';$script:settingsMenuUi.ColorTextChance.IsEnabled=$script:colorMode-eq 'mixed'
     $script:settingsMenuUi.ColorTriggerList.IsEnabled=$script:colorMode-in @('special','surprise')
     $script:settingsMenuUi.ColorPause.IsChecked=$script:colorPaused;$script:settingsMenuUi.ColorPause.IsEnabled=$script:colorMode-ne 'original'
+    if($script:settingsMenuUi.CharacterOriginal){$script:settingsMenuUi.CharacterOriginal.IsChecked=$script:characterMode-eq 'original';$script:settingsMenuUi.CharacterPixel.IsChecked=$script:characterMode-eq 'pixel'}
     $audio=Get-WidgetAudioStatus
     $script:settingsMenuUi.AudioBuiltin.IsChecked=$audio.mode-eq 'builtin';$script:settingsMenuUi.AudioCustom.IsChecked=$audio.mode-eq 'custom'
     foreach($phase in @('press','release')){
@@ -423,9 +431,22 @@ function Invoke-SettingsMenuDismissTick {
   $pointer=Get-SettingsMenuPointer
   $previous=$script:settingsMenuPointerMask
   $script:settingsMenuPointerMask=$pointer.Mask
-  if(Test-SettingsMenuOutsidePress $pointer $previous @(Get-SettingsMenuBounds)){$script:context.IsOpen=$false}
+  if(Test-SettingsMenuOutsidePress $pointer $previous @(Get-SettingsMenuBounds)){
+    foreach($item in @($script:settingsSubmenus)){if($item.IsSubmenuOpen){$item.IsSubmenuOpen=$false}}
+    $script:context.IsOpen=$false
+    $script:settingsMenuDismissTimer.Stop();$script:settingsMenuPointerMask=0
+  }
+}
+function Stop-SettingsMenuDismiss {
+  if($script:settingsMenuDismissTimer){$script:settingsMenuDismissTimer.Stop()}
+  if($script:settingsMenuOpenObserver){
+    $observer=$script:settingsMenuOpenObserver;$script:settingsMenuOpenObserver=$null
+    $observer.Descriptor.RemoveValueChanged($observer.Menu,$observer.Handler)
+  }
+  $script:settingsMenuPointerMask=0
 }
 function Initialize-SettingsMenuDismiss {
+  Stop-SettingsMenuDismiss
   if(-not ('GptSettingsMenuPointer' -as [type])){
     Add-Type @'
 using System;
@@ -446,4 +467,11 @@ public static class GptSettingsMenuPointer {
     $script:settingsMenuDismissTimer.Start()
   })
   $script:context.Add_Closed({$script:settingsMenuDismissTimer.Stop();$script:settingsMenuPointerMask=0})
+  # Native popup Closed can arrive after IsOpen already changed. Stop polling
+  # synchronously for manual closes, including a menu with nested popups.
+  $descriptor=[ComponentModel.DependencyPropertyDescriptor]::FromProperty([Windows.Controls.ContextMenu]::IsOpenProperty,[Windows.Controls.ContextMenu])
+  $handler=[EventHandler]{param($sender,$event)if(!$sender.IsOpen){$script:settingsMenuDismissTimer.Stop();$script:settingsMenuPointerMask=0}}
+  $descriptor.AddValueChanged($script:context,$handler)
+  $script:settingsMenuOpenObserver=@{Descriptor=$descriptor;Menu=$script:context;Handler=$handler}
+
 }

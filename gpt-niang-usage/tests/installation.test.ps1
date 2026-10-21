@@ -18,7 +18,7 @@ try{
   $commonFile=Join-Path $moved 'runtime\update-common.ps1'
   $common=[IO.File]::ReadAllText($commonFile)
   $isolatedAgent=Join-Path $testRoot 'update-agent'
-  $common=$common.Replace("(Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'GPTNiangUsage\update-agent')",("'"+$isolatedAgent.Replace("'","''")+"'"))
+  $common=$common.Replace("Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'GPTNiangUsage\update-agent'",("'"+$isolatedAgent.Replace("'","''")+"'"))
   [IO.File]::WriteAllText($commonFile,$common,[Text.UTF8Encoding]::new($false))
   $old=Join-Path $testRoot 'original'
   $data=Join-Path $testRoot 'state'
@@ -39,6 +39,9 @@ try{
   $shortcut.Arguments='"'+(Join-Path $moved 'launch.vbs')+'"'
   $shortcut.TargetPath=Join-Path $testRoot 'foreign.exe'
   Assert (!(Test-WidgetStartupShortcutIdentity $shortcut $moved)) 'foreign shortcut executable is rejected'
+
+  $pluginVerifier=Get-Content -LiteralPath (Join-Path $moved 'runtime\install-preflight.ps1') -Raw -Encoding UTF8
+  Assert ($pluginVerifier.Contains('plugin list --marketplace gpt-niang-local --json')) 'plugin registration verification stays within the local marketplace'
 
   # Stubs prevent reading or changing actual per-user task and startup registrations.
   $global:widgetInstallerTestStartup=Join-Path ([Environment]::GetFolderPath('Startup')) 'GPT Niang Usage.lnk'
@@ -103,7 +106,15 @@ try{
   $stableInfo=Get-WidgetSupervisorInfo $moved $installed
   $stableTask=[pscustomobject]@{TaskName=$stableInfo.TaskName;TaskPath=$stableInfo.TaskPath;State='Ready';Principal=@{UserId=$stableInfo.Sid;LogonType='Interactive';RunLevel='Limited'};Actions=@(@{Execute=$stableInfo.Execute;Arguments=$stableInfo.Arguments;WorkingDirectory=$stableInfo.WorkingDirectory})}
   $global:widgetInstallerTestTasks=@($stableTask)
-  $stableShortcut=@{TargetPath=$stableInfo.Execute;Arguments=('"'+(Join-Path $isolatedAgent 'agent-launch.vbs')+'"')}
+  $wscript=Join-Path $env:WINDIR 'System32\wscript.exe'
+  $logicalAgent=Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'GPTNiangUsage\update-agent'
+  foreach($oldAgent in @($isolatedAgent,$logicalAgent)){
+    $oldStableTask=[pscustomobject]@{TaskName=$stableInfo.TaskName;TaskPath=$stableInfo.TaskPath;Principal=$stableTask.Principal;Actions=@(@{Execute=$wscript;Arguments=('"'+(Join-Path $oldAgent 'agent-supervisor.vbs')+'"');WorkingDirectory=$oldAgent})}
+    $oldStableAccepted=$true
+    try{Assert-WidgetSupervisorTaskIdentity $oldStableTask $stableInfo}catch{$oldStableAccepted=$false}
+    Assert $oldStableAccepted 'previous stable wscript supervisor path remains accepted'
+  }
+  $stableShortcut=@{TargetPath=(Join-Path $env:WINDIR 'System32\wscript.exe');Arguments=('"'+(Join-Path $isolatedAgent 'agent-launch.vbs')+'"')}
   $result=(& (Join-Path $moved 'Install.ps1') -CheckOnly)|ConvertFrom-Json
   Assert ($result.ok) 'missing binding with a verified existing task passes installer preflight'
   Assert (!(Test-Path -LiteralPath $bindingFile)) 'CheckOnly does not recreate missing binding'

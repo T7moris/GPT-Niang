@@ -1,5 +1,6 @@
-param([string]$WidgetSource,[string]$ResultFile)
+﻿param([string]$WidgetSource,[string]$ResultFile)
 $ErrorActionPreference='Stop';$app=Split-Path $PSScriptRoot -Parent
+. (Join-Path $app 'runtime\character-animation.ps1')
 if(!$WidgetSource){$WidgetSource=Join-Path $app 'widget.ps1'}
 Add-Type -AssemblyName PresentationFramework,PresentationCore,WindowsBase,System.Xaml
 $text=[IO.File]::ReadAllText($WidgetSource,[Text.Encoding]::UTF8);$tokens=$null;$errors=$null
@@ -41,7 +42,7 @@ try{
     $center=[Windows.Point]::new($script:ui.Girl.ActualWidth/2,$script:ui.Girl.ActualHeight/2)
     $start=$script:ui.Girl.PointToScreen($center);$rect=New-Object GptWidgetNative+Rect;[GptWidgetNative]::GetWindowRect($script:widgetHandle,[ref]$rect)|Out-Null
     $startCursor=[int][Math]::Round($start.X+12*$dpi)
-    $script:drag=@{x=$startCursor;y=[int]$start.Y;left=$rect.Left;top=$rect.Top;moved=$true}
+    $script:drag=@{legacyPress=$true;x=$startCursor;y=[int]$start.Y;left=$rect.Left;top=$rect.Top;moved=$true}
     $event=[pscustomobject]@{Handled=$false};$oldSide=$script:side
     # Cross the midpoint in both directions, then make tiny reversals there.
     $positions=@();for($n=0;$n-le 40;$n++){$positions+=($script:frame.Left+$width*(.30+.40*$n/40))}

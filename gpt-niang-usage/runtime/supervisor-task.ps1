@@ -104,10 +104,14 @@ function Get-WidgetSupervisorInfo {
   if([IO.Path]::GetFullPath([string]$config.appDir).TrimEnd('\')-ine $root){throw 'Supervisor installation identity mismatch.'}
   $data=[IO.Path]::GetFullPath([string]$config.dataDir)
   $sid=[Security.Principal.WindowsIdentity]::GetCurrent().User.Value
-  $agent=if(Get-Command Get-WidgetUpdateAgentDir -ErrorAction SilentlyContinue){Get-WidgetUpdateAgentDir}else{Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'GPTNiangUsage\update-agent'}
+  $agent=if(Get-Command Get-WidgetUpdateAgentDir -ErrorAction SilentlyContinue){Get-WidgetUpdateAgentDir}elseif($config.updateAgent){[IO.Path]::GetFullPath($config.updateAgent)}else{Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'GPTNiangUsage\update-agent'}
   if($config.updateAgent -and [IO.Path]::GetFullPath($config.updateAgent)-ine $agent){throw 'Stable launcher path mismatch.'}
   $stable=[bool]$config.updateAgent
-  [pscustomobject]@{AppDir=$root;DataDir=$data;Sid=$sid;TaskName=('GPT Niang Usage - '+$sid);TaskPath='\';Execute=(Join-Path $env:WINDIR 'System32\wscript.exe');Arguments=$(if($stable){'"'+(Join-Path $agent 'agent-supervisor.vbs')+'"'}else{'"'+(Join-Path $root 'supervisor.vbs')+'"'});WorkingDirectory=$(if($stable){$agent}else{$root});AgentDir=$agent}
+  $entry=Join-Path $agent 'update-agent.ps1'
+  $diagnostic=Join-Path $agent 'supervisor-entry-error.txt'
+  $entryCommand="try { & '"+$entry.Replace("'","''")+"' -Supervisor } catch { [IO.File]::WriteAllText('"+$diagnostic.Replace("'","''")+"',"+'$_.Exception.ToString()); exit 1 }'
+  $encoded=[Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($entryCommand))
+  [pscustomobject]@{AppDir=$root;DataDir=$data;Sid=$sid;TaskName=('GPT Niang Usage - '+$sid);TaskPath='\';Execute=$(if($stable){Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\powershell.exe'}else{Join-Path $env:WINDIR 'System32\wscript.exe'});Arguments=$(if($stable){'-NoLogo -NoProfile -NonInteractive -STA -ExecutionPolicy Bypass -WindowStyle Hidden -EncodedCommand '+$encoded}else{'"'+(Join-Path $root 'supervisor.vbs')+'"'});WorkingDirectory=$(if($stable){$agent}else{$root});AgentDir=$agent}
 }
 
 function Resolve-WidgetSupervisorSid([string]$Identity){
@@ -124,13 +128,17 @@ function Assert-WidgetSupervisorTaskIdentity {
   if($actions.Count-ne 1){throw 'Supervisor task action count mismatch.'}
   $action=$actions[0]
   $legacyArguments='"'+(Join-Path $Info.AppDir 'supervisor.vbs')+'"'
-  $legacy=[string]$action.Arguments-ieq $legacyArguments -and [IO.Path]::GetFullPath([string]$action.WorkingDirectory).TrimEnd('\')-ieq $Info.AppDir
-  $current=[string]$action.Arguments-ieq $Info.Arguments -and [IO.Path]::GetFullPath([string]$action.WorkingDirectory).TrimEnd('\')-ieq $Info.WorkingDirectory
-  if($current -and $Info.WorkingDirectory-ine $Info.AppDir){
+  $wscript=Join-Path $env:WINDIR 'System32\wscript.exe'
+  $legacy=[string]$action.Arguments -ieq $legacyArguments -and [IO.Path]::GetFullPath([string]$action.WorkingDirectory).TrimEnd('\') -ieq $Info.AppDir -and [IO.Path]::GetFullPath([string]$action.Execute) -ieq $wscript
+  $logicalAgent=Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'GPTNiangUsage\update-agent'
+  $oldStableArguments=@(('"'+(Join-Path $Info.AgentDir 'agent-supervisor.vbs')+'"'),('"'+(Join-Path $logicalAgent 'agent-supervisor.vbs')+'"'))
+  $oldStable=$oldStableArguments -icontains [string]$action.Arguments -and @($Info.AgentDir,$logicalAgent) -icontains [IO.Path]::GetFullPath([string]$action.WorkingDirectory).TrimEnd('\') -and [IO.Path]::GetFullPath([string]$action.Execute) -ieq $wscript
+  $current=[string]$action.Arguments -ieq $Info.Arguments -and [IO.Path]::GetFullPath([string]$action.WorkingDirectory).TrimEnd('\') -ieq $Info.WorkingDirectory -and [IO.Path]::GetFullPath([string]$action.Execute) -ieq $Info.Execute
+  if(($current -and $Info.WorkingDirectory -ine $Info.AppDir) -or $oldStable){
     $binding=Read-WidgetSupervisorBinding -AppDir $Info.AppDir -AgentDir $Info.AgentDir
     if($binding.sid-ne $Info.Sid -or [IO.Path]::GetFullPath($binding.appDir)-ine $Info.AppDir -or [IO.Path]::GetFullPath($binding.dataDir)-ine $Info.DataDir){throw 'Stable task binding mismatch.'}
   }
-  if([IO.Path]::GetFullPath([string]$action.Execute)-ine $Info.Execute -or !($legacy -or $current)){throw 'Supervisor task action path mismatch.'}
+  if(!($legacy -or $current -or $oldStable)){throw 'Supervisor task action path mismatch.'}
 }
 
 function Get-WidgetSupervisorTask {
@@ -190,7 +198,7 @@ function New-WidgetSupervisorTaskDefinition {
   $action=New-ScheduledTaskAction -Execute $Info.Execute -Argument $Info.Arguments -WorkingDirectory $Info.WorkingDirectory
   $principal=New-ScheduledTaskPrincipal -UserId $Info.Sid -LogonType Interactive -RunLevel Limited
   $trigger=New-ScheduledTaskTrigger -AtLogOn -User $Info.Sid
-  $settings=New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit ([TimeSpan]::Zero) -MultipleInstances IgnoreNew -StartWhenAvailable -Hidden
+  $settings=New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit ([TimeSpan]::Zero) -MultipleInstances IgnoreNew -StartWhenAvailable -Hidden -RestartCount 3 -RestartInterval ([TimeSpan]::FromMinutes(1))
   New-ScheduledTask -Action $action -Principal $principal -Trigger $trigger -Settings $settings -Description 'Keep the local GPT Niang widget attached to the current user Codex main window.'
 }
 
@@ -207,6 +215,10 @@ function Register-WidgetSupervisorTask {
   if(!$currentAction -or [string]$currentAction.Arguments-ine $info.Arguments -or [IO.Path]::GetFullPath($currentAction.WorkingDirectory).TrimEnd('\')-ine $info.WorkingDirectory){
     $definition=New-WidgetSupervisorTaskDefinition $info
     Register-ScheduledTask -TaskName $info.TaskName -TaskPath $info.TaskPath -InputObject $definition -Force -ErrorAction Stop|Out-Null
+  }elseif([int]$existing.Settings.RestartCount-ne 3 -or [string]$existing.Settings.RestartInterval-ne 'PT1M'){
+    # Migrate retry settings without replacing the stable entry/action.
+    $definition=New-WidgetSupervisorTaskDefinition $info
+    Set-ScheduledTask -TaskName $info.TaskName -TaskPath $info.TaskPath -Settings $definition.Settings -ErrorAction Stop|Out-Null
   }
   $registered=Get-WidgetSupervisorTask $info
   if(!$registered){throw 'Supervisor task registration not confirmed.'}
@@ -235,9 +247,10 @@ function Stop-WidgetSupervisorTask {
   if($info.WorkingDirectory-ine $info.AppDir){$self=Get-CimInstance Win32_Process -Filter ('ProcessId='+$PID) -ErrorAction Stop}
   # Logon recovery runs inside the scheduled entry before its supervisor loop.
   # It must not terminate its own task while re-registering the recovered plugin.
-  $recoveringEntry=$self -and [string]$self.CommandLine -and $self.CommandLine.IndexOf($stableScript,[StringComparison]::OrdinalIgnoreCase)-ge 0 -and $self.CommandLine-match '\s-Supervisor(?:\s|$)'
+  $encodedEntry=$info.Arguments-match '-EncodedCommand\s' -and $self -and [string]$self.CommandLine -and $self.CommandLine.IndexOf($info.Arguments,[StringComparison]::OrdinalIgnoreCase)-ge 0
+  $recoveringEntry=$encodedEntry -or ($self -and [string]$self.CommandLine -and $self.CommandLine.IndexOf($stableScript,[StringComparison]::OrdinalIgnoreCase)-ge 0 -and $self.CommandLine-match '\s-Supervisor(?:\s|$)')
   $processes=@(Get-CimInstance Win32_Process -Filter "Name='powershell.exe' OR Name='pwsh.exe'" -ErrorAction Stop|Where-Object{
-    $_.ProcessId-ne $PID -and [string]$_.CommandLine -and ($_.CommandLine.IndexOf($expectedScript,[StringComparison]::OrdinalIgnoreCase)-ge 0 -or ($info.WorkingDirectory-ine $info.AppDir -and $_.CommandLine.IndexOf($stableScript,[StringComparison]::OrdinalIgnoreCase)-ge 0))
+    $_.ProcessId-ne $PID -and [string]$_.CommandLine -and ($_.CommandLine.IndexOf($expectedScript,[StringComparison]::OrdinalIgnoreCase)-ge 0 -or ($info.WorkingDirectory-ine $info.AppDir -and ($_.CommandLine.IndexOf($stableScript,[StringComparison]::OrdinalIgnoreCase)-ge 0 -or ($info.Arguments-match '-EncodedCommand\s' -and $_.CommandLine.IndexOf($info.Arguments,[StringComparison]::OrdinalIgnoreCase)-ge 0))))
   })
   $null=New-Item -ItemType Directory -Path $info.DataDir -Force
   [IO.File]::WriteAllText((Join-Path $info.DataDir 'supervisor-stop.flag'),'stop')

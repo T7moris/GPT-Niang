@@ -1,5 +1,6 @@
-param([string]$WidgetSource,[string]$ResultFile)
+﻿param([string]$WidgetSource,[string]$ResultFile)
 $ErrorActionPreference='Stop';$app=Split-Path $PSScriptRoot -Parent
+. (Join-Path $app 'runtime\character-animation.ps1')
 if(!$WidgetSource){$WidgetSource=Join-Path $app 'widget.ps1'}
 Add-Type -AssemblyName PresentationFramework,PresentationCore,WindowsBase,System.Xaml
 $text=[IO.File]::ReadAllText($WidgetSource,[Text.Encoding]::UTF8);$tokens=$null;$errors=$null
@@ -61,7 +62,7 @@ try{
       $rect=New-Object GptWidgetNative+Rect;[GptWidgetNative]::GetWindowRect($script:widgetHandle,[ref]$rect)|Out-Null
       $start=$script:ui.Girl.PointToScreen([Windows.Point]::new(0,0));$bottom=$script:ui.Girl.PointToScreen([Windows.Point]::new(0,$script:ui.Girl.ActualHeight))
       $height=$bottom.Y-$start.Y;$cursorX=[int]($originX+$window.Width/2);$cursorY=[int]($start.Y+$height/2)
-      $script:drag=@{x=$cursorX;y=$cursorY;left=$rect.Left;top=$rect.Top;moved=$true};$event=[pscustomobject]@{Handled=$false}
+      $script:drag=@{legacyPress=$true;x=$cursorX;y=$cursorY;left=$rect.Left;top=$rect.Top;moved=$true};$event=[pscustomobject]@{Handled=$false}
       $points=@();for($n=0;$n-le 16;$n++){$points+=($cursorY-$n*60*$zoom*$dpi)}
       for($n=0;$n-le 32;$n++){$points+=($cursorY-960*$zoom*$dpi+$n*60*$zoom*$dpi)}
       foreach($target in $points){

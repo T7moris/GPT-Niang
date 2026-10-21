@@ -102,7 +102,7 @@ function Copy-WidgetVerifiedTree([string]$Source,[string]$Destination) {
 }
 function Copy-WidgetUnmanagedRootItems($Journal,[switch]$EmbeddedData) {
   # Legacy installs often share their outer folder with screenshots and downloads.
-  $managed=@('.agents','gpt-niang-usage','.gitignore','LICENSE','README.md','更新记录.md','SHA256SUMS.txt',
+  $managed=@('.agents','gpt-niang-usage','docs','.gitignore','LICENSE','README.md','更新记录.md','SHA256SUMS.txt',
     '安装GPT娘.cmd','打开GPT娘.cmd','停用GPT娘.cmd','检测套餐.cmd')
   foreach($item in @(Get-ChildItem -LiteralPath $Journal.root -Force)){
     if($item.Name-in $managed){continue}
@@ -142,8 +142,20 @@ function Wait-WidgetUpdatedHealth($Journal) {
     $status=Read-WidgetUpdateJson (Join-Path $Journal.dataDir 'supervisor-status.json')
     if($status -and ([DateTime]::UtcNow-([DateTime]$status.at).ToUniversalTime()).TotalSeconds-lt 10 -and ([DateTime]$status.at).ToUniversalTime()-ge ([DateTime]$Journal.installStartedAt).ToUniversalTime()) {
       $process=Get-CimInstance Win32_Process -Filter ('ProcessId='+[int]$status.pid) -ErrorAction Stop
-      $expected='"'+(Join-Path (Get-WidgetUpdateAgentDir) 'update-agent.ps1')+'"'
-      if($process -and $process.Name-in @('powershell.exe','pwsh.exe') -and $process.CommandLine.IndexOf($expected,[StringComparison]::OrdinalIgnoreCase)-ge 0){return}
+      $matchesExpected=$false
+      if($process -and $process.Name-in @('powershell.exe','pwsh.exe')) {
+        $expected=Join-Path (Get-WidgetUpdateAgentDir) 'update-agent.ps1'
+        $commandLine=[string]$process.CommandLine
+        $matchesExpected=$commandLine.IndexOf($expected,[StringComparison]::OrdinalIgnoreCase)-ge 0 -and $commandLine.IndexOf('-Supervisor',[StringComparison]::OrdinalIgnoreCase)-ge 0
+        if(!$matchesExpected) {
+          $encoded=[regex]::Match($commandLine,'(?i)(?:^|\s)-EncodedCommand\s+["'']?([a-z0-9+/=]+)')
+          if($encoded.Success) {
+            try {$decoded=[Text.Encoding]::Unicode.GetString([Convert]::FromBase64String($encoded.Groups[1].Value))} catch {$decoded=''}
+            $matchesExpected=$decoded.IndexOf($expected,[StringComparison]::OrdinalIgnoreCase)-ge 0 -and $decoded.IndexOf('-Supervisor',[StringComparison]::OrdinalIgnoreCase)-ge 0
+          }
+        }
+        if($matchesExpected){return}
+      }
     }
     Start-Sleep -Milliseconds 500
   }while([DateTime]::UtcNow-lt $deadline)

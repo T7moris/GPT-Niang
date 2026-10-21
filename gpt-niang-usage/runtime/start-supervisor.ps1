@@ -1,7 +1,7 @@
 $ErrorActionPreference='Stop'
 $appDir=Split-Path $PSScriptRoot -Parent
-. (Join-Path $PSScriptRoot 'supervisor-task.ps1')
 try{
+  . (Join-Path $PSScriptRoot 'supervisor-task.ps1')
   $info=Get-WidgetSupervisorInfo $appDir
   $installed=Get-WidgetSupervisorTask $info
   if($installed){Start-WidgetSupervisorTask $appDir}else{Register-WidgetSupervisorTask $appDir|Out-Null}

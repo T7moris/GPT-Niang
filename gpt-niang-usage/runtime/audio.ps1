@@ -104,39 +104,52 @@ public sealed class GptClickAudioQueue : IDisposable {
 }
 '@
 }
-function Read-WidgetPcmWave([string]$Path) {
+function Read-WidgetPcmWave([string]$Path,[double]$MaxSeconds=5) {
+    if([double]::IsNaN($MaxSeconds) -or [double]::IsInfinity($MaxSeconds) -or $MaxSeconds -le 0 -or $MaxSeconds -gt 120){throw 'Invalid WAV duration limit.'}
     $file=[IO.File]::OpenRead($Path)
     try{
-        if($file.Length-gt 10MB){throw '音效文件超过10MiB。'}
+        if($file.Length -gt 10MB){throw '音效文件超过10MiB。'}
         $bytes=[byte[]]::new([int]$file.Length);$read=0
-        while($read-lt $bytes.Length){$n=$file.Read($bytes,$read,$bytes.Length-$read);if(!$n){throw 'WAV文件不完整。'};$read+=$n}
-        if($file.Length-ne $bytes.Length){throw '音效读取期间发生变化，请重试。'}
+        while($read -lt $bytes.Length){$n=$file.Read($bytes,$read,$bytes.Length-$read);if(!$n){throw 'WAV文件不完整。'};$read+=$n}
+        if($file.Length -ne $bytes.Length){throw '音效读取期间发生变化，请重试。'}
     }finally{$file.Dispose()}
-    if($bytes.Length-lt 12 -or [Text.Encoding]::ASCII.GetString($bytes,0,4)-ne 'RIFF' -or [Text.Encoding]::ASCII.GetString($bytes,8,4)-ne 'WAVE' -or [long][BitConverter]::ToUInt32($bytes,4)+8-ne $bytes.Length){throw 'WAV文件损坏或不完整。'}
+    if($bytes.Length -lt 12 -or [Text.Encoding]::ASCII.GetString($bytes,0,4) -ne 'RIFF' -or [Text.Encoding]::ASCII.GetString($bytes,8,4) -ne 'WAVE' -or [long][BitConverter]::ToUInt32($bytes,4)+8 -ne $bytes.Length){throw 'WAV文件损坏或不完整。'}
     $formatSeen=$false;$dataSeen=$false;$offset=12;$dataOffset=0;$dataLength=0;$rate=0;$align=0
-    while($offset-lt $bytes.Length){
-        if($offset+8-gt $bytes.Length){throw 'WAV文件不完整。'}
+    while($offset -lt $bytes.Length){
+        if($offset+8 -gt $bytes.Length){throw 'WAV文件不完整。'}
         $tag=[Text.Encoding]::ASCII.GetString($bytes,$offset,4);$size=[long][BitConverter]::ToUInt32($bytes,$offset+4);$body=$offset+8
-        if($size+($size%2)-gt $bytes.Length-$body){throw 'WAV数据块不完整。'}
-        if($tag-eq 'fmt '){
-            if($formatSeen -or $size-lt 16){throw 'WAV格式块无效。'};$formatSeen=$true
+        if($size+($size%2) -gt $bytes.Length-$body){throw 'WAV数据块不完整。'}
+        if($tag -eq 'fmt '){
+            if($formatSeen -or $size -lt 16){throw 'WAV格式块无效。'};$formatSeen=$true
             $channels=[BitConverter]::ToUInt16($bytes,$body+2);$rate=[BitConverter]::ToUInt32($bytes,$body+4);$align=[BitConverter]::ToUInt16($bytes,$body+12)
-            if([BitConverter]::ToUInt16($bytes,$body)-ne 1 -or [BitConverter]::ToUInt16($bytes,$body+14)-ne 16 -or $channels-notin @(1,2) -or $rate-lt 8000 -or $rate-gt 192000 -or $align-ne $channels*2 -or [BitConverter]::ToUInt32($bytes,$body+8)-ne [long]$rate*$align){throw '缓存不是有效的16位PCM WAV。'}
-        }elseif($tag-eq 'data'){
+            if([BitConverter]::ToUInt16($bytes,$body) -ne 1 -or [BitConverter]::ToUInt16($bytes,$body+14) -ne 16 -or $channels -notin @(1,2) -or $rate -lt 8000 -or $rate -gt 192000 -or $align -ne $channels*2 -or [BitConverter]::ToUInt32($bytes,$body+8) -ne [long]$rate*$align){throw '缓存不是有效的16位PCM WAV。'}
+        }elseif($tag -eq 'data'){
             if($dataSeen){throw 'WAV文件有重复音频块。'};$dataSeen=$true;$dataOffset=$body;$dataLength=[int]$size
         }
         $offset=$body+$size+($size%2)
     }
-    if(!$formatSeen -or !$dataSeen -or $dataLength-le 0 -or $dataLength%$align-ne 0){throw 'WAV音频数据无效。'}
-    if([long]$dataLength-gt [long]$rate*$align*5){throw '音效超过5秒，请选择不超过5秒的文件。'}
+    if(!$formatSeen -or !$dataSeen -or $dataLength -le 0 -or $dataLength%$align -ne 0){throw 'WAV音频数据无效。'}
+    if([long]$dataLength -gt [long]$rate*$align*$MaxSeconds){throw '音频时长超过允许范围。'}
     return @{Bytes=$bytes;Offset=$dataOffset;Length=$dataLength;Duration=([double]$dataLength/$align/$rate)}
 }
-function Get-WidgetWaveSeconds([string]$Path){return (Read-WidgetPcmWave $Path).Duration}
-function New-WidgetAudioClip([string]$Path,[double]$Volume) {
-    $wave=Read-WidgetPcmWave $Path
+function Get-WidgetWaveSeconds([string]$Path,[double]$MaxSeconds=5){return (Read-WidgetPcmWave $Path $MaxSeconds).Duration}
+function New-WidgetAudioClip([string]$Path,[double]$Volume,[double]$MaxSeconds=5) {
+    $wave=Read-WidgetPcmWave $Path $MaxSeconds
     return ,([GptNiangPcm]::Scale($wave.Bytes,$wave.Offset,$wave.Length,$Volume))
 }
-
+function New-WidgetScaledSoundPlayer([string]$Path,[double]$Volume,[double]$MaxSeconds=5) {
+    $wave=Read-WidgetPcmWave $Path $MaxSeconds
+    $scaled=[GptNiangPcm]::Scale($wave.Bytes,$wave.Offset,$wave.Length,$Volume)
+    $stream=[IO.MemoryStream]::new($scaled)
+    try{
+        $player=[System.Media.SoundPlayer]::new($stream);$player.Load()
+        return [pscustomobject]@{Player=$player;Stream=$stream}
+    }catch{$stream.Dispose();throw}
+}
+function Close-WidgetSoundPlayer($Player,$Stream) {
+    if($null -ne $Player){try{$Player.Stop()}catch{};try{$Player.Dispose()}catch{}}
+    if($null -ne $Stream){try{$Stream.Dispose()}catch{}}
+}
 function Read-WidgetAudioPreferences([string]$DataDir) {
     $prefs=@{version=1;mode='builtin';press=$null;release=$null}
     if(!$DataDir){return $prefs}
@@ -262,6 +275,8 @@ function Close-WidgetAudio {
     Stop-WidgetAudio;Close-WidgetAudioState $script:gptNiangAudio;$script:gptNiangAudio=$null
 }
 function Play-WidgetPressSound {
+    if((Get-Command Test-QuoteVoiceBusy -ErrorAction SilentlyContinue) -and (Test-QuoteVoiceBusy)){return}
+    if((Get-Command Test-CompletionVoiceBusy -ErrorAction SilentlyContinue) -and (Test-CompletionVoiceBusy)){return}
     $audio=$script:gptNiangAudio
     if(!$audio){return}
     $audio.Timer.Stop();$audio.PendingRelease=$false;$audio.PressEnded=$true;$audio.Clock.Reset()
@@ -272,6 +287,8 @@ function Play-WidgetPressSound {
     if($audio.Press -and $audio.Queue){try{$audio.Queue.Play($audio.Press)}catch{$audio.PressEnded=$true}}
 }
 function Play-WidgetReleaseSound {
+    if((Get-Command Test-QuoteVoiceBusy -ErrorAction SilentlyContinue) -and (Test-QuoteVoiceBusy)){return}
+    if((Get-Command Test-CompletionVoiceBusy -ErrorAction SilentlyContinue) -and (Test-CompletionVoiceBusy)){return}
     $audio=$script:gptNiangAudio
     if(!$audio -or !$audio.Pressing){return}
     $audio.Pressing=$false

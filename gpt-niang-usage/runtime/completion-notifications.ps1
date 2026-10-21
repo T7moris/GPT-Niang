@@ -1,4 +1,4 @@
-if(!('CompletionWindowLayer' -as [type])){
+﻿if(!('CompletionWindowLayer' -as [type])){
   Add-Type -TypeDefinition @'
 using System;using System.Runtime.InteropServices;
 public static class CompletionWindowLayer {
@@ -112,6 +112,17 @@ function Initialize-CompletionNotificationState($Settings=$null) {
   $script:completionPending=$false;$script:completionProcess=$null;$script:completionRetryAfter=0
   $script:completionReceived=0;$script:completionDisplayCount=0;$script:completionLastError=$null
   $script:completionAcknowledgedAt=0;$script:completionTemporary=$null
+  $script:desktopWorkStatus=$null
+}
+function Get-CompletionNotificationPreference($Settings) {
+  return ($Settings.taskCompletionBubble-is [bool] -and $Settings.taskCompletionBubble)
+}
+function Test-CompletionMonitorNeeded {
+  if($script:completionNotificationsEnabled -or $script:completionVoiceEnabled){return $true}
+  return ($script:characterMode-eq 'pixel' -and (Get-Command Get-WidgetCharacterActionAvailable -ErrorAction SilentlyContinue) -and ((Get-WidgetCharacterActionAvailable 'working') -or (Get-WidgetCharacterActionAvailable 'complete')))
+}
+function Update-CompletionMonitor {
+  if(Test-CompletionMonitorNeeded){Start-CompletionMonitor}else{Stop-CompletionMonitor}
 }
 function Clear-CompletionNotifications {$script:completionPending=$false;[GptCompletionMonitorOutput]::Clear()}
 function Dismiss-CompletionNotification {
@@ -121,7 +132,7 @@ function Dismiss-CompletionNotification {
 }
 
 function Start-CompletionMonitor {
-  if(!$script:completionNotificationsEnabled){return}
+  if(!(Test-CompletionMonitorNeeded)){return}
   if($script:completionProcess){
     if(!$script:completionProcess.HasExited){return}
     $script:completionLastError=[GptCompletionMonitorOutput]::LastError
@@ -156,6 +167,7 @@ function Start-CompletionMonitor {
 }
 function Stop-CompletionMonitor {
   Stop-TemporaryCompletion
+  if(Get-Command Set-WidgetCharacterWorking -ErrorAction SilentlyContinue){Set-WidgetCharacterWorking $false}
   [GptCompletionMonitorOutput]::Clear()
   if(!$script:completionProcess){return}
   try{
@@ -169,27 +181,40 @@ function Stop-CompletionMonitor {
 function Set-CompletionNotificationEnabled([bool]$Enabled) {
   if($Enabled-eq $script:completionNotificationsEnabled){return}
   $script:completionNotificationsEnabled=$Enabled;$script:completionRetryAfter=0
-  if($Enabled){Start-CompletionMonitor}
-  else{
-    Stop-CompletionMonitor;Clear-CompletionNotifications
+  if(!$Enabled){
+    Clear-CompletionNotifications
     $script:completionLastError=$null
     if(!$script:collapsed -and $script:bubbleMode-eq 'completion'){Hide-Quota}
   }
+  Update-CompletionMonitor
   Reset-WidgetAutoQuoteSchedule;Save-Settings
 }
-function Receive-CompletionMonitorLine([string]$Line) {
-  if(!$script:completionNotificationsEnabled -or $Line.Length-gt 2048){return}
+function Receive-CompletionMonitorLine([string]$Line,[bool]$Visible=$true) {
+  if($Line.Length-gt 2048){return}
   try{
     $event=$Line|ConvertFrom-Json
+    # Accept events from the previous monitor while an installed process is
+    # being replaced; the new monitor always sends the versioned type field.
+    if(!$event.type -and $event.eventType-in @('task_complete','turn_complete','turn_completed') -and $event.success-eq $true){$event|Add-Member -NotePropertyName type -NotePropertyValue 'completion'}
+    if($event.eventType-eq 'work_state'){
+      $script:desktopWorkStatus=$event
+      if($event.working-is [bool] -and (Get-Command Set-WidgetCharacterWorking -ErrorAction SilentlyContinue)){Set-WidgetCharacterWorking $event.working}
+      return
+    }
+    if($event.type-eq 'completion' -and $event.success-eq $true){
+      if(Get-Command Request-CompletionVoice -ErrorAction SilentlyContinue){Request-CompletionVoice -Notification $event -Visible $Visible}
+      if(Get-Command Request-WidgetCharacterAction -ErrorAction SilentlyContinue){Request-WidgetCharacterAction 'complete' -Success $true|Out-Null}
+    }
+    if(!$script:completionNotificationsEnabled){return}
     if($event.type-ne 'completion' -or $event.sessionId-isnot [string] -or $event.turnId-isnot [string] -or !$event.sessionId -or !$event.turnId){return}
     if($null-eq $event.endedAt -or [double]$event.endedAt-lt $script:completionAcknowledgedAt){return}
     $script:completionReceived++;$script:completionPending=$true
   }catch{}
 }
-function Read-CompletionMonitorOutput {
+function Read-CompletionMonitorOutput([bool]$Visible=$true) {
   $line=$null
   for($i=0;$i-lt 64 -and [GptCompletionMonitorOutput]::TryRead([ref]$line);$i++){
-    Receive-CompletionMonitorLine $line;$line=$null
+    Receive-CompletionMonitorLine $line $Visible;$line=$null
   }
 }
 function Test-CompletionDisplayAllowed([bool]$Visible) {
@@ -200,8 +225,8 @@ function Pause-CompletionNotification {
   if(!$script:collapsed -and $script:bubbleMode-eq 'completion'){Hide-Quota -KeepCompletion}
 }
 function Tick-CompletionNotifications([bool]$Visible) {
+  Read-CompletionMonitorOutput $Visible;Update-CompletionMonitor
   if(!$script:completionNotificationsEnabled){return}
-  Read-CompletionMonitorOutput;Start-CompletionMonitor
   $busy=[bool]$script:drag -or $script:context.IsOpen -or $script:settingsSizePreview -or (Test-WidgetUpdateEditor)
   if($busy){Pause-CompletionNotification;return}
   if($script:completionTemporary){return}
@@ -215,6 +240,7 @@ function Tick-CompletionNotifications([bool]$Visible) {
   if(!$foreground -and !(Start-TemporaryCompletion)){return}
   Open-WidgetBubble 'completion';$script:completionDisplayCount++
 }
+function Pump-CompletionNotifications([bool]$Visible) {Tick-CompletionNotifications $Visible}
 function Get-CompletionNotificationStatus {
   $monitorPid=0
   if($script:completionProcess){try{if(!$script:completionProcess.HasExited){$monitorPid=$script:completionProcess.Id}}catch{}}

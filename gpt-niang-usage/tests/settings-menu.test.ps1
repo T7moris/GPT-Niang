@@ -28,6 +28,9 @@ $script:ui=@{}
 foreach($name in @('Bubble','Tail','TailNear','SceneText')){$script:ui[$name]=$poseWindow.FindName($name)}
 function Set-WidgetAudioVolume {}
 function Stop-WidgetAudio {}
+function Set-CompletionNotificationEnabled([bool]$Enabled){$script:completionNotificationsEnabled=$Enabled}
+function Set-CompletionVoiceEnabled([bool]$Enabled){$script:completionVoiceEnabled=$Enabled}
+function Set-QuoteVoiceEnabled([bool]$Enabled){$script:quoteVoiceEnabled=$Enabled}
 . (Join-Path $appDir 'runtime\supervisor-task.ps1')
 . (Join-Path $appDir 'runtime\update-common.ps1')
 . ([ScriptBlock]::Create([IO.File]::ReadAllText((Join-Path $appDir 'runtime\update-ui.ps1'),[Text.Encoding]::UTF8)))
@@ -191,6 +194,12 @@ try{
   $script:settingsMenuUi.Sound.IsChecked=$false
   $script:settingsMenuUi.Sound.RaiseEvent([Windows.RoutedEventArgs]::new([Windows.Controls.MenuItem]::ClickEvent))
   Assert-Equal $script:settingsMenuUi.Volume.IsEnabled $false 'Muted sound disables volume control'
+  $script:settingsMenuUi.QuoteVoice.IsChecked=$false
+  $script:settingsMenuUi.QuoteVoice.RaiseEvent([Windows.RoutedEventArgs]::new([Windows.Controls.MenuItem]::ClickEvent))
+  Assert-Equal $script:quoteVoiceEnabled $false 'Quote voice can be muted independently'
+  $script:settingsMenuUi.CompletionVoice.IsChecked=$true
+  $script:settingsMenuUi.CompletionVoice.RaiseEvent([Windows.RoutedEventArgs]::new([Windows.Controls.MenuItem]::ClickEvent))
+  Assert-Equal $script:completionVoiceEnabled $true 'Completion voice remains independent'
   Write-Output 'PASS: menu modes, conditional topmost, shared row styling, presets and sound controls'
 }finally{
   $poseWindow.Close()

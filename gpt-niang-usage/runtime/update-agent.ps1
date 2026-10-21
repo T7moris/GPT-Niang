@@ -1,8 +1,8 @@
 param([switch]$Supervisor)
 $ErrorActionPreference='Stop'
-. (Join-Path $PSScriptRoot 'supervisor-task.ps1')
-. (Join-Path $PSScriptRoot 'update-common.ps1')
 try {
+  . (Join-Path $PSScriptRoot 'supervisor-task.ps1')
+  . (Join-Path $PSScriptRoot 'update-common.ps1')
   $binding=Read-WidgetUpdateJson (Join-Path $PSScriptRoot 'binding.json')
   $null=Assert-WidgetUpdateBinding $binding.appDir $binding.dataDir $PSScriptRoot
   $journal=Read-WidgetUpdateJson (Join-Path $PSScriptRoot 'update-transaction.json')

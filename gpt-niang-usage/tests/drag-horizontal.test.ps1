@@ -1,5 +1,6 @@
 param([string]$WidgetSource,[string]$ResultFile)
 $ErrorActionPreference='Stop';$app=Split-Path $PSScriptRoot -Parent
+. (Join-Path $app 'runtime\character-animation.ps1')
 if(!$WidgetSource){$WidgetSource=Join-Path $app 'widget.ps1'}
 Add-Type -AssemblyName PresentationFramework,PresentationCore,WindowsBase,System.Xaml
 $text=[IO.File]::ReadAllText($WidgetSource,[Text.Encoding]::UTF8);$tokens=$null;$errors=$null

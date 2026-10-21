@@ -1,4 +1,4 @@
-param([string]$ResultPath)
+﻿param([string]$ResultPath)
 $ErrorActionPreference='Stop'
 Add-Type -AssemblyName PresentationFramework,PresentationCore,WindowsBase
 $appDir=Split-Path $PSScriptRoot -Parent
