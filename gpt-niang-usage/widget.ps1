@@ -117,6 +117,7 @@ $script:status=$null
 $script:statusStamp=0
 $script:offsetRight=0.0;$script:offsetBottom=0.0;$script:offsetLeft=$null;$script:anchor='right';$script:side='right';$script:scale=1.0;$script:bubbleScale=1.0;$script:collapsed=$true
 $script:soundOn=$true;$script:soundVolume=0.9;$script:bubbleTapAdvance=$false;$script:hideMenu=$false
+$script:characterQuoteRepeat=$false
 $script:followHost=$true;$script:desktopTopmost=$false;$script:desktopLeft=$null;$script:desktopTop=$null
 $script:hostReadiness=New-WidgetReadinessState
 $script:bubbleMode='quota';$script:sceneStartedAt=0;$script:sceneDeadline=0;$script:sceneTimer=$null;$script:sceneRevision=0
@@ -145,6 +146,7 @@ try{$settings=Get-Content -LiteralPath $settingsFile -Raw -Encoding UTF8 | Conve
   if($null-ne $settings.soundOn){$script:soundOn=($settings.soundOn-is [bool] -and $settings.soundOn)}
   if($null-ne $settings.soundVolume){try{$value=[double]$settings.soundVolume;if(![double]::IsNaN($value)-and ![double]::IsInfinity($value)){$script:soundVolume=[Math]::Min(1.0,[Math]::Max(0.0,$value))}}catch{}}
   if($null-ne $settings.bubbleTapAdvance){$script:bubbleTapAdvance=($settings.bubbleTapAdvance-is [bool] -and $settings.bubbleTapAdvance)}
+  if($null-ne $settings.characterQuoteRepeat){$script:characterQuoteRepeat=($settings.characterQuoteRepeat-is [bool] -and $settings.characterQuoteRepeat)}
   if($null-ne $settings.hideMenu){$script:hideMenu=($settings.hideMenu-is [bool] -and $settings.hideMenu)}
   if(@('original','linked','rainbow','surprise','rare','special','mixed')-contains $settings.colorMode){$script:colorMode=$settings.colorMode}
   if($null-ne $settings.colorChance){try{$chance=[double]$settings.colorChance;if(![double]::IsNaN($chance) -and $chance-ge 0 -and $chance-le 30){$script:colorChance=$chance}}catch{}}
@@ -162,7 +164,7 @@ function Write-WidgetJson($file,$value){
   $temp=$file+'.tmp';[IO.File]::WriteAllText($temp,($value|ConvertTo-Json -Depth 6),[Text.UTF8Encoding]::new($false))
   if([IO.File]::Exists($file)){[IO.File]::Replace($temp,$file,($file+'.bak'),$true)}else{[IO.File]::Move($temp,$file)}
 }
-function Save-Settings {Write-WidgetJson $settingsFile @{layoutVersion=2;right=$script:offsetRight;left=$script:offsetLeft;bottom=$script:offsetBottom;anchor=$script:anchor;side=$script:side;scale=$script:scale;bubbleScale=$script:bubbleScale;collapsed=$script:collapsed;soundOn=$script:soundOn;soundVolume=$script:soundVolume;bubbleTapAdvance=$script:bubbleTapAdvance;hideMenu=$script:hideMenu;colorMode=$script:colorMode;colorChance=$script:colorChance;colorTextChance=$script:colorTextChance;colorPaused=$script:colorPaused;followHost=$script:followHost;desktopTopmost=$script:desktopTopmost;desktopLeft=$script:desktopLeft;desktopTop=$script:desktopTop;characterId=$script:characterId;autoQuoteEnabled=$script:autoQuoteEnabled;autoQuoteIntervalSeconds=$script:autoQuoteIntervalSeconds;taskCompletionBubble=$script:completionNotificationsEnabled}}
+function Save-Settings {Write-WidgetJson $settingsFile @{layoutVersion=2;right=$script:offsetRight;left=$script:offsetLeft;bottom=$script:offsetBottom;anchor=$script:anchor;side=$script:side;scale=$script:scale;bubbleScale=$script:bubbleScale;collapsed=$script:collapsed;soundOn=$script:soundOn;soundVolume=$script:soundVolume;bubbleTapAdvance=$script:bubbleTapAdvance;characterQuoteRepeat=$script:characterQuoteRepeat;hideMenu=$script:hideMenu;colorMode=$script:colorMode;colorChance=$script:colorChance;colorTextChance=$script:colorTextChance;colorPaused=$script:colorPaused;followHost=$script:followHost;desktopTopmost=$script:desktopTopmost;desktopLeft=$script:desktopLeft;desktopTop=$script:desktopTop;characterId=$script:characterId;autoQuoteEnabled=$script:autoQuoteEnabled;autoQuoteIntervalSeconds=$script:autoQuoteIntervalSeconds;taskCompletionBubble=$script:completionNotificationsEnabled}}
 function Set-WidgetCharacter([string]$Id,[switch]$NoSave) {
   if($script:widgetMusic -and $script:widgetMusic.Enabled){Stop-WidgetMusic}
   $character=Get-WidgetCharacter $script:appDir $script:dataDir $Id
@@ -504,8 +506,42 @@ function Next-Bubble {
   if($script:collapsed){return}
   if($script:bubbleMode-eq 'quota'){Switch-Scene 'quote'}else{Hide-Quota}
 }
+function Show-NextCharacterQuote {
+  if($script:collapsed){return}
+  if($script:sceneTimer -and $script:sceneTimer.IsEnabled){return}
+  if($script:bubbleMode-eq 'completion'){Dismiss-CompletionNotification}
+  if(Get-Command Reset-WidgetAutoQuoteSchedule -CommandType Function -ErrorAction SilentlyContinue){Reset-WidgetAutoQuoteSchedule}
+  $script:sceneRevision++
+  $script:nextCharacterQuote=Get-WidgetBubbleQuote $script:dataDir
+  $display=$script:nextCharacterQuote
+  if($script:quoteLayoutMap.ContainsKey($display)){$display=$script:quoteLayoutMap[$display]}
+  $expectedLines=if($display.Contains("`n")){($display-split "`n").Count}else{0}
+  # Warm the existing layout cache while the previous content is still visible.
+  try{$null=Get-WidgetQuoteLayout $display $script:ui.QuoteText $expectedLines}
+  catch{
+    $display=($script:nextCharacterQuote-replace '\s+',' ').Trim()
+    try{$null=Get-WidgetQuoteLayout $display $script:ui.QuoteText}
+    catch{$null=Get-WidgetQuoteLayout '…' $script:ui.QuoteText}
+  }
+  Animate-Value $script:ui.SceneText ([Windows.UIElement]::OpacityProperty) 0 120
+  $script:sceneTimer=New-Object Windows.Threading.DispatcherTimer
+  $script:sceneTimer.Interval=[TimeSpan]::FromMilliseconds(120)
+  $script:sceneTimer.Add_Tick({param($timer,$event)
+    $timer.Stop()
+    if($timer-eq $script:sceneTimer -and !$script:collapsed){
+      Set-AnimatedValue $script:ui.SceneText ([Windows.UIElement]::OpacityProperty) 0
+      $script:bubbleMode='quote';$script:ui.QuoteText.Text=$script:nextCharacterQuote
+      Fit-QuoteText;Apply-Scene
+      Animate-Value $script:ui.SceneText ([Windows.UIElement]::OpacityProperty) 1 160
+      Restart-SceneTtl 160
+    }
+  })
+  $script:sceneTimer.Start();Restart-SceneTtl 280
+}
+
 function Click-Character {
   if($script:collapsed){Show-Quota}
+  elseif($script:characterQuoteRepeat){Show-NextCharacterQuote}
   elseif($script:bubbleTapAdvance){Next-Bubble}
   elseif($script:bubbleMode-ne 'quota'){Switch-Scene 'quota'}
   else{Restart-SceneTtl}
