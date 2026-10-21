@@ -34,7 +34,8 @@ function Stop-TemporaryCompletion {
       $band=if(($state.style.ToInt64()-band 8)-ne 0){[IntPtr](-1)}else{[IntPtr](-2)}
       # Demote and place the detached widget before restoring its owner. An
       # owned window near the front can otherwise raise Codex with it.
-      [CompletionWindowLayer]::SetWindowPos($script:widgetHandle,$band,0,0,0,0,0x213)|Out-Null
+      if($state.position){[CompletionWindowLayer]::SetWindowPos($script:widgetHandle,$band,$state.position.left,$state.position.top,0,0,0x211)|Out-Null}
+      else{[CompletionWindowLayer]::SetWindowPos($script:widgetHandle,$band,0,0,0,0,0x213)|Out-Null}
       if(!$state.visible){$script:window.Hide()}
       $after=if($owner-ne [IntPtr]::Zero){[CompletionWindowLayer]::GetWindow($owner,3)}else{$state.previous}
       while($after-ne [IntPtr]::Zero -and [CompletionWindowLayer]::IsWindow($after) -and ($after-eq $script:widgetHandle -or ![CompletionWindowLayer]::IsWindowVisible($after))){$after=[CompletionWindowLayer]::GetWindow($after,3)}
@@ -48,7 +49,7 @@ function Stop-TemporaryCompletion {
 function Start-TemporaryCompletion {
   if($script:completionTemporary){return $true}
   $foreground=[CompletionWindowLayer]::GetForegroundWindow()
-  $script:completionTemporary=@{owner=[CompletionWindowLayer]::GetWindowLongPtr($script:widgetHandle,-8);style=[CompletionWindowLayer]::GetWindowLongPtr($script:widgetHandle,-20);topmost=$script:window.Topmost;visible=$script:window.IsVisible;previous=[CompletionWindowLayer]::GetWindow($script:widgetHandle,3);foreground=$foreground;fullscreen=(Test-CompletionFullscreen $foreground);expiresAt=[DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()+7000;timer=$null}
+  $script:completionTemporary=@{owner=[CompletionWindowLayer]::GetWindowLongPtr($script:widgetHandle,-8);style=[CompletionWindowLayer]::GetWindowLongPtr($script:widgetHandle,-20);topmost=$script:window.Topmost;visible=$script:window.IsVisible;previous=[CompletionWindowLayer]::GetWindow($script:widgetHandle,3);foreground=$foreground;fullscreen=(Test-CompletionFullscreen $foreground);expiresAt=[DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()+7000;timer=$null;position=$null}
   try{
     if($script:occlusionRecovery){$script:occlusionRecovery.Configure([IntPtr]::Zero,$false)}
     if($script:hostFollower){$script:hostFollower.Detach()}
@@ -57,7 +58,16 @@ function Start-TemporaryCompletion {
     $style=$script:completionTemporary.style.ToInt64()-bor 0x08000020
     [CompletionWindowLayer]::SetWindowLongPtr($script:widgetHandle,-20,[IntPtr]$style)|Out-Null
     $script:window.Topmost=$true
-    if(![CompletionWindowLayer]::SetWindowPos($script:widgetHandle,[IntPtr](-1),0,0,0,0,0x13)){throw 'Temporary reminder layer failed'}
+    # Detaching removes the host clip. Fit an off-screen reminder temporarily,
+    # without writing desktop/drag preferences or moving an already-safe one.
+    $flags=0x13;$x=0;$y=0;$rect=New-Object CompletionWindowLayer+Rect
+    if([CompletionWindowLayer]::GetWindowRect($script:widgetHandle,[ref]$rect)){
+      $area=[Windows.Forms.Screen]::FromHandle($script:widgetHandle).WorkingArea
+      $x=[Math]::Max($area.Left,[Math]::Min($area.Right-($rect.Right-$rect.Left),$rect.Left))
+      $y=[Math]::Max($area.Top,[Math]::Min($area.Bottom-($rect.Bottom-$rect.Top),$rect.Top))
+      if($x-ne $rect.Left -or $y-ne $rect.Top){$script:completionTemporary.position=@{left=$rect.Left;top=$rect.Top};$flags=0x11}
+    }
+    if(![CompletionWindowLayer]::SetWindowPos($script:widgetHandle,[IntPtr](-1),$x,$y,0,0,$flags)){throw 'Temporary reminder layer failed'}
     $timer=[Windows.Threading.DispatcherTimer]::new();$timer.Interval=[TimeSpan]::FromMilliseconds(100)
     $timer.Add_Tick({
       if(!$script:completionTemporary){return}

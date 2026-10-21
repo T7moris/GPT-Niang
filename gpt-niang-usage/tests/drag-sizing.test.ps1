@@ -22,6 +22,8 @@ $layoutScale=$ast.Find({param($node)$node-is [Management.Automation.Language.Fun
 # Actual character limits are covered by drag-vertical and drag-horizontal.
 function Limit-WidgetHorizontalPosition {param($Frame,$Dpi,$Left)return [int]$Left}
 function Limit-WidgetVerticalPosition {param($Frame,$Dpi,$Top)return [int]$Top}
+# Real resting character bounds are covered by host-resize-placement.
+function Get-WidgetCharacterPixelBounds {param($Dpi)return [int[]]@(0,0,100,100)}
 $autoTick=$ast.Find({param($node)$node-is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name-eq 'Tick-WidgetAutoQuote'},$true)
 . ([ScriptBlock]::Create($autoTick.Extent.Text))
 Add-Type -TypeDefinition @'

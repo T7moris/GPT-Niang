@@ -31,20 +31,24 @@ public static class FixedPositionProbeNative {
 }
 '@
 $null=[FixedPositionProbeNative]::SetThreadDpiAwarenessContext([IntPtr](-4))
-foreach($name in @('Get-WidgetLayoutScale','Get-WidgetPlacementFrame','Get-WidgetPlacementDpi','Test-WidgetPlacementFrame','Get-WidgetVisibleFrame','Set-Appearance')){
+foreach($name in @('Get-WidgetLayoutScale','Get-WidgetPlacementFrame','Get-WidgetPlacementDpi','Test-WidgetPlacementFrame','Get-WidgetVisibleFrame','Set-Appearance','Set-WidgetPixelSize','Set-WidgetIndependentLayout','Set-Facing','Limit-WidgetHorizontalPosition','Limit-WidgetVerticalPosition','Get-WidgetCharacterPixelBounds')){
  $fn=$ast.Find({param($n)$n-is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name-eq $name},$true)
  if(!$fn){throw ('Missing '+$name)}
  . ([scriptblock]::Create($fn.Extent.Text))
 }
-function Set-WidgetPixelSize {param($Dpi)}
-function Set-WidgetIndependentLayout {}
-function Set-Facing {}
+function Sync-WidgetCharacterColors {}
 $tick=$ast.Find({param($n)$n-is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name-eq 'Tick-Widget'},$true).Extent.Text
 $start=$tick.IndexOf('      $w=[int]($script:designWidth*')
 $end=$tick.IndexOf('      $position=', $start)
 if($start-lt 0 -or $end-lt 0){throw 'Missing production placement block'}
 $place=[scriptblock]::Create($tick.Substring($start,$end-$start))
-$script:ui=@{Root=[pscustomobject]@{LayoutTransform=$null}}
+$script:window=[Windows.Markup.XamlReader]::Parse([IO.File]::ReadAllText((Join-Path $app 'widget.xaml'),[Text.Encoding]::UTF8))
+$script:window.Opacity=0;$script:window.Left=-20000;$script:window.Top=-20000;$script:window.Show()
+$script:ui=@{};foreach($name in @('Root','Girl','Bubble','Tail','TailNear','MenuButton','Refresh','FacingScale','TextFacingScale','PressScale')){$script:ui[$name]=$script:window.FindName($name)}
+$script:ui.Girl.Source=[Windows.Media.Imaging.BitmapImage]::new([Uri](Join-Path $app 'assets/gpt-dragon-niang-bust.png'))
+$script:side='right'
+$layoutFrame=[Windows.Threading.DispatcherFrame]::new();$layoutTimer=[Windows.Threading.DispatcherTimer]::new();$layoutTimer.Interval=[TimeSpan]::FromMilliseconds(20)
+$layoutTimer.Add_Tick({param($sender,$event)$sender.Stop();$layoutFrame.Continue=$false});$layoutTimer.Start();[Windows.Threading.Dispatcher]::PushFrame($layoutFrame)
 $script:hostHandle=[IntPtr]1;$script:followHost=$true;$script:hostEventTimer=$null
 $script:designWidth=378;$script:designHeight=378;$script:scale=0.6;$script:bubbleScale=1
 $script:offsetLeft=113.6;$script:offsetRight=80.4;$script:offsetBottom=208.8
@@ -69,6 +73,7 @@ foreach($dpiFactor in @(1.0,1.5)){
    $r=[GptWidgetNative+Rect]::new();$r.Left=$case.x;$r.Top=$case.y;$r.Right=$r.Left+$hostW;$r.Bottom=$r.Top+$hostH
    [GptWidgetNative]::Host=$r;$script:displayScale=1
    Set-Appearance
+   $script:window.UpdateLayout()
    $frame=Get-WidgetPlacementFrame;$dpi=Get-WidgetPlacementDpi
    . $place
    $requested=378*$dpiFactor
@@ -80,6 +85,7 @@ foreach($dpiFactor in @(1.0,1.5)){
   }
  }
 }
+$script:window.Close()
 $nativeRows=@();$dummyHost=$null;$dummyWidget=$null;$follower=$null
 try{
  $dummyHost=[Windows.Window]::new();$dummyWidget=[Windows.Window]::new()

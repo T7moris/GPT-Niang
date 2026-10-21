@@ -107,6 +107,15 @@ try{
   Read-DisplayRequest;Tick-CompletionNotifications $false
   Assert ([bool]$script:completionTemporary) 'Local verification can exercise the original UI without editing real logs or restarting the widget'
   Set-CompletionNotificationEnabled $false
+  Drain-Wpf 550;Set-CompletionNotificationEnabled $true
+  $area=[Windows.Forms.Screen]::FromHandle($script:widgetHandle).WorkingArea
+  $null=[CompletionWindowLayer]::SetWindowPos($script:widgetHandle,[IntPtr]::Zero,($area.Right-20),($area.Bottom-20),0,0,0x15)
+  $offscreenRect=Rect-Key
+  Emit 'offscreen';Tick-CompletionNotifications $false
+  $shownRect=New-Object CompletionWindowLayer+Rect;$null=[CompletionWindowLayer]::GetWindowRect($script:widgetHandle,[ref]$shownRect)
+  Assert ($shownRect.Left-ge $area.Left -and $shownRect.Top-ge $area.Top -and $shownRect.Right-le $area.Right -and $shownRect.Bottom-le $area.Bottom) 'Off-screen completion must fit inside the monitor work area'
+  Set-CompletionNotificationEnabled $false;Drain-Wpf 550
+  Assert ((Rect-Key)-eq $offscreenRect) 'Temporary screen fitting changed the original placement after dismissal'
   Write-Output ('PASS: '+$script:checks+' current-position reminder checks: same HWND, no move/resize, topmost/owner/style restoration, fullscreen exit, return, coalescing, saved preferences and hidden state')
 }finally{
   Stop-CompletionMonitor

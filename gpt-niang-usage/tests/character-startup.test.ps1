@@ -27,6 +27,7 @@ $source=[IO.File]::ReadAllText((Join-Path $AppDir 'widget.ps1'),[Text.Encoding]:
   [IO.File]::WriteAllText((Join-Path $fixtureData 'characters.json'),$catalog,[Text.UTF8Encoding]::new($false))
   $settings=Join-Path $fixtureData 'settings.json'
   $cases=@(@{name='no settings';id=$null;follow=$true;volume=0.9;expected='gpt-dragon'})
+  $cases+=@{name='negative flush offsets';id='test-alternative';follow=$true;volume=0.37;expected='test-alternative';flush=$true}
   foreach($follow in @($true,$false)){
     $mode=if($follow){'follow host'}else{'desktop'}
     $volume=if($follow){0.35}else{0.9}
@@ -48,6 +49,11 @@ $source=[IO.File]::ReadAllText((Join-Path $AppDir 'widget.ps1'),[Text.Encoding]:
   foreach($case in $cases){
     if($null-ne $case.id){[IO.File]::WriteAllText($settings,(@{characterId=$case.id;scale=0.6;followHost=$case.follow;soundVolume=$case.volume;layoutVersion=2;right=781.6;left=54.4;bottom=87.2}|ConvertTo-Json),[Text.UTF8Encoding]::new($false))}
     elseif([IO.File]::Exists($settings)){[IO.File]::Delete($settings)}
+    if($case.flush){
+      $saved=Get-Content -LiteralPath $settings -Raw -Encoding UTF8|ConvertFrom-Json
+      $saved.right=-14;$saved.left=-14;$saved.bottom=-14
+      [IO.File]::WriteAllText($settings,($saved|ConvertTo-Json),[Text.UTF8Encoding]::new($false))
+    }
     if($case.ContainsKey('bubble')){
       $saved=Get-Content -LiteralPath $settings -Raw -Encoding UTF8|ConvertFrom-Json
       $saved|Add-Member -NotePropertyName bubbleScale -NotePropertyValue $case.bubble
@@ -72,6 +78,7 @@ $source=[IO.File]::ReadAllText((Join-Path $AppDir 'widget.ps1'),[Text.Encoding]:
     if($null-eq $result.soundVolume -or [Math]::Abs([double]$result.soundVolume-[double]$case.volume)-gt 0.000000000001){throw ($case.name+' startup did not restore fractional sound volume '+$case.volume+': '+($output|Out-String))}
     if($null-ne $case.id){
       foreach($coordinate in @(@{name='right';value=781.6},@{name='left';value=54.4},@{name='bottom';value=87.2})){
+        if($case.flush){$coordinate.value=-14}
         if([Math]::Abs([double]$result.placement.($coordinate.name)-$coordinate.value)-gt 0.0000001){throw ($case.name+' rounded a saved placement coordinate: '+$coordinate.name)}
       }
     }

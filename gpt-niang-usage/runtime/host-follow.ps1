@@ -36,6 +36,7 @@ public sealed class GptWidgetHostFollower : IDisposable {
  string anchor;
  bool enabled,hiddenByHost,disposed;
  int temporaryX,temporaryY;
+ int[] characterBounds;
  IntPtr companion;
  int companionWidth,companionHeight,companionTop;
  public long MovementEvents {get;private set;}
@@ -65,7 +66,7 @@ public sealed class GptWidgetHostFollower : IDisposable {
  }
 
  public void Configure(IntPtr host,int frameLeft,int frameTop,int frameRight,int frameBottom,
-                       int width,int height,int left,int right,int bottom,string anchor,bool enabled){
+                       int width,int height,int left,int right,int bottom,string anchor,bool enabled,int[] characterBounds=null){
   if(disposed)return;
   bool changedHost=this.host!=host;
   if(changedHost){
@@ -89,6 +90,7 @@ public sealed class GptWidgetHostFollower : IDisposable {
   }
   this.width=width;this.height=height;this.left=left;this.right=right;
   this.bottom=bottom;this.anchor=anchor;this.enabled=enabled;
+  this.characterBounds=characterBounds!=null&&characterBounds.Length==4?(int[])characterBounds.Clone():null;
   if(enabled)Synchronize();
  }
  public void Suspend(){enabled=false;}
@@ -139,6 +141,13 @@ public sealed class GptWidgetHostFollower : IDisposable {
   }
   int px=anchor=="right"?frame.Right-width-right:frame.Left+left;
   int py=frame.Bottom-height-bottom;
+  if(characterBounds!=null){
+   // Resize constrains only the character, preserving flush edges and the
+   // requested offsets. Translation off screen still uses the full host frame.
+   int minX=frame.Left-characterBounds[0],maxX=frame.Right-characterBounds[2];
+   px=maxX<minX?(int)Math.Round((minX+(double)maxX)/2):Math.Max(minX,Math.Min(maxX,px));
+   py=Math.Max(frame.Top-characterBounds[1],Math.Min(frame.Bottom-characterBounds[3],py));
+  }
   IntPtr monitor=MonitorFromPoint(new Point{X=px+temporaryX+width/2,Y=py+temporaryY+height/2},2);
   if(selectedMonitor!=IntPtr.Zero&&monitor!=selectedMonitor&&!LayoutDirty){LayoutDirty=true;if(LayoutRequested!=null)LayoutRequested();}
   selectedMonitor=monitor;

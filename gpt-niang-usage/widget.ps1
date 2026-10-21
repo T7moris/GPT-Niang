@@ -127,7 +127,7 @@ $script:settingsLoadFailed=$false
 try{$settings=Get-Content -LiteralPath $settingsFile -Raw -Encoding UTF8 | ConvertFrom-Json
   # Each field is read independently: one malformed value must not discard the
   # remaining valid preferences (and startup must not then overwrite them).
-  if($null-ne $settings.right){try{$value=[double]$settings.right;if(![double]::IsNaN($value)-and ![double]::IsInfinity($value)-and [Math]::Abs($value)-le 100000){$script:offsetRight=[Math]::Max(0.0,$value)}}catch{}}
+  if($null-ne $settings.right){try{$value=[double]$settings.right;if(![double]::IsNaN($value)-and ![double]::IsInfinity($value)-and [Math]::Abs($value)-le 100000){$script:offsetRight=$value}}catch{}}
   if($null-ne $settings.bottom){
     try{$savedBottom=[double]$settings.bottom;if(![double]::IsNaN($savedBottom) -and ![double]::IsInfinity($savedBottom) -and [Math]::Abs($savedBottom)-le 100000){$script:offsetBottom=$savedBottom}}catch{}
   }
@@ -321,6 +321,34 @@ function Limit-WidgetVerticalPosition($Frame,[double]$Dpi,[double]$Top) {
   $minimum=$Frame.Top-($topPoint.Y-$origin.Y)
   $maximum=$Frame.Bottom-($bottomPoint.Y-$origin.Y)
   return [int][Math]::Round([Math]::Max($minimum,[Math]::Min($maximum,$Top)))
+}
+function Get-WidgetCharacterPixelBounds([double]$Dpi) {
+  # Resting character bounds, excluding transparent bubble/animation padding.
+  $root=$script:ui.Root;$girl=$script:ui.Girl
+  $source=[Windows.PresentationSource]::FromVisual($script:window)
+  if($source -and $source.CompositionTarget){
+    # Use arranged (pixel-rounded) offsets once connected. Canvas coordinates
+    # alone can differ by several pixels at large independent bubble scales.
+    if(!$root.IsArrangeValid -or !$girl.IsArrangeValid){$script:window.UpdateLayout()}
+    $rootOffset=[Windows.Media.VisualTreeHelper]::GetOffset($root)
+    $girlOffset=[Windows.Media.VisualTreeHelper]::GetOffset($girl)
+    $left=$girlOffset.X
+    if($script:ui.FacingScale.ScaleX-lt 0){$left=$root.ActualWidth-$left-$girl.ActualWidth}
+    $left+=$rootOffset.X;$top=$rootOffset.Y+$girlOffset.Y
+    $transform=$root.Parent.TransformToAncestor($script:window)
+    $a=$transform.Transform([Windows.Point]::new($left,$top))
+    $b=$transform.Transform([Windows.Point]::new(($left+$girl.ActualWidth),($top+$girl.ActualHeight)))
+    $a=$source.CompositionTarget.TransformToDevice.Transform($a)
+    $b=$source.CompositionTarget.TransformToDevice.Transform($b)
+    return [int[]]@($a.X,$a.Y,$b.X,$b.Y)
+  }
+  # Before Show there is no presentation target; use the known design layout.
+  $left=[Windows.Controls.Canvas]::GetLeft($girl)
+  if($script:ui.FacingScale.ScaleX-lt 0){$left=$root.Width-$left-$girl.Width}
+  $left+=[Windows.Controls.Canvas]::GetLeft($root)
+  $top=[Windows.Controls.Canvas]::GetTop($root)+[Windows.Controls.Canvas]::GetTop($girl)
+  $factor=$script:displayScale*$Dpi
+  return [int[]]@(($left*$factor),($top*$factor),(($left+$girl.Width)*$factor),(($top+$girl.Height)*$factor))
 }
 function Get-WidgetVisibleFrame {
   $frame=[GptWidgetNative]::Frame($script:hostHandle)
@@ -982,7 +1010,17 @@ function Tick-Widget {
       }else{$x=[int]($frame.Right-$w-$script:offsetRight*$dpi)}
       $desiredY=if($script:followHost){$frame.Bottom-$h-$script:offsetBottom*$dpi}else{$script:desktopTop}
       $y=[int]$desiredY
-      if(!$script:followHost){
+      # A smaller host must not clip away a saved free-position character.
+      # Clamp to the full host frame, not the monitor, and retain saved offsets
+      # so growing the host restores the user's requested relative position.
+      if($script:followHost){
+        # Layout coordinates also work before the first Show; PointToScreen
+        # requires a connected visual tree and cannot be used at startup.
+        $characterBounds=Get-WidgetCharacterPixelBounds $dpi
+        $minimum=$frame.Left-$characterBounds[0];$maximum=$frame.Right-$characterBounds[2]
+        $x=if($maximum-lt $minimum){[int][Math]::Round(($minimum+$maximum)/2)}else{[Math]::Max($minimum,[Math]::Min($maximum,$x))}
+        $y=[Math]::Max(($frame.Top-$characterBounds[1]),[Math]::Min(($frame.Bottom-$characterBounds[3]),$y))
+      }else{
         $x=Limit-WidgetHorizontalPosition $frame $dpi $x
         $y=Limit-WidgetVerticalPosition $frame $dpi $desiredY
       }
@@ -992,7 +1030,7 @@ function Tick-Widget {
         $script:lastPosition=$position
         if($script:context.IsOpen){Set-WidgetMenuBounds;Position-WidgetMenuToHost}
       }
-      if($script:followHost){$nativeFrame=[GptWidgetNative]::Frame($script:hostHandle);$script:hostFollower.Configure($script:hostHandle,$nativeFrame.Left,$nativeFrame.Top,$nativeFrame.Right,$nativeFrame.Bottom,$w,$h,[int]($script:offsetLeft*$dpi),[int]($script:offsetRight*$dpi),[int]($script:offsetBottom*$dpi),$script:anchor,$true)}
+      if($script:followHost){$nativeFrame=[GptWidgetNative]::Frame($script:hostHandle);$script:hostFollower.Configure($script:hostHandle,$nativeFrame.Left,$nativeFrame.Top,$nativeFrame.Right,$nativeFrame.Bottom,$w,$h,[int]($script:offsetLeft*$dpi),[int]($script:offsetRight*$dpi),[int]($script:offsetBottom*$dpi),$script:anchor,$true,$characterBounds)}
       Update-WidgetMusicPlacement $frame $dpi $x $y ([bool]$visible)
     }
     if($script:followHost){

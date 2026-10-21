@@ -5,7 +5,7 @@ Add-Type -AssemblyName PresentationFramework,PresentationCore,WindowsBase,System
 $text=[IO.File]::ReadAllText($WidgetSource,[Text.Encoding]::UTF8);$tokens=$null;$errors=$null
 $ast=[Management.Automation.Language.Parser]::ParseInput($text,[ref]$tokens,[ref]$errors)
 if($errors.Count){throw 'Widget source did not parse'}
-foreach($name in @('Set-Facing','Set-WidgetPixelSize','Get-WidgetLayoutScale','Set-WidgetIndependentLayout','Test-WidgetPlacementFrame','Limit-WidgetVerticalPosition','Limit-WidgetHorizontalPosition','Set-Appearance','Write-WidgetJson','Save-Settings')){
+foreach($name in @('Set-Facing','Set-WidgetPixelSize','Get-WidgetLayoutScale','Set-WidgetIndependentLayout','Test-WidgetPlacementFrame','Limit-WidgetVerticalPosition','Limit-WidgetHorizontalPosition','Set-Appearance','Write-WidgetJson','Save-Settings','Get-WidgetCharacterPixelBounds')){
  $f=$ast.Find({param($n)$n-is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name-eq $name},$true)
  if($f){. ([ScriptBlock]::Create($f.Extent.Text))}
 }
