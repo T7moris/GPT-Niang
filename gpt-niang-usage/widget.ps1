@@ -308,6 +308,14 @@ function Test-WidgetPlacementFrame($Frame,[double]$Dpi=1) {
   return $Frame -and $Dpi-gt 0 -and ($Frame.Right-$Frame.Left)-ge 64*$Dpi -and ($Frame.Bottom-$Frame.Top)-ge 64*$Dpi
 }
 function Limit-WidgetHorizontalPosition($Frame,[double]$Dpi,[double]$Left) {
+  # The first placement happens before Show(), when PointToScreen has no presentation source.
+  $presentation=[Windows.PresentationSource]::FromVisual($script:window)
+  if($null-eq $presentation){
+    $width=[double]$script:designWidth*[double]$script:displayScale*$Dpi
+    $maximum=$Frame.Right-$width
+    if($maximum-lt $Frame.Left){return [int][Math]::Round($Frame.Left)}
+    return [int][Math]::Round([Math]::Max($Frame.Left,[Math]::Min($maximum,$Left)))
+  }
   # Mirror-aware character bounds; transparent bubble space may extend outside.
   # Use the resting layout so press/rebound never changes the drag limits.
   $root=$script:ui.Root;$girl=$script:ui.Girl
@@ -325,6 +333,14 @@ function Limit-WidgetHorizontalPosition($Frame,[double]$Dpi,[double]$Left) {
   return [int][Math]::Round([Math]::Max($minimum,[Math]::Min($maximum,$Left)))
 }
 function Limit-WidgetVerticalPosition($Frame,[double]$Dpi,[double]$Top) {
+  # Use the full window bounds until Show() attaches it to a presentation source.
+  $presentation=[Windows.PresentationSource]::FromVisual($script:window)
+  if($null-eq $presentation){
+    $height=[double]$script:designHeight*[double]$script:displayScale*$Dpi
+    $maximum=$Frame.Bottom-$height
+    if($maximum-lt $Frame.Top){return [int][Math]::Round($Frame.Top)}
+    return [int][Math]::Round([Math]::Max($Frame.Top,[Math]::Min($maximum,$Top)))
+  }
   # Keep the character inside the frame; the transparent space reserved for
   # its bubble may extend above it. Ignore transient press/rebound transforms.
   $root=$script:ui.Root;$girl=$script:ui.Girl
@@ -988,7 +1004,8 @@ function Tick-Widget {
   if($script:hostHandle-eq [IntPtr]::Zero -and $now-$script:lastHostProbe-gt 1000){$script:hostHandle=[GptWidgetNative]::FindCodex();$script:lastHostProbe=$now}
   $hostVisible=$script:hostHandle-ne [IntPtr]::Zero -and [GptWidgetZOrderNative]::VisibleSurface($script:hostHandle) -and ![GptWidgetNative]::IsIconic($script:hostHandle)
   $hostReady=Test-WidgetHostReady $script:hostReadiness $script:hostHandle $now
-  if(!$script:followHost -and !$script:hostReadiness.desktopStarted -and ($script:hostHandle-eq [IntPtr]::Zero -or ($hostVisible -and $hostReady))){$script:hostReadiness.desktopStarted=$true}
+  # Desktop mode is independent of Codex accessibility readiness; start it immediately.
+  if(!$script:followHost -and !$script:hostReadiness.desktopStarted){$script:hostReadiness.desktopStarted=$true}
   $visible=if($script:followHost){$hostVisible -and $hostReady}else{$script:hostReadiness.desktopStarted}
   $placementFrame=if($visible){Get-WidgetPlacementFrame}else{$null}
   $placementDpi=if($visible){Get-WidgetPlacementDpi}else{1}
