@@ -229,7 +229,7 @@ export class CompletionMonitor {
       if(previousMtime===undefined||previousMtime!==stat.mtimeMs){
         this.sessionMtimes.set(sessionId,stat.mtimeMs);
         const activityAt=Math.min(now,stat.mtimeMs);
-        for(const key of this.activeTurns)if(key.startsWith(sessionId+'\0'))this.activeLastSeen.set(key,activityAt);
+        this.refreshLatestSessionTurn(sessionId,activityAt);
       }
       let tail=this.tails.get(sessionId);
       if(!tail){
@@ -255,7 +255,24 @@ export class CompletionMonitor {
     this.expireStaleTurns(now);
     this.publishWorkState();this.persistState();
   }
-  markTurnStarted(key,mtimeMs,now){this.activeTurns.add(key);this.activeLastSeen.set(key,Math.min(now,mtimeMs));}
+  markTurnStarted(key,mtimeMs,now){
+    // A conversation can have only one current turn. A later start supersedes
+    // any turn whose terminal record was missed, preventing stale turns from
+    // being kept alive by subsequent writes to the same session log.
+    const separator=key.indexOf('\0');if(separator>=0)this.clearSession(key.slice(0,separator));
+    this.activeTurns.add(key);this.activeLastSeen.set(key,Math.min(now,mtimeMs));
+  }
+  refreshLatestSessionTurn(sessionId,activityAt){
+    let latestKey=null,latestSeen=-Infinity;
+    for(const key of this.activeTurns){
+      if(!key.startsWith(sessionId+'\0'))continue;
+      const lastSeen=this.activeLastSeen.get(key);
+      if(latestKey===null||!Number.isFinite(lastSeen)||lastSeen>=latestSeen){latestKey=key;latestSeen=Number.isFinite(lastSeen)?lastSeen:-Infinity;}
+    }
+    if(latestKey===null)return;
+    for(const key of this.activeTurns)if(key.startsWith(sessionId+'\0')&&key!==latestKey){this.activeTurns.delete(key);this.activeLastSeen.delete(key);}
+    this.activeLastSeen.set(latestKey,activityAt);
+  }
   expireStaleTurns(now=Date.now()){
     for(const key of this.activeTurns){
       const lastSeen=this.activeLastSeen.get(key);
@@ -282,3 +299,4 @@ function run(){
   process.on('SIGTERM',()=>{desktop?.stop();monitor.stop();process.exit(0);});
 }
 if(process.argv[1] && fileURLToPath(import.meta.url)===path.resolve(process.argv[1]))run();
+
