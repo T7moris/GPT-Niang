@@ -1,6 +1,6 @@
 # GPT Niang integration status
 
-Updated: 2026-10-21 19:37 (Asia/Shanghai)
+Updated: 2026-10-21 19:42 (Asia/Shanghai)
 
 ## Goal
 
@@ -27,13 +27,13 @@ Merge upstream `main` at `b6f5eb8` into the custom Windows branch while retainin
 - Windows regression: 58 of 60 scripts passed, and widget-only passed. `host-occlusion` and `occlusion-reminder` both failed at the real full-foreign-coverage/DWM-cloak assertion; the underlying occlusion source was not changed in this sync, and the cause remains unconfirmed.
 - Installation/supervisor isolation passed all 44 assertions, including old `wscript.exe` task paths, read-only missing-binding recovery and rejection of foreign tasks. Audio import, native click queue, quote/completion voice, settings, gallery, drag/working animation and WPF entrypoint checks passed. PowerShell parsing and `git diff --check` passed.
 - The real WPF drag checks include 27 size/DPI cases with 2,214 samples, 108 vertical cases with 5,400 positions, and 216 horizontal cases with 18,144 positions. The nested menu lifecycle check passed 44 assertions.
-- The 1.3.14 Windows package contains 214 files and passed its archive/package validation (SHA256 `A9B35F3A84B92730A867DDF42E6065510A761C1DBB6207B810E510C3C8203315`). The local 1.3.13 installation was replaced through the transactional updater; transaction committed, 105 installed files matched the candidate, and `settings.json` plus `quotes.json` hashes stayed unchanged. The registered plugin is enabled, preflight passes, and the visible widget publishes a 1.3.14 heartbeat. The stale local-turn count fell from 180 to 9 after restart; the latest read at 19:36 was still 9 while this Codex task remained active, so post-turn expiration is unverified. The desktop RPC failure was traced to a saved named-pipe endpoint that no longer exists (`connect ENOENT` during `tools/list`). The direct Codex thread-list tool works, but the plugin process has not supplied a fresh endpoint; a temporary caller-identity refresh was rolled back. No functional test suite was run for this change; Node and PowerShell syntax parsing and package validation passed.
+- The 1.3.14 Windows package contains 214 files and passed its archive/package validation (SHA256 `A9B35F3A84B92730A867DDF42E6065510A761C1DBB6207B810E510C3C8203315`). The local 1.3.13 installation was replaced through the transactional updater; transaction committed, 105 installed files matched the candidate, and `settings.json` plus `quotes.json` hashes stayed unchanged. The registered plugin is enabled, preflight passes, and the visible widget publishes a 1.3.14 heartbeat. The stale local-turn count fell from 180 to 9 after restart; it was still 9 at 19:42 while this Codex task remained active, so post-turn expiration is unverified. The desktop RPC failure was traced to a saved named-pipe endpoint that no longer exists (`connect ENOENT` during `tools/list`). The direct Codex thread-list tool works, but the plugin process has not supplied a fresh endpoint; a temporary caller-identity refresh was rolled back. The startup placement fix is included in the installed package. No functional test suite was run for this change; Node and PowerShell syntax parsing and package validation passed.
 - Actual ordinary-chat/other-project start/end verification is still pending; protocol fixtures are not a substitute for live verification.
 
 ## Published state and remaining limits
 
 - Fork `main` matches upstream `b6f5eb8972d1802821006b7208d20a834fa6a08b`.
-- Merge commit `3424ca2` is pushed to `codex/dragon-voice-and-settings`; PR #46 remains open and GitHub reports it mergeable.
+- The upstream merge and PR #46 remain on `codex/dragon-voice-and-settings`; stale-work fix `204a948` and startup visibility fix `d455015` are pushed, and `git ls-remote` verified the remote head is `d455015`.
 - The two upstream Actions runs are `action_required`; no CI success is claimed.
 - The installed widget is now 1.3.14. Do not treat the reduced startup counter as proof that the stale count has cleared until the expiry observation completes, and do not treat the unavailable cloud RPC as live cross-project acceptance.
 - Later verification should use the normal desktop execution context, preserve the existing settings, and observe ordinary-chat and other-project work start/end before claiming live acceptance. The paused question/answer experiment remains excluded.
