@@ -2,12 +2,13 @@
 $ErrorActionPreference='Stop'
 Add-Type -AssemblyName PresentationFramework,PresentationCore,WindowsBase
 $app=Split-Path $TestRoot -Parent
+. (Join-Path $app 'runtime\sharp-text.ps1')
 if(!$LayoutSource){$LayoutSource=Join-Path $app 'runtime\quote-layout.ps1'}
 . ([ScriptBlock]::Create([IO.File]::ReadAllText($LayoutSource,[Text.Encoding]::UTF8)))
 Initialize-WidgetQuoteLayouts $app
-$script:window=[Windows.Markup.XamlReader]::Parse([IO.File]::ReadAllText((Join-Path $app 'widget.xaml'),[Text.Encoding]::UTF8))
+$script:window=[Windows.Markup.XamlReader]::Parse((ConvertTo-SmoothWidgetXaml ([IO.File]::ReadAllText((Join-Path $app 'widget.xaml'),[Text.Encoding]::UTF8)) -AppDir $app))
 $script:ui=@{}
-foreach($name in @('Root','Bubble','SceneText','QuoteText','QuotaText','Refresh','FacingScale','TextFacingScale')){$script:ui[$name]=$script:window.FindName($name)}
+foreach($name in @('Root','Bubble','SceneText','QuoteText','QuotaText','Refresh','FacingScale','TextFacingScale','ShortRow','WeekRow')){$script:ui[$name]=$script:window.FindName($name)}
 $tokens=$null;$parseErrors=$null
 $ast=[Management.Automation.Language.Parser]::ParseInput([IO.File]::ReadAllText((Join-Path $app 'widget.ps1'),[Text.Encoding]::UTF8),[ref]$tokens,[ref]$parseErrors)
 $tooltip=$ast.Find({param($node)$node-is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name-eq 'Update-BubbleTooltip'},$true)
@@ -34,6 +35,9 @@ function Add-QuoteInk($drawing,[Windows.Media.Matrix]$matrix){
     if($outline.Bounds.IsEmpty){return}
     if($outline.IsFrozen){$outline=$outline.Clone()}
     $outline.Transform=[Windows.Media.MatrixTransform]::new($matrix)
+    $script:quoteInk.Children.Add($outline)
+  }elseif($drawing-is [Windows.Media.GeometryDrawing]){
+    $outline=$drawing.Geometry.Clone();$outline.Transform=[Windows.Media.MatrixTransform]::new($matrix)
     $script:quoteInk.Children.Add($outline)
   }
 }
@@ -96,7 +100,7 @@ try{
     }
   }
   $script:bubbleMode='quota';Set-WidgetSceneLayout
-  if([Windows.Controls.Canvas]::GetLeft($script:ui.SceneText)-ne 63 -or [Windows.Controls.Canvas]::GetTop($script:ui.SceneText)-ne 22 -or $script:ui.SceneText.Width-ne 184 -or $script:ui.SceneText.Height-ne 115){throw 'Switching back to quota did not restore its layout'}
+  if([Windows.Controls.Canvas]::GetLeft($script:ui.SceneText)-ne 47 -or [Windows.Controls.Canvas]::GetTop($script:ui.SceneText)-ne 18 -or $script:ui.SceneText.Width-ne 216 -or $script:ui.SceneText.Height-ne 118){throw 'Switching back to quota did not restore its layout'}
   $result=@{passed=$true;reviewedQuotes=$profiles.quotes.Count;normalGlyphChecks=$checks;edgeCases=$edgeCases.Count;edgeGlyphChecks=$edgeGlyphChecks;originalAndTooltipRetained=$true;normalMultilineAndCompletionUnchanged=$true;fontAndColorRetained=$true;maxEdgeFitMilliseconds=$maxFitMilliseconds}
   if($ResultFile){[IO.File]::WriteAllText($ResultFile,($result|ConvertTo-Json -Depth 4),[Text.UTF8Encoding]::new($false))}
   Write-Output ('PASS: '+$profiles.quotes.Count+' reviewed quotes, '+$checks+' normal and '+$edgeGlyphChecks+' edge-case native glyph checks; original text, tooltip, font, color and completion retained')

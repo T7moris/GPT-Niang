@@ -2,6 +2,7 @@ param([string]$WidgetSource,[string]$ResultFile)
 $ErrorActionPreference='Stop';$app=Split-Path $PSScriptRoot -Parent
 if(!$WidgetSource){$WidgetSource=Join-Path $app 'widget.ps1'}
 Add-Type -AssemblyName PresentationFramework,PresentationCore,WindowsBase,System.Xaml
+. (Join-Path $app 'runtime\sharp-text.ps1')
 $text=[IO.File]::ReadAllText($WidgetSource,[Text.Encoding]::UTF8);$tokens=$null;$errors=$null
 $ast=[Management.Automation.Language.Parser]::ParseInput($text,[ref]$tokens,[ref]$errors)
 foreach($name in @('Set-Facing','Set-WidgetPixelSize','Get-WidgetLayoutScale','Set-WidgetIndependentLayout','Test-WidgetPlacementFrame','Limit-WidgetVerticalPosition','Limit-WidgetHorizontalPosition','Set-Appearance')){

@@ -56,5 +56,9 @@
   ".codex-plugin/plugin.json",
   "package.json",
   "Install.ps1",
-  "Uninstall.ps1"
+  "Uninstall.ps1",
+  "runtime/sharp-text.ps1",
+  "assets/fonts/LXGWWenKai-Medium.ttf",
+  "assets/fonts/OFL.txt",
+  "assets/fonts/README.md"
 ]

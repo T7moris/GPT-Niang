@@ -2,6 +2,7 @@ param([string]$TestRoot=$PSScriptRoot,[string]$PreviewDirectory)
 $ErrorActionPreference='Stop'
 Add-Type -AssemblyName PresentationFramework,PresentationCore,WindowsBase
 $appDir=Split-Path $TestRoot -Parent
+. (Join-Path $appDir 'runtime\sharp-text.ps1')
 $source=[IO.File]::ReadAllText((Join-Path $appDir 'widget.ps1'),[Text.Encoding]::UTF8)
 $tokens=$null;$errors=$null
 $ast=[Management.Automation.Language.Parser]::ParseInput($source,[ref]$tokens,[ref]$errors)
@@ -12,7 +13,7 @@ foreach($name in @('Get-WidgetLayoutScale','Set-WidgetIndependentLayout','Get-Qu
 }
 # WPF rounds design coordinates before the Viewbox applies up to 2.5x zoom.
 function Assert-Near([double]$Actual,[double]$Expected,[string]$Message){if([Math]::Abs($Actual-$Expected)-gt 1.5){throw "$Message : expected $Expected, got $Actual"}}
-$script:window=[Windows.Markup.XamlReader]::Parse([IO.File]::ReadAllText((Join-Path $appDir 'widget.xaml'),[Text.Encoding]::UTF8))
+$script:window=[Windows.Markup.XamlReader]::Parse((ConvertTo-SmoothWidgetXaml ([IO.File]::ReadAllText((Join-Path $appDir 'widget.xaml'),[Text.Encoding]::UTF8)) -AppDir $appDir))
 $script:ui=@{}
 foreach($name in @('Root','Girl','Bubble','BubbleShape','Tail','TailNear','MenuButton','Refresh','SceneText','FacingScale','TextFacingScale','Header','QuoteText','ShortLeft','WeekLeft','ShortBar','WeekBar')){$script:ui[$name]=$script:window.FindName($name)}
 $script:ui.Girl.Source=[Windows.Media.Imaging.BitmapImage]::new([Uri](Join-Path $appDir 'assets\gpt-dragon-niang-bust.png'))
@@ -47,12 +48,12 @@ function Save-Preview([string]$Name){
 try{
   $script:scale=0.6;$script:bubbleScale=1.0
   Layout-Widget
-  Assert-Near (Width-InViewport $script:ui.SceneText) 184 'Shrinking the character must keep a 100% bubble readable'
+  Assert-Near (Width-InViewport $script:ui.SceneText) 216 'Shrinking the character must keep a 100% bubble readable'
   Assert-Near (Width-InViewport $script:ui.Girl) (208*0.6) 'Character independently becomes 60%'
   Save-Preview 'character-60-bubble-100'
   Initialize-WidgetColors
   $script:bubbleScale=1.4;Layout-Widget
-  Assert-Near (Width-InViewport $script:ui.SceneText) (184*1.4) 'Bubble grows independently'
+  Assert-Near (Width-InViewport $script:ui.SceneText) (216*1.4) 'Bubble grows independently'
   Assert-Near (Width-InViewport $script:ui.Girl) (208*0.6) 'Growing the bubble does not grow the character'
   Save-Preview 'character-60-bubble-140'
   foreach($character in @(0.6,0.8,1,1.4,2.5)){
@@ -60,7 +61,7 @@ try{
       foreach($side in @('left','right')){
         $script:scale=$character;$script:bubbleScale=$bubble;$script:side=$side;Layout-Widget
         Assert-Near (Width-InViewport $script:ui.Girl) (208*$character) 'Character size holds on either side'
-        Assert-Near (Width-InViewport $script:ui.SceneText) (184*$bubble) 'Bubble size holds on either side'
+        Assert-Near (Width-InViewport $script:ui.SceneText) (216*$bubble) 'Bubble size holds on either side'
         foreach($name in @('halo','tint')){
           $overlay=$script:widgetColors[$name]
           Assert-Near $overlay.Width $script:ui.Girl.Width 'Character color width must follow the current size'
