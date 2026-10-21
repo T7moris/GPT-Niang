@@ -7,7 +7,7 @@ import {startDesktopWorkSource} from './desktop-work-state.mjs';
 
 const NORMAL_ENDINGS=new Set(['task_complete','turn_complete']);
 const MAX_READ_BYTES=4*1024*1024,MAX_LINE_CHARACTERS=1024*1024,MAX_SEEN_TURNS=4096;
-const RESUME_GRACE_MS=5000,RESUME_STATE_MAX_AGE_MS=5*60*1000;
+const ACTIVE_TURN_STALE_MS=120000,RESUME_GRACE_MS=5000,RESUME_STATE_MAX_AGE_MS=5*60*1000;
 
 // A crash can happen between a turn finishing and the monitor reading it.
 // Remembering the last scan time (and the newest emitted completion) lets the
@@ -103,7 +103,7 @@ export function parseWorkStartRecord(record, {seenStarts = null, seenTurns = nul
 // Recover only the latest activity in a recently written parent conversation.
 // Old interrupted conversations and historical completions are never replayed.
 export function recoverWorkingTurn(file, stat = fs.statSync(file), now = Date.now()) {
-  if (now - stat.mtimeMs > 120000 || file.split(path.sep).includes('archived_sessions')) return null;
+  if (now - stat.mtimeMs > ACTIVE_TURN_STALE_MS || file.split(path.sep).includes('archived_sessions')) return null;
   const count = Math.min(stat.size, MAX_READ_BYTES), start = stat.size - count;
   const buffer = Buffer.alloc(count); let fd;
   try {
@@ -196,7 +196,7 @@ export function defaultCodexHome(env=process.env){return path.resolve(env.CODEX_
 
 export class CompletionMonitor {
   constructor({codexHome=defaultCodexHome(),intervalMs=1000,onNotification=()=>{},onWorkState=()=>{},since=Date.now(),stateFile=null}={}){
-    this.onWorkState=onWorkState;this.activeTurns=new Set();this.desktopActiveCount=0;this.desktopStatus={status:'starting'};this.lastWorkSignature=null;this.codexHome=codexHome;this.intervalMs=intervalMs;this.onNotification=onNotification;this.since=since;
+    this.onWorkState=onWorkState;this.activeTurns=new Set();this.activeLastSeen=new Map();this.sessionMtimes=new Map();this.desktopActiveCount=0;this.desktopStatus={status:'starting'};this.lastWorkSignature=null;this.codexHome=codexHome;this.intervalMs=intervalMs;this.onNotification=onNotification;this.since=since;
     this.stateFile=stateFile;this.resume=false;this.lastStateSave=0;this.lastEnded=0;
     this.tails=new Map();this.subagentSessions=new Set();this.timer=null;
   }
@@ -221,9 +221,16 @@ export class CompletionMonitor {
     this.lastStateSave=now;saveMonitorState(this.stateFile,now,this.lastEnded);
   }
   scan(baseline=false){
-    const files=listRolloutFiles(this.codexHome),present=new Set();
+    const files=listRolloutFiles(this.codexHome),present=new Set(),now=Date.now();
     for(const file of files){
       const sessionId=path.basename(file);present.add(sessionId);if(this.subagentSessions.has(sessionId))continue;
+      let stat;try{stat=fs.statSync(file);}catch{continue;}
+      const previousMtime=this.sessionMtimes.get(sessionId);
+      if(previousMtime===undefined||previousMtime!==stat.mtimeMs){
+        this.sessionMtimes.set(sessionId,stat.mtimeMs);
+        const activityAt=Math.min(now,stat.mtimeMs);
+        for(const key of this.activeTurns)if(key.startsWith(sessionId+'\0'))this.activeLastSeen.set(key,activityAt);
+      }
       let tail=this.tails.get(sessionId);
       if(!tail){
         const header=readSessionHeader(file);if(header===null)continue;
@@ -231,23 +238,31 @@ export class CompletionMonitor {
         // During crash recovery, files touched inside the grace window are read
         // from their start and filtered by `since` instead of being skipped.
         let fileBaseline=baseline;
-        if(fileBaseline && this.resume){try{if(fs.statSync(file).mtimeMs>=this.since)fileBaseline=false;}catch{}}
+        if(fileBaseline && this.resume && stat.mtimeMs>=this.since)fileBaseline=false;
         try{tail=new CompletionRolloutTail(file,{sessionId,baseline:fileBaseline,since:this.since,includeStarts:true});}catch{continue;}
-        this.tails.set(sessionId,tail);if(fileBaseline){try{const started=recoverWorkingTurn(file);if(started)this.activeTurns.add(sessionId+'\0'+started.turnId);}catch{}continue;}
+        this.tails.set(sessionId,tail);if(fileBaseline){try{const started=recoverWorkingTurn(file,stat,now);if(started)this.markTurnStarted(sessionId+'\0'+started.turnId,stat.mtimeMs,now);}catch{}continue;}
       }else{tail.file=file;}
       const resets=tail.resetCount,events=tail.update();if(tail.resetCount!==resets)this.clearSession(sessionId);
       for(const event of events){
         const key=sessionId+'\0'+event.turnId;
-        if(event.started){this.activeTurns.add(key);continue;}
-        this.activeTurns.delete(key);
+        if(event.started){this.markTurnStarted(key,stat.mtimeMs,now);continue;}
+        this.activeTurns.delete(key);this.activeLastSeen.delete(key);
         if(Number.isFinite(event.endedAt) && event.endedAt>this.lastEnded)this.lastEnded=event.endedAt;
         try{this.onNotification(event);}catch{}
       }
     }
-    for(const sessionId of this.tails.keys())if(!present.has(sessionId)){this.clearSession(sessionId);this.tails.delete(sessionId);}
+    for(const sessionId of this.tails.keys())if(!present.has(sessionId)){this.clearSession(sessionId);this.tails.delete(sessionId);this.sessionMtimes.delete(sessionId);}
+    this.expireStaleTurns(now);
     this.publishWorkState();this.persistState();
   }
-  clearSession(sessionId){for(const key of this.activeTurns)if(key.startsWith(sessionId+'\0'))this.activeTurns.delete(key);}
+  markTurnStarted(key,mtimeMs,now){this.activeTurns.add(key);this.activeLastSeen.set(key,Math.min(now,mtimeMs));}
+  expireStaleTurns(now=Date.now()){
+    for(const key of this.activeTurns){
+      const lastSeen=this.activeLastSeen.get(key);
+      if(!Number.isFinite(lastSeen)||now-lastSeen>=ACTIVE_TURN_STALE_MS){this.activeTurns.delete(key);this.activeLastSeen.delete(key);}
+    }
+  }
+  clearSession(sessionId){for(const key of this.activeTurns)if(key.startsWith(sessionId+'\0')){this.activeTurns.delete(key);this.activeLastSeen.delete(key);}}
   setDesktopWorkState(state){this.desktopStatus=state||{};this.desktopActiveCount=Number.isSafeInteger(state?.activeCount)&&state.activeCount>=0?state.activeCount:0;this.publishWorkState();}
   publishWorkState(){
     const count=this.activeTurns.size+this.desktopActiveCount;
@@ -255,7 +270,7 @@ export class CompletionMonitor {
     const signature=JSON.stringify(state);if(signature===this.lastWorkSignature)return;this.lastWorkSignature=signature;
     try{this.onWorkState(state);}catch{}
   }
-  stop(){if(this.timer)clearInterval(this.timer);this.timer=null;this.activeTurns.clear();this.desktopActiveCount=0;this.publishWorkState();}
+  stop(){if(this.timer)clearInterval(this.timer);this.timer=null;this.activeTurns.clear();this.activeLastSeen.clear();this.sessionMtimes.clear();this.desktopActiveCount=0;this.publishWorkState();}
 
 }
 
