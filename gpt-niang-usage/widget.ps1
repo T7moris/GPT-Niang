@@ -45,6 +45,8 @@ public static class GptWidgetNative {
   [DllImport("user32.dll")] public static extern bool EnumWindows(EnumProc cb,IntPtr p);
   [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr h);
   [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr h);
+  [DllImport("user32.dll")] static extern bool ShowWindow(IntPtr h,int command);
+  [DllImport("user32.dll")] static extern bool SetForegroundWindow(IntPtr h);
   [DllImport("user32.dll")] public static extern bool IsWindow(IntPtr h);
   [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
   [DllImport("user32.dll")] public static extern IntPtr GetAncestor(IntPtr h,uint f);
@@ -79,6 +81,16 @@ public static class GptWidgetNative {
     IntPtr found=IntPtr.Zero;
     EnumWindows((h,p)=>{if(IsWindowVisible(h)&&!IsIconic(h)&&IsCodex(h)){found=h;return false;}return true;},IntPtr.Zero);
     return found;
+  }
+  // Only a user click calls this. Background reminders never activate Codex.
+  public static bool ActivateCodex(IntPtr preferred){
+    var target=IsWindow(preferred)&&IsCodex(preferred)?preferred:FindCodex();
+    if(target==IntPtr.Zero){
+      EnumWindows((h,p)=>{if(IsWindowVisible(h)&&IsCodex(h)){target=h;return false;}return true;},IntPtr.Zero);
+    }
+    if(target==IntPtr.Zero)return false;
+    if(IsIconic(target))ShowWindow(target,9);
+    return SetForegroundWindow(target);
   }
   public static int ProcessId(IntPtr h){uint p;GetWindowThreadProcessId(h,out p);return (int)p;}
   public static IntPtr ForegroundHost(IntPtr h){var root=GetAncestor(h,2);return IsCodex(root)?root:IntPtr.Zero;}
@@ -475,6 +487,7 @@ function Update-BubbleTooltip {
     [Windows.Controls.ToolTipService]::SetShowDuration($script:ui.Bubble,20000)
   }
   $script:bubbleTooltipText.Text=[string]$copy
+  if($script:bubbleMode-eq 'completion'){$script:bubbleTooltipText.Text+="`n点击返回 Codex 窗口"}
 }
 
 function Switch-Scene([string]$mode){
@@ -503,6 +516,17 @@ function Switch-Scene([string]$mode){
 function Next-Bubble {
   if($script:collapsed){return}
   if($script:bubbleMode-eq 'quota'){Switch-Scene 'quote'}else{Hide-Quota}
+}
+function Click-Bubble {
+  if($script:collapsed){return}
+  if($script:bubbleMode-eq 'completion'){
+    # Restore the temporary layer/owner before bringing the host forward.
+    Hide-Quota
+    if([GptWidgetNative]::ActivateCodex($script:hostHandle)){$script:completionLastError=$null}
+    else{$script:completionLastError='CODEX_ACTIVATION_FAILED'}
+    return
+  }
+  Next-Bubble
 }
 function Click-Character {
   if($script:collapsed){Show-Quota}
@@ -782,7 +806,7 @@ foreach($control in @($script:ui.Girl,$script:ui.MenuButton)){
   $control.Add_MouseLeave({$script:menuTimer.Start()})
 }
 $script:context.Add_Closed({$script:menuTimer.Start()})
-foreach($control in @($script:ui.Bubble,$script:ui.Tail,$script:ui.TailNear)){$control.Add_MouseLeftButtonUp({param($sender,$event)Next-Bubble;$event.Handled=$true})}
+foreach($control in @($script:ui.Bubble,$script:ui.Tail,$script:ui.TailNear)){$control.Add_MouseLeftButtonUp({param($sender,$event)Click-Bubble;$event.Handled=$true})}
 $pressDown={param($sender,$event)
   Pause-CompletionNotification
   Reset-WidgetAutoQuoteSchedule

@@ -54,7 +54,9 @@ function Start-TemporaryCompletion {
     if($script:hostFollower){$script:hostFollower.Detach()}
     [CompletionWindowLayer]::SetWindowLongPtr($script:widgetHandle,-8,[IntPtr]::Zero)|Out-Null
     $script:window.Show()
-    $style=$script:completionTemporary.style.ToInt64()-bor 0x08000020
+    # Keep no-activate, but accept bubble clicks. WM_NCHITTEST still passes
+    # transparent space through to the underlying app.
+    $style=($script:completionTemporary.style.ToInt64()-bor 0x08000000)-band (-bnot 0x20)
     [CompletionWindowLayer]::SetWindowLongPtr($script:widgetHandle,-20,[IntPtr]$style)|Out-Null
     $script:window.Topmost=$true
     if(![CompletionWindowLayer]::SetWindowPos($script:widgetHandle,[IntPtr](-1),0,0,0,0,0x13)){throw 'Temporary reminder layer failed'}
@@ -68,7 +70,7 @@ function Start-TemporaryCompletion {
         $leftFullscreen=$script:completionTemporary.fullscreen -and ($foreground-ne $script:completionTemporary.foreground -or !(Test-CompletionFullscreen $foreground))
         if($active -or $leftFullscreen){Dismiss-CompletionNotification;if(!$script:collapsed){Hide-Quota -KeepCompletion}}
         # An error while opening the scene must never leave a topmost
-        # click-through reminder layer pinned on screen. This independent
+        # reminder layer pinned on screen. This independent
         # deadline works even when sceneDeadline was never set.
         elseif($now-ge $script:completionTemporary.expiresAt){Hide-Quota}
         elseif($script:sceneDeadline-gt 0 -and $now-ge $script:sceneDeadline){Hide-Quota}

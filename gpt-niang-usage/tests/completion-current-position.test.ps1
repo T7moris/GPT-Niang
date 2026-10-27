@@ -106,6 +106,9 @@ try{
   Write-WidgetJson (Join-Path $script:dataDir 'display-request.json') @{mode='completion';at=[DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds();nonce=[Guid]::NewGuid().ToString('N')}
   Read-DisplayRequest;Tick-CompletionNotifications $false
   Assert ([bool]$script:completionTemporary) 'Local verification can exercise the original UI without editing real logs or restarting the widget'
+  $clickStyle=[CompletionWindowLayer]::GetWindowLongPtr($script:widgetHandle,-20).ToInt64()
+  Assert (($clickStyle-band 0x20)-eq 0) 'Completion bubble must accept mouse clicks'
+  Assert (($clickStyle-band 0x08000000)-ne 0) 'Background completion must remain no-activate'
   Set-CompletionNotificationEnabled $false
   Write-Output ('PASS: '+$script:checks+' current-position reminder checks: same HWND, no move/resize, topmost/owner/style restoration, fullscreen exit, return, coalescing, saved preferences and hidden state')
 }finally{
