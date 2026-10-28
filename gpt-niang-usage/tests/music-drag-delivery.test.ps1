@@ -55,7 +55,10 @@ try{
  Check ($music.Motion.ThrowX-gt 0) 'Direct drag stopped sampling release velocity'
  [MusicDragInputProbe]::Captured=$false;$before=Bounds $handle;Check (![MusicDragInputProbe]::Move($girl,($cursorX+270),$cursorY)) 'Uncaptured move was consumed';$after=Bounds $handle;Check ($before.Left-eq $after.Left) 'Uncaptured move changed position'
  [MusicDragInputProbe]::Captured=$true;$music.SetVisibility($true,$true);$before=Bounds $handle;[void][MusicDragInputProbe]::Move($girl,($cursorX+280),$cursorY);$after=Bounds $handle;Check ($before.Left-eq $after.Left) 'Blocked interaction moved the character'
+ $releaseBefore=@{held=$music.Motion.Held;phase=$music.Motion.Phase;x=$music.Motion.X;y=$music.Motion.Y;floor=$music.Motion.Floor;throwX=$music.Motion.ThrowX;throwY=$music.Motion.ThrowY;vx=$music.Motion.Vx;vy=$music.Motion.Vy;width=$music.Motion.Width}
  $music.SetVisibility($true,$false);$music.EndHold();$releaseOkay=(!$music.Motion.Held-and $music.Motion.Phase-eq 0-and $music.Motion.Vx-gt 0);Check $releaseOkay 'Release did not resume original flight physics'
+ $releaseAfter=@{held=$music.Motion.Held;phase=$music.Motion.Phase;x=$music.Motion.X;y=$music.Motion.Y;floor=$music.Motion.Floor;throwX=$music.Motion.ThrowX;throwY=$music.Motion.ThrowY;vx=$music.Motion.Vx;vy=$music.Motion.Vy;paused=$music.Paused;error=$music.Error}
+ Write-Output ('MUSIC_RELEASE_DIAG '+(@{before=$releaseBefore;after=$releaseAfter}|ConvertTo-Json -Depth 4 -Compress))
  $music.Motion.BeginHold();$music.Stop($false);Check (![MusicDragInputProbe]::Move($girl,($cursorX+290),$cursorY)) 'Stopped controller retained its mouse handler'
  Check (![MusicDragInputProbe]::IsWindowVisible($lamp)) 'Stopping music left the background visible'
  Check (!$music.Error) 'Visual controller reported an error'
