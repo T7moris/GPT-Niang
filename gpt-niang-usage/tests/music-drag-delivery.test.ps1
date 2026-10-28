@@ -3,19 +3,20 @@ $ErrorActionPreference='Stop'
 Add-Type -AssemblyName PresentationFramework,PresentationCore,WindowsBase,System.Xaml,System.Windows.Forms,System.Drawing
 $visual=[IO.File]::ReadAllText((Join-Path $AppDirectory 'runtime/music-visual.cs'))
 $visual=$visual.Replace('girl.IsMouseCaptured','MusicDragInputProbe.Captured').Replace('MusicNative.GetCursorPos(out cursor)','MusicDragInputProbe.GetCursor(out cursor)')
+$visual=$visual.Replace('GptMusicCapture.NowMs','MusicDragInputProbe.NowMs')
 $visual=[regex]::Replace($visual,'(?m)^using [^;\r\n]+;\r?\n','')
 $audio=[regex]::Replace([IO.File]::ReadAllText((Join-Path $AppDirectory 'runtime/music-audio.cs')),'(?m)^using [^;\r\n]+;\r?\n','')
 $using='using System;using System.Diagnostics;using System.Runtime.InteropServices;using System.Threading;using System.Windows;using System.Windows.Controls;using System.Windows.Interop;using System.Windows.Input;using System.Windows.Media;using System.Windows.Media.Imaging;using System.Windows.Threading;'
 $helper=@'
 public static class MusicDragInputProbe {
- public static bool Captured;public static int X,Y;
+ public static bool Captured;public static int X,Y;public static double NowMs=1000;
  internal static bool GetCursor(out MusicNative.Point p){p=new MusicNative.Point{X=X,Y=Y};return true;}
  [StructLayout(LayoutKind.Sequential)]public struct Rect{public int Left,Top,Right,Bottom;}
  [DllImport("user32.dll")]public static extern bool GetWindowRect(IntPtr h,out Rect r);
  [DllImport("user32.dll")]public static extern bool IsWindowVisible(IntPtr h);
  [DllImport("user32.dll")]public static extern IntPtr GetForegroundWindow();
  public static bool Move(Image girl,int x,int y){X=x;Y=y;var e=new MouseEventArgs(Mouse.PrimaryDevice,Environment.TickCount){RoutedEvent=Mouse.PreviewMouseMoveEvent};girl.RaiseEvent(e);return e.Handled;}
- public static void Wait(int ms){Thread.Sleep(ms);}
+ public static void Wait(int ms){NowMs+=ms;}
 }
 '@
 $references=@('System.dll','System.Core.dll','System.Xaml.dll','System.Windows.Forms.dll','System.Drawing.dll',[Windows.Window].Assembly.Location,[Windows.Media.Brush].Assembly.Location,[Windows.Point].Assembly.Location)
@@ -58,7 +59,7 @@ try{
  $music.Motion.BeginHold();$music.Stop($false);Check (![MusicDragInputProbe]::Move($girl,($cursorX+290),$cursorY)) 'Stopped controller retained its mouse handler'
  Check (![MusicDragInputProbe]::IsWindowVisible($lamp)) 'Stopping music left the background visible'
  Check (!$music.Error) 'Visual controller reported an error'
- $result=@{passed=($fail.Count-eq 0);failures=$fail.ToArray();pointerEvents=24;immediateNativeMoves=$immediate;handledEvents=$handled;noRenderOrDispatcherPumpBetweenInputs=$true;syntheticCaptureAndCursor=$true;physicalMouseUsed=$false;testWindowsOffscreen=$true;foregroundUnchanged=([MusicDragInputProbe]::GetForegroundWindow()-eq $foreground);deliveryMs=@{mean=($durations|Measure-Object -Average).Average;max=($durations|Measure-Object -Maximum).Maximum};releasePhysicsPreserved=$releaseOkay}
+ $result=@{passed=($fail.Count-eq 0);failures=$fail.ToArray();pointerEvents=24;immediateNativeMoves=$immediate;handledEvents=$handled;noRenderOrDispatcherPumpBetweenInputs=$true;syntheticCaptureAndCursor=$true;syntheticClock=$true;physicalMouseUsed=$false;testWindowsOffscreen=$true;foregroundUnchanged=([MusicDragInputProbe]::GetForegroundWindow()-eq $foreground);deliveryMs=@{mean=($durations|Measure-Object -Average).Average;max=($durations|Measure-Object -Maximum).Maximum};releasePhysicsPreserved=$releaseOkay}
  if($ResultFile){[IO.File]::WriteAllText($ResultFile,($result|ConvertTo-Json -Depth 7),[Text.UTF8Encoding]::new($false))};$result|ConvertTo-Json -Depth 7
  if($fail.Count){throw ($fail-join '; ')}
 }finally{[MusicDragInputProbe]::Captured=$false;if($music){$music.Dispose()};if($follower){$follower.Dispose()};if($window){$window.Close()};if($hostWindow){$hostWindow.Close()}}

@@ -9,18 +9,11 @@ final class WorkerRecoveryTests: XCTestCase {
         let manifest = root.appendingPathComponent("Backend/.codex-plugin/plugin.json")
         try FileManager.default.createDirectory(at: manifest.deletingLastPathComponent(), withIntermediateDirectories: true)
         try Data(#"{"version":"1.3.4"}"#.utf8).write(to: manifest)
+        // Recovery tests have no bundled audio. Keep model teardown independent
+        // of NSSound loading and the availability of a CI audio device.
         try Data(#"{"version":1,"mode":"custom"}"#.utf8).write(to: root.appendingPathComponent("audio-preferences.json"))
         let executable = root.appendingPathComponent("node-fixture")
-        let script = """
-        #!/usr/bin/env node
-        const fs = require('node:fs');
-        const path = require('node:path');
-        const root = path.dirname(process.argv[1]);
-        process.on('SIGTERM', () => process.exit(0));
-        fs.appendFileSync(path.join(root, 'attempts'), 'x');
-        fs.writeFileSync(path.join(root, 'child-pid'), String(process.pid));
-        setTimeout(() => process.exit(0), 120000);
-        """
+        let script = "#!/bin/sh\nprintf x >> \"$(dirname \"$0\")/attempts\"\nprintf '%s' \"$$\" > \"$(dirname \"$0\")/child-pid\"\nexec /bin/sleep 120\n"
         try Data(script.utf8).write(to: executable)
         try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
         let previous = getenv("GPT_NIANG_NODE").map { String(cString: $0) }
@@ -35,11 +28,7 @@ final class WorkerRecoveryTests: XCTestCase {
         let now = initialUptime ?? ProcessInfo.processInfo.systemUptime
         model.tick(now: now)
         let pid = try await self.childPID(root)
-        do { try await body(root, model, pid, now) }
-        catch {
-            print("RECOVERY_DIAG bodyError test=\(self.name) fixturePID=\(pid) \(model.recoveryDiagnostic) error=\(error)")
-            throw error
-        }
+        try await body(root, model, pid, now)
     }
     private func childPID(_ root: URL, excluding: Int32? = nil) async throws -> Int32 {
         for _ in 0..<200 {
@@ -54,19 +43,6 @@ final class WorkerRecoveryTests: XCTestCase {
             if !model.workerRunning { return }
             try await Task.sleep(nanoseconds: 10_000_000)
         }
-        let pid = model.recoveryDiagnosticPID
-        let alive = pid > 0 ? kill(pid, 0) : -1
-        let errorNumber = errno
-        let process = Process(), pipe = Pipe()
-        process.executableURL = URL(fileURLWithPath: "/bin/ps")
-        process.arguments = ["-p", String(pid), "-o", "pid=,ppid=,stat=,comm="]
-        process.standardOutput = pipe; process.standardError = FileHandle.nullDevice
-        var ps = "unavailable"
-        if (try? process.run()) != nil {
-            process.waitUntilExit()
-            ps = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? "invalid"
-        }
-        print("RECOVERY_DIAG timeout test=\(self.name) \(model.recoveryDiagnostic) kill0=\(alive) errno=\(errorNumber) ps=\(ps.trimmingCharacters(in: .whitespacesAndNewlines))")
         XCTFail("Owned fixture worker did not exit after the recovery request")
     }
     private func attempts(_ root: URL) -> Int { (try? Data(contentsOf: root.appendingPathComponent("attempts")).count) ?? 0 }
@@ -119,6 +95,7 @@ final class WorkerRecoveryTests: XCTestCase {
         }
     }
     @MainActor func testFractionalUptimeReachesTheRecoveryDeadline() async throws {
+        // Crossing 128 seconds makes (now + 12) - (now + 2) round below 10.
         try await withFixture(initialUptime: 117.603463875) { root, model, pid, now in
             try self.record(root, pid: pid); model.tick(now: now + 1)
             try FileManager.default.removeItem(at: root.appendingPathComponent("worker-status.json"))
@@ -127,6 +104,19 @@ final class WorkerRecoveryTests: XCTestCase {
             model.tick(now: now + 12)
             try await self.waitForExit(model)
             XCTAssertFalse(model.workerRunning)
+        }
+    }
+    @MainActor func testFractionalUptimeReachesTheReplacementCooldownDeadline() async throws {
+        // The five-second cooldown crosses 256 seconds at this uptime.
+        try await withFixture(initialUptime: 224.69351787566157) { root, model, pid, now in
+            for step in 1...30 { model.tick(now: now + Double(step)) }
+            try await self.waitForExit(model)
+            model.tick(now: now + 34)
+            XCTAssertEqual(self.attempts(root), 1)
+            model.tick(now: now + 35)
+            _ = try await self.childPID(root, excluding: pid)
+            XCTAssertTrue(model.workerRunning)
+            XCTAssertEqual(self.attempts(root), 2)
         }
     }
     @MainActor func testStaleFutureMalformedAndWrongIdentityCannotResetOutage() async throws {

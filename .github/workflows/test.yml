@@ -1,22 +1,22 @@
-name: Mac recovery diagnostics (isolated branch)
-
+name: Focused recovery and drag diagnostics
 on:
   push:
   workflow_dispatch:
-
 permissions:
   contents: read
-
 jobs:
   macos:
     runs-on: macos-latest
-    timeout-minutes: 15
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Compile the test bundle before adding load
-        run: swift build --package-path macos --build-tests
-      - name: Reproduce the fractional uptime boundary
-        run: swift test --skip-build --package-path macos --filter testFractionalUptimeReachesTheRecoveryDeadline
+      - run: swift test --package-path macos --filter WorkerRecoveryTests
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - run: powershell.exe -NoLogo -NoProfile -NonInteractive -STA -ExecutionPolicy Bypass -File gpt-niang-usage/tests/music-drag-delivery.test.ps1
