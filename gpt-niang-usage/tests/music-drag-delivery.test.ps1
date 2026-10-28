@@ -4,12 +4,19 @@ Add-Type -AssemblyName PresentationFramework,PresentationCore,WindowsBase,System
 $visual=[IO.File]::ReadAllText((Join-Path $AppDirectory 'runtime/music-visual.cs'))
 $visual=$visual.Replace('girl.IsMouseCaptured','MusicDragInputProbe.Captured').Replace('MusicNative.GetCursorPos(out cursor)','MusicDragInputProbe.GetCursor(out cursor)')
 $visual=$visual.Replace('GptMusicCapture.NowMs','MusicDragInputProbe.NowMs')
+# Observe the release handoff before EndHold advances the first physics frame.
+# A narrow CI host may legitimately reflect velocity at a wall in that frame.
+$releaseCall='Motion.Release();Frame(this,EventArgs.Empty);Redraw();'
+if(!$visual.Contains($releaseCall)){throw 'Release handoff instrumentation point changed'}
+$visual=$visual.Replace($releaseCall,'Motion.Release();MusicDragInputProbe.RecordRelease(Motion);Frame(this,EventArgs.Empty);Redraw();')
 $visual=[regex]::Replace($visual,'(?m)^using [^;\r\n]+;\r?\n','')
 $audio=[regex]::Replace([IO.File]::ReadAllText((Join-Path $AppDirectory 'runtime/music-audio.cs')),'(?m)^using [^;\r\n]+;\r?\n','')
 $using='using System;using System.Diagnostics;using System.Runtime.InteropServices;using System.Threading;using System.Windows;using System.Windows.Controls;using System.Windows.Interop;using System.Windows.Input;using System.Windows.Media;using System.Windows.Media.Imaging;using System.Windows.Threading;'
 $helper=@'
 public static class MusicDragInputProbe {
  public static bool Captured;public static int X,Y;public static double NowMs=1000;
+ public static bool ReleaseObserved,ReleaseHeld;public static int ReleasePhase;public static double ReleaseVx,ReleaseVy;
+ public static void RecordRelease(GptMusicMotion m){ReleaseObserved=true;ReleaseHeld=m.Held;ReleasePhase=m.Phase;ReleaseVx=m.Vx;ReleaseVy=m.Vy;}
  internal static bool GetCursor(out MusicNative.Point p){p=new MusicNative.Point{X=X,Y=Y};return true;}
  [StructLayout(LayoutKind.Sequential)]public struct Rect{public int Left,Top,Right,Bottom;}
  [DllImport("user32.dll")]public static extern bool GetWindowRect(IntPtr h,out Rect r);
@@ -55,10 +62,8 @@ try{
  Check ($music.Motion.ThrowX-gt 0) 'Direct drag stopped sampling release velocity'
  [MusicDragInputProbe]::Captured=$false;$before=Bounds $handle;Check (![MusicDragInputProbe]::Move($girl,($cursorX+270),$cursorY)) 'Uncaptured move was consumed';$after=Bounds $handle;Check ($before.Left-eq $after.Left) 'Uncaptured move changed position'
  [MusicDragInputProbe]::Captured=$true;$music.SetVisibility($true,$true);$before=Bounds $handle;[void][MusicDragInputProbe]::Move($girl,($cursorX+280),$cursorY);$after=Bounds $handle;Check ($before.Left-eq $after.Left) 'Blocked interaction moved the character'
- $releaseBefore=@{held=$music.Motion.Held;phase=$music.Motion.Phase;x=$music.Motion.X;y=$music.Motion.Y;floor=$music.Motion.Floor;throwX=$music.Motion.ThrowX;throwY=$music.Motion.ThrowY;vx=$music.Motion.Vx;vy=$music.Motion.Vy;width=$music.Motion.Width}
- $music.SetVisibility($true,$false);$music.EndHold();$releaseOkay=(!$music.Motion.Held-and $music.Motion.Phase-eq 0-and $music.Motion.Vx-gt 0);Check $releaseOkay 'Release did not resume original flight physics'
- $releaseAfter=@{held=$music.Motion.Held;phase=$music.Motion.Phase;x=$music.Motion.X;y=$music.Motion.Y;floor=$music.Motion.Floor;throwX=$music.Motion.ThrowX;throwY=$music.Motion.ThrowY;vx=$music.Motion.Vx;vy=$music.Motion.Vy;paused=$music.Paused;error=$music.Error}
- Write-Output ('MUSIC_RELEASE_DIAG '+(@{before=$releaseBefore;after=$releaseAfter}|ConvertTo-Json -Depth 4 -Compress))
+ $sampledX=$music.Motion.ThrowX;$sampledY=$music.Motion.ThrowY
+ $music.SetVisibility($true,$false);$music.EndHold();$releaseOkay=([MusicDragInputProbe]::ReleaseObserved-and ![MusicDragInputProbe]::ReleaseHeld-and [MusicDragInputProbe]::ReleasePhase-eq 0-and [MusicDragInputProbe]::ReleaseVx-gt 0-and [Math]::Abs([MusicDragInputProbe]::ReleaseVx-$sampledX)-lt .0001-and [Math]::Abs([MusicDragInputProbe]::ReleaseVy-$sampledY)-lt .0001-and !$music.Motion.Held);Check $releaseOkay 'Release did not resume original flight physics'
  $music.Motion.BeginHold();$music.Stop($false);Check (![MusicDragInputProbe]::Move($girl,($cursorX+290),$cursorY)) 'Stopped controller retained its mouse handler'
  Check (![MusicDragInputProbe]::IsWindowVisible($lamp)) 'Stopping music left the background visible'
  Check (!$music.Error) 'Visual controller reported an error'
