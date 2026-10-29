@@ -80,3 +80,18 @@ test('macOS missing-app fixtures cannot discover a real desktop account',{skip:p
   assert.equal(resolveCodexExecutable(undefined,{platform:'darwin',env:{GPT_NIANG_CODEX_APP:path.join(root,'absent.app'),PATH:path.dirname(cli)}}),cli);
   assert.equal(resolveCodexExecutable(undefined,{platform:'darwin',env:{GPT_NIANG_CODEX_APP:path.join(root,'absent.app')}}),undefined);
 });
+
+for(const relative of ['.local/bin/codex','.codex/packages/standalone/current/bin/codex']){
+  test(`macOS Finder launch discovers ${relative} without PATH`,t=>{
+    const {root,write}=fixture(t);const cli=write(relative);
+    const env={HOME:root,GPT_NIANG_CODEX_APP:path.join(root,'missing.app'),PATH:'/usr/bin:/bin'};
+    assert.equal(resolveCodexExecutable('codex',{platform:'darwin',env}),cli);
+  });
+}
+
+test('macOS shell PATH takes precedence over standalone fallback',t=>{
+  const {root,write}=fixture(t);write('.local/bin/codex');
+  const cli=write('custom-bin/codex');
+  assert.equal(resolveCodexExecutable('codex',{platform:'darwin',env:{HOME:root,
+    GPT_NIANG_CODEX_APP:path.join(root,'missing.app'),PATH:path.dirname(cli)}}),cli);
+});

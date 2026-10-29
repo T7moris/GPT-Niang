@@ -18,6 +18,7 @@ struct SettingsView: View {
             section1
             section2
             section3
+            AlertSettingsView(model: model)
             section4
             section5
             if let error = model.settingsError { Text(error).font(.caption).foregroundStyle(.orange) }
@@ -27,15 +28,15 @@ struct SettingsView: View {
                 Button(model.text("重設位置")) { model.resetPosition() }
                 Button(model.text("刷新額度")) { model.refresh() }
             }
-            Text(model.text("額度可見時每 60 秒更新。使用目前 Codex 登入，不建立聊天或呼叫模型。"))
+            Text(model.text("额度可见或启用额度提醒时每 60 秒更新。使用目前 Codex 登录，不建立聊天或调用模型。"))
                 .font(.caption).foregroundStyle(.secondary)
         }
         .padding(24) }.frame(width: 500, height: 700)
+        .onChange(of: model.alertPreferences) { _ in model.savePreferences(); model.alerts.configure() }
         .onChange(of: model.language) { _ in model.savePreferences() }
         .onChange(of: model.desktopTopmost) { _ in model.savePreferences() }
         .onChange(of: model.soundOn) { _ in model.audio.updateVolume(); model.savePreferences() }
         .onChange(of: model.hideMenu) { _ in model.savePreferences() }
-        .onChange(of: model.completionEnabled) { _ in model.savePreferences() }
         .onChange(of: model.scale) { _ in model.savePreferences() }
         .onChange(of: model.volume) { _ in model.audio.updateVolume(); model.savePreferences() }
         .onChange(of: model.colorMode) { _ in model.updateAppearance(); model.savePreferences() }
@@ -95,7 +96,6 @@ struct SettingsView: View {
                     Text(model.text("關閉後，掛件會固定在桌面；開啟時，Codex 隱藏或最小化後掛件也會隱藏。"))
                         .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                     if let note = model.trackingNote { Text(note).font(.caption).foregroundStyle(.orange) }
-                    Toggle(model.text("回答结束提醒"), isOn: $model.completionEnabled)
                     Toggle(model.text("登入 Mac 時自動開啟"), isOn: $model.loginRequested)
                         .onChange(of: model.loginRequested) { value in
                             do {
@@ -107,6 +107,8 @@ struct SettingsView: View {
                             } catch { loginError = model.text("登入項目設定失敗：%@", String(describing: error.localizedDescription)) }
                         }
                     if let loginError { Text(loginError).font(.caption).foregroundStyle(.orange) }
+                    Divider()
+                    HostLinkSettingsView(model: model)
                 }.padding(10)
             }
     }
