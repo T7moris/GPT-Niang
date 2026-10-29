@@ -1,12 +1,16 @@
 function Initialize-WidgetUpdater {
   $script:updateProcess=$null;$script:updateLastTick=0;$script:updateStartedAt=[DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds();$script:updateCleanupChecked=$false
   $preferences=Read-WidgetUpdateJson (Join-Path $script:dataDir 'update-preferences.json')
-  $script:autoUpdate=!($preferences -and $preferences.automatic-eq $false)
+  $script:autoUpdate=$script:config.startupMode-ne 'manual' -and !($preferences -and $preferences.automatic-eq $false)
 }
 function Test-WidgetUpdateEditor {
   return [bool]($script:audioDialogOpen -or ($script:quoteEditor -and $script:quoteEditor.IsVisible) -or ($script:colorTriggerEditor -and $script:colorTriggerEditor.IsVisible) -or ($script:characterGallery -and $script:characterGallery.IsVisible))
 }
 function Start-WidgetUpdate([string]$Mode='manual') {
+  if($script:config.startupMode-eq 'manual' -and $Mode-ne 'cleanup'){
+    Write-WidgetSupervisorJson (Join-Path $script:dataDir 'update-status.json') @{phase='manual';message='手动启动版请下载新的手动启动包更新。'}
+    return
+  }
   if($script:updateProcess){if(!$script:updateProcess.HasExited){return};$script:updateProcess.Dispose();$script:updateProcess=$null}
   if($Mode-eq 'manual' -and (Test-WidgetUpdateEditor)){
     [Windows.MessageBox]::Show($script:window,'请先保存并关闭编辑窗口，再检查更新。','GPT 娘更新')|Out-Null;return
@@ -21,6 +25,7 @@ function Start-WidgetUpdate([string]$Mode='manual') {
   catch{$process.Dispose();Write-WidgetSupervisorJson (Join-Path $script:dataDir 'update-status.json') @{phase='failed';message=$_.Exception.Message;nextCheckAt=[DateTimeOffset]::UtcNow.AddDays(1).ToUnixTimeMilliseconds()}}
 }
 function Set-WidgetAutomaticUpdate([bool]$Enabled) {
+  if($script:config.startupMode-eq 'manual'){$Enabled=$false}
   $script:autoUpdate=$Enabled
   Write-WidgetSupervisorJson (Join-Path $script:dataDir 'update-preferences.json') @{automatic=$Enabled}
   if($Enabled){Start-WidgetUpdate 'automatic-enabled'}
@@ -30,8 +35,10 @@ function Update-WidgetUpdateMenu {
   if(!$script:settingsMenuUi.UpdateVersion){return}
   $script:settingsMenuUi.UpdateVersion.Header='当前版本：'+$script:config.version+$(if($script:config.localBuild){' · 本机修订 '+$script:config.localBuild})
   $script:settingsMenuUi.AutoUpdate.IsChecked=$script:autoUpdate
+  $script:settingsMenuUi.AutoUpdate.IsEnabled=$script:config.startupMode-ne 'manual'
   $state=Read-WidgetUpdateJson (Join-Path $script:dataDir 'update-status.json')
   $label=switch($state.phase){
+    'manual' {'手动启动版：请下载新的手动启动包更新'}
     'checking' {'正在检查正式版…'}
     'downloading' {'正在下载：'+[Math]::Round([double]$state.bytes/1MB,1)+' MiB'}
     'waiting' {'已校验，等待挂件空闲'}
