@@ -106,7 +106,9 @@ try{
   # so DWM, GetWindowRect and SetWindowPos all use physical screen pixels.
   [GptWidgetNative]::SetThreadDpiAwarenessContext([IntPtr](-4)) | Out-Null
 }catch{}
-$script:window=[Windows.Markup.XamlReader]::Parse((Get-Content -LiteralPath (Join-Path $script:appDir 'widget.xaml') -Raw -Encoding UTF8))
+. (Join-Path $script:appDir 'runtime\sharp-text.ps1')
+$widgetXaml=ConvertTo-SmoothWidgetXaml ([IO.File]::ReadAllText((Join-Path $script:appDir 'widget.xaml'),[Text.Encoding]::UTF8)) -AppDir $script:appDir
+$script:window=[Windows.Markup.XamlReader]::Parse($widgetXaml)
 # Capture the unscaled XAML canvas before native resizing changes Window.Width/Height.
 $script:designWidth=[double]$script:window.FindName('AnimationStage').Width
 $script:designHeight=[double]$script:window.FindName('AnimationStage').Height
@@ -345,7 +347,7 @@ function Set-WidgetPixelSize([double]$dpi){
   $width=$pixels/$sx;$height=$pixelHeight/$sy;$changed=$false
   if([Math]::Abs($script:window.Width-$width)-gt 0.01){$script:window.Width=$width;$changed=$true}
   if([Math]::Abs($script:window.Height-$height)-gt 0.01){$script:window.Height=$height;$changed=$true}
-  if($changed){$script:window.UpdateLayout()}
+  if($changed){$script:window.UpdateLayout();Refresh-WidgetTextRaster}
   return [int][Math]::Round($pixels)
 }
 function Set-AnimatedValue($target,$property,[double]$value) {
@@ -624,15 +626,48 @@ function Format-ResetTime([long]$timestamp,[long]$now,[TimeZoneInfo]$timeZone=[T
   return $day+' '+$reset.ToString('HH:mm')+' 重置'
 }
 function Format-ResetDisplay([long]$timestamp,[long]$now){
-  if($timestamp-le $now -or $script:resetTimeMode-eq 'fixed'){return Format-ResetTime $timestamp $now}
-  return Reset-Label ($timestamp-$now)
+  $label=if($timestamp-le $now -or $script:resetTimeMode-eq 'fixed'){Format-ResetTime $timestamp $now}else{Reset-Label ($timestamp-$now)}
+  return ($label -replace '小时','时' -replace '分钟','分' -replace '重置已到，等待更新','等待刷新')
+}
+function Set-QuotaResetText([string]$Prefix,[string]$Label,[string]$Value) {
+  $element=$script:ui[$Prefix+'Reset']
+  $quota=(Get-QuotaRows|Where-Object{$_.prefix-eq $Prefix}|Select-Object -First 1).window
+  $element.ToolTip=if($quota -and $quota.resetsAt){$Label+' · '+$Value}else{$null}
+  $isCountdown=$script:resetTimeMode-eq 'countdown' -and $Value-match '后重置$'
+  if($isCountdown){$compact=($Value-replace '\s+','')-replace '重置$',''}
+  elseif($quota -and $quota.resetsAt -and [double]$quota.resetsAt-gt [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()){
+    $reset=[DateTimeOffset]::FromUnixTimeSeconds([long]$quota.resetsAt).ToLocalTime()
+    $dateOnly=$quota.minutes-ge 1440 -or ($quota.kind-eq 'individual' -and $reset.Date-ne [DateTimeOffset]::Now.Date)
+    $compact=if($dateOnly){$reset.ToString('MM/dd')+' 重置'}else{$reset.ToString('HH:mm')+' 重置'}
+  }else{
+    $compact=switch($Value){
+      '未提供重置时间' {'无重置时间'}
+      '额度读取异常' {'读取异常'}
+      '暂无额度数据' {'暂无数据'}
+      default {$Value-replace '\s+',' '}
+    }
+  }
+  $baseSize=13.1
+  $element.Text=$compact;$element.FontSize=$baseSize;$element.LineHeight=[double]::NaN
+  $element.TextAlignment=[Windows.TextAlignment]::Right
+  $face=[Windows.Media.Typeface]::new($element.FontFamily,$element.FontStyle,$element.FontWeight,$element.FontStretch)
+  $measure=[Windows.Media.FormattedText]::new($compact,[Globalization.CultureInfo]::CurrentCulture,[Windows.FlowDirection]::LeftToRight,$face,$baseSize,$element.Foreground)
+  if($measure.Width-gt 67){$element.FontSize=$baseSize*67/$measure.Width}
+  $measure=[Windows.Media.FormattedText]::new($compact,[Globalization.CultureInfo]::CurrentCulture,[Windows.FlowDirection]::LeftToRight,$face,$element.FontSize,$element.Foreground)
+  $bounds=$measure.BuildGeometry([Windows.Point]::new(0,0)).Bounds
+  $number=$script:ui[$Prefix+'Left']
+  $numberFace=[Windows.Media.Typeface]::new($number.FontFamily,$number.FontStyle,$number.FontWeight,$number.FontStretch)
+  $numberMeasure=[Windows.Media.FormattedText]::new($number.Text,[Globalization.CultureInfo]::CurrentCulture,[Windows.FlowDirection]::LeftToRight,$numberFace,$number.FontSize,$number.Foreground)
+  $numberBounds=$numberMeasure.BuildGeometry([Windows.Point]::new(0,0)).Bounds
+  $centre=[Windows.Controls.Canvas]::GetTop($number)+$numberBounds.Top+$numberBounds.Height/2
+  [Windows.Controls.Canvas]::SetTop($element,$centre-$bounds.Top-$bounds.Height/2)
 }
 function Get-QuotaWindowLabel($Window,[string]$Fallback){
   if(!$Window){return $Fallback}
   if($Window.kind-eq 'individual'){return '个人额度'}
   $minutes=[long]$Window.minutes
-  if($minutes-eq 300){return '5 小时'}
-  if($minutes-eq 10080){return '每周'}
+  if($minutes-eq 300){return '5小时'}
+  if($minutes-eq 10080){return '1周'}
   if($minutes%1440-eq 0){return ([string]($minutes/1440))+' 天'}
   if($minutes%60-eq 0){return ([string]($minutes/60))+' 小时'}
   return ([string]$minutes)+' 分钟'
@@ -640,6 +675,8 @@ function Get-QuotaWindowLabel($Window,[string]$Fallback){
 function Get-QuotaRows {
   # Reuse two visual rows and keep the original timed-window placement.
   $windows=@($script:status.windows|Where-Object{$null-ne $_}|Sort-Object minutes)
+  # Select-Object -First 1 repeatedly adds type names to cached objects in Windows PowerShell 5.1.
+  # Index filtered arrays instead to keep recurring refreshes from growing the type cache.
   $individual=@($windows|Where-Object{$_.kind-eq 'individual'})[0]
   if($individual){
     $timed=@($windows|Where-Object{$_.kind-ne 'individual'}|Sort-Object minutes)[0]
@@ -651,14 +688,14 @@ function Get-QuotaRows {
   $next=0
   if(!$short -and $next-lt $other.Count){$short=$other[$next];$next++}
   if(!$week -and $next-lt $other.Count){$week=$other[$next]}
-  @(@{prefix='Short';window=$short;label=(Get-QuotaWindowLabel $short '5 小时')},@{prefix='Week';window=$week;label=(Get-QuotaWindowLabel $week '每周')})
+  @(@{prefix='Short';window=$short;label=(Get-QuotaWindowLabel $short '5小时')},@{prefix='Week';window=$week;label=(Get-QuotaWindowLabel $week '1周')})
 }
 function Set-ResetTimeMode([string]$mode,[long]$nowMilliseconds){
   $script:resetTimeMode=$mode
   $now=[long][Math]::Floor($nowMilliseconds/1000)
   foreach($row in (Get-QuotaRows)){
     $q=$row.window
-    if($q -and $null-ne $q.resetsAt -and [double]$q.resetsAt-gt 0){$script:ui[$row.prefix+'Reset'].Text=Format-ResetDisplay ([long]$q.resetsAt) $now}
+    if($q -and $null-ne $q.resetsAt -and [double]$q.resetsAt-gt 0){Set-QuotaResetText $row.prefix $row.label (Format-ResetDisplay ([long]$q.resetsAt) $now)}
   }
 }
 function Update-Quota {
@@ -672,10 +709,12 @@ function Update-Quota {
     $prefix=$row.prefix;$q=$row.window
     $script:ui[$prefix+'Label'].Text=$row.label
     $script:ui[$prefix+'Row'].Visibility=if(!$q -and $script:status.queryOk-eq $true){[Windows.Visibility]::Collapsed}else{[Windows.Visibility]::Visible}
+    $script:ui[$prefix+'Reset'].Visibility=$script:ui[$prefix+'Row'].Visibility
     $script:ui[$prefix+'Reset'].ToolTip=$null
     if(!$q){
       $script:ui[$prefix+'Used'].Text='已用 —';$script:ui[$prefix+'Left'].Text='—'
-      $script:ui[$prefix+'Reset'].Text=if($script:status -and $script:status.queryOk-ne $true){'额度读取异常'}else{'暂无额度数据'}
+      $message=if($script:status -and $script:status.queryOk-ne $true){'额度读取异常'}else{'暂无额度数据'}
+      Set-QuotaResetText $prefix $row.label $message
       $script:ui[$prefix+'Bar'].Width=0;$script:ui[$prefix+'Left'].Foreground=[Windows.Media.BrushConverter]::new().ConvertFromString('#95889F');continue
     }
     $hasReset=$null-ne $q.resetsAt -and [double]$q.resetsAt-gt 0
@@ -683,15 +722,22 @@ function Update-Quota {
     $used=([double]$q.used).ToString('0.#');$left=([double]$q.remaining).ToString('0.#')
     $script:ui[$prefix+'Used'].Text=if($expired){"上次 $used%"}else{"已用 $used%"}
     $script:ui[$prefix+'Left'].Text=if($expired){'—'}else{"$left%"}
-    $script:ui[$prefix+'Reset'].Text=if($hasReset){Format-ResetDisplay ([long]$q.resetsAt) $now}else{'未提供重置时间'}
+    foreach($fit in @(@('Label',15,52),@('Left',25,64))){
+      $element=$script:ui[$prefix+$fit[0]];$size=[double]$fit[1];$width=[double]$fit[2]
+      $face=[Windows.Media.Typeface]::new($element.FontFamily,$element.FontStyle,$element.FontWeight,$element.FontStretch)
+      $measure=[Windows.Media.FormattedText]::new($element.Text,[Globalization.CultureInfo]::CurrentCulture,[Windows.FlowDirection]::LeftToRight,$face,$size,$element.Foreground)
+      $element.FontSize=if($measure.Width-gt $width){$size*$width/$measure.Width}else{$size}
+    }
+    $resetText=if($hasReset){Format-ResetDisplay ([long]$q.resetsAt) $now}else{'未提供重置时间'}
+    Set-QuotaResetText $prefix $row.label $resetText
     if($hasReset){$script:ui[$prefix+'Reset'].ToolTip='本机时间 '+[DateTimeOffset]::FromUnixTimeSeconds([long]$q.resetsAt).ToLocalTime().ToString('yyyy-MM-dd HH:mm zzz')+' 重置 · '+(Reset-Label ([double]$q.resetsAt-$now))}
-    $script:ui[$prefix+'Bar'].Width=if($expired){0}else{184*[double]$q.remaining/100}
+    $script:ui[$prefix+'Bar'].Width=if($expired){0}else{188*[Math]::Max(0,[Math]::Min(100,[double]$q.remaining))/100}
     $color=if($expired){'#B3A7C0'}elseif([double]$q.used-ge 90){'#D77659'}elseif([double]$q.used-ge 75){'#D0A051'}else{'#9B86C1'}
     $script:ui[$prefix+'Bar'].Background=[Windows.Media.BrushConverter]::new().ConvertFromString($color)
     $valueColor=if($expired){'#95889F'}elseif([double]$q.used-ge 90){'#B74839'}elseif([double]$q.used-ge 75){'#A06C1C'}else{'#745A98'}
     $script:ui[$prefix+'Left'].Foreground=[Windows.Media.BrushConverter]::new().ConvertFromString($valueColor)
   }
-  $script:ui.WeekRow.Margin=if($script:ui.ShortRow.Visibility-eq [Windows.Visibility]::Collapsed){[Windows.Thickness]::new(0,1,0,0)}else{[Windows.Thickness]::new(0,4,0,0)}
+  if($script:bubbleMode-eq 'quota'){Set-WidgetSceneLayout}
   $age=if($script:status.observedAt){$now-[Math]::Floor([double]$script:status.observedAt/1000)}else{0}
   $dot='#9B86C1'
   if(!$script:status){$script:ui.Status.Text='正在读取订阅额度…';$dot='#C5A96F'}
@@ -707,11 +753,20 @@ function Update-Quota {
   $headerState=if(!$script:status){'正在读取'}elseif(!$script:status.ok){'暂无法读取'}elseif($script:status.error -or $age-gt 180){'上次剩余额度'}else{'剩余额度'}
   $planTitle=([string]$script:status.planLabel).Trim()
   $script:ui.Header.Text=$headerState
+  $header=$script:ui.Header;$header.FontSize=17
+  $headerFace=[Windows.Media.Typeface]::new($header.FontFamily,$header.FontStyle,$header.FontWeight,$header.FontStretch)
+  $headerMeasure=[Windows.Media.FormattedText]::new($header.Text,[Globalization.CultureInfo]::CurrentCulture,[Windows.FlowDirection]::LeftToRight,$headerFace,17,$header.Foreground)
+  if($headerMeasure.Width-gt 94){$header.FontSize=17*94/$headerMeasure.Width}
+  $headerMeasure=[Windows.Media.FormattedText]::new($header.Text,[Globalization.CultureInfo]::CurrentCulture,[Windows.FlowDirection]::LeftToRight,$headerFace,$header.FontSize,$header.Foreground)
+  $headerBounds=$headerMeasure.BuildGeometry([Windows.Point]::new(0,0)).Bounds
+  $headerCenter=[Windows.Controls.Canvas]::GetTop($script:ui.Refresh)+$script:ui.Refresh.Height/2
+  [Windows.Controls.Canvas]::SetTop($header,$headerCenter-$headerBounds.Top-$headerBounds.Height/2)
   $script:ui.Header.ToolTip=if($script:status.planLabel){'当前套餐：'+$script:status.planLabel+' · 重置时间按本机时间显示'}else{'重置时间按本机时间显示'}
   Update-BubbleTooltip
   if($script:widgetColors){Update-WidgetColorScene}
 }
 Set-Appearance;Set-BubbleState;Initialize-WidgetColors;Update-Quota
+$script:window.Add_SizeChanged({Refresh-WidgetTextRaster})
 if($CheckOnly){$hostWindow=[GptWidgetNative]::FindCodex();$foregroundWindow=[GptWidgetNative]::GetAncestor([GptWidgetNative]::GetForegroundWindow(),2);@{ok=$true;imageLoaded=$script:bitmap.PixelWidth-gt 0;characterId=$script:characterId;characterName=$script:activeCharacter.name;soundVolume=$script:soundVolume;sizing=@{character=$script:scale;bubble=$script:bubbleScale;display=$script:displayScale};autoQuotes=@{enabled=$script:autoQuoteEnabled;intervalSeconds=$script:autoQuoteIntervalSeconds};completion=(Get-CompletionNotificationStatus);placement=@{right=$script:offsetRight;left=$script:offsetLeft;bottom=$script:offsetBottom};host=$hostWindow.ToInt64();hostTitle=[GptWidgetNative]::Title($hostWindow);foreground=$foregroundWindow.ToInt64();foregroundTitle=[GptWidgetNative]::Title($foregroundWindow);dataDir=$script:dataDir}|ConvertTo-Json;return}
 if($Preview){
   $script:collapsed=$false;Set-Appearance;Set-BubbleState;Apply-Scene
@@ -926,7 +981,7 @@ function Stop-WidgetRuntime {
   try{if($script:mutexOwned){$script:mutex.ReleaseMutex();$script:mutexOwned=$false}}catch{};try{$script:mutex.Dispose()}catch{}
 }
 function Write-WidgetPresence([bool]$visible,[long]$now){
-Write-WidgetJson (Join-Path $script:dataDir 'presence.json') @{visible=[bool]$visible;at=$now;host=$script:hostHandle.ToInt64();widget=$script:widgetHandle.ToInt64();pid=$PID;character=@{id=$script:characterId;name=$script:activeCharacter.name;galleryOpen=[bool]($script:characterGallery -and $script:characterGallery.IsVisible)};sound=(Get-WidgetAudioStatus);followHost=$script:followHost;follow=@{ready=$script:hostFollower.Ready;events=$script:hostFollower.MovementEvents;mode='native-immediate';animationPaddingDip=14};sizing=@{character=$script:scale;bubble=$script:bubbleScale;display=$script:displayScale;preview=[bool]$script:settingsSizePreview};autoQuotes=@{enabled=$script:autoQuoteEnabled;intervalSeconds=$script:autoQuoteIntervalSeconds;nextAt=$script:autoQuoteNextAt;displayCount=$script:autoQuoteDisplayCount};completion=(Get-CompletionNotificationStatus);recovery=@{checks=$script:occlusionRecovery.Checks;toggles=$script:occlusionRecovery.Toggles;pending=$script:occlusionRecovery.Pending;cloaked=$script:occlusionRecovery.OwnedCloak;failed=$script:occlusionRecovery.Failed;hresult=$script:occlusionRecovery.LastHresult};music=(Get-WidgetMusicStatus);scene=@{open=!$script:collapsed;mode=$script:bubbleMode;resetTimeMode=$script:resetTimeMode;startedAt=$script:sceneStartedAt;closesAt=$script:sceneDeadline;shortReset=$script:ui.ShortReset.Text;weekReset=$script:ui.WeekReset.Text}}
+Write-WidgetJson (Join-Path $script:dataDir 'presence.json') @{visible=[bool]$visible;at=$now;host=$script:hostHandle.ToInt64();widget=$script:widgetHandle.ToInt64();pid=$PID;textRaster=@{renderer='direct-vector-glyphs';draws=[GPTNiang.SmoothTextBlock]::VectorDraws;font=$script:ui.Header.FontFamily.Source;weight=[string]$script:ui.Header.FontWeight};character=@{id=$script:characterId;name=$script:activeCharacter.name;galleryOpen=[bool]($script:characterGallery -and $script:characterGallery.IsVisible)};sound=(Get-WidgetAudioStatus);followHost=$script:followHost;follow=@{ready=$script:hostFollower.Ready;events=$script:hostFollower.MovementEvents;mode='native-immediate';animationPaddingDip=14};sizing=@{character=$script:scale;bubble=$script:bubbleScale;display=$script:displayScale;preview=[bool]$script:settingsSizePreview};autoQuotes=@{enabled=$script:autoQuoteEnabled;intervalSeconds=$script:autoQuoteIntervalSeconds;nextAt=$script:autoQuoteNextAt;displayCount=$script:autoQuoteDisplayCount};completion=(Get-CompletionNotificationStatus);recovery=@{checks=$script:occlusionRecovery.Checks;toggles=$script:occlusionRecovery.Toggles;pending=$script:occlusionRecovery.Pending;cloaked=$script:occlusionRecovery.OwnedCloak;failed=$script:occlusionRecovery.Failed;hresult=$script:occlusionRecovery.LastHresult};music=(Get-WidgetMusicStatus);scene=@{open=!$script:collapsed;mode=$script:bubbleMode;resetTimeMode=$script:resetTimeMode;startedAt=$script:sceneStartedAt;closesAt=$script:sceneDeadline;shortReset=$script:ui.ShortReset.Text;weekReset=$script:ui.WeekReset.Text}}
 }
 function Tick-Widget {
   if($script:updating){return}

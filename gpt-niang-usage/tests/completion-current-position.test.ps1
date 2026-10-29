@@ -2,6 +2,7 @@
 $ErrorActionPreference='Stop'
 Add-Type -AssemblyName PresentationFramework,PresentationCore,WindowsBase
 $appDir=Split-Path $TestRoot -Parent
+. (Join-Path $appDir 'runtime\sharp-text.ps1')
 . (Join-Path $appDir 'runtime\quotes.ps1')
 foreach($module in @('quote-layout.ps1','color-theme.ps1','update-ui.ps1','completion-notifications.ps1')){
   . ([ScriptBlock]::Create([IO.File]::ReadAllText((Join-Path (Join-Path $appDir 'runtime') $module),[Text.Encoding]::UTF8)))
@@ -13,7 +14,7 @@ $ast=[Management.Automation.Language.Parser]::ParseInput($source,[ref]$tokens,[r
 if($errors.Count){throw ($errors|Out-String)}
 $ease=$ast.Find({param($node)$node-is [Management.Automation.Language.CommandAst] -and $node.GetCommandName()-eq 'Add-Type' -and $node.Extent.Text.Contains('class GptBezierEase')},$true)
 . ([ScriptBlock]::Create($ease.Extent.Text))
-foreach($name in @('Set-AnimatedValue','Animate-Value','Set-BubbleState','Get-WidgetLayoutScale','Set-WidgetIndependentLayout','Reset-Label','Format-ResetTime','Format-ResetDisplay','Get-QuotaWindowLabel','Get-QuotaRows','Set-ResetTimeMode','Restart-SceneTtl','Tick-Scene','Apply-Scene','Update-BubbleTooltip','Switch-Scene','Show-Quote','Show-Quota','Open-WidgetBubble','Hide-Quota','Tick-WidgetAutoQuote','Write-WidgetJson','Save-Settings','Read-DisplayRequest','Request-Refresh','Next-Bubble','Click-Character')){
+foreach($name in @('Set-AnimatedValue','Animate-Value','Set-BubbleState','Get-WidgetLayoutScale','Set-WidgetIndependentLayout','Reset-Label','Format-ResetTime','Format-ResetDisplay','Set-QuotaResetText','Get-QuotaWindowLabel','Get-QuotaRows','Set-ResetTimeMode','Restart-SceneTtl','Tick-Scene','Apply-Scene','Update-BubbleTooltip','Switch-Scene','Show-Quote','Show-Quota','Open-WidgetBubble','Hide-Quota','Tick-WidgetAutoQuote','Write-WidgetJson','Save-Settings','Read-DisplayRequest','Request-Refresh','Next-Bubble','Click-Character')){
   $definition=$ast.Find({param($node)$node-is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name-eq $name},$true)
   if(!$definition){throw ('Missing real widget function: '+$name)}
   . ([ScriptBlock]::Create($definition.Extent.Text))
@@ -33,7 +34,7 @@ $script:dataDir=Join-Path ([IO.Path]::GetTempPath()) ('gpt-niang-completion-wpf-
 $null=[IO.Directory]::CreateDirectory($script:dataDir)
 $settingsFile=Join-Path $script:dataDir 'settings.json'
 $refreshFile=Join-Path $script:dataDir 'refresh.flag'
-$script:window=[Windows.Markup.XamlReader]::Parse([IO.File]::ReadAllText((Join-Path $appDir 'widget.xaml'),[Text.Encoding]::UTF8))
+$script:window=[Windows.Markup.XamlReader]::Parse((ConvertTo-SmoothWidgetXaml ([IO.File]::ReadAllText((Join-Path $appDir 'widget.xaml'),[Text.Encoding]::UTF8)) -AppDir $appDir))
 $script:ui=@{}
 foreach($name in @('Root','Bubble','Tail','TailNear','SceneText','QuotaText','QuoteText','BubbleShape','Girl','PressScale','FacingScale','TextFacingScale','Header','Refresh','MenuButton','Status','LiveDot','ShortRow','WeekRow','ShortLabel','WeekLabel','ShortUsed','ShortLeft','ShortReset','ShortBar','WeekUsed','WeekLeft','WeekReset','WeekBar')){$script:ui[$name]=$script:window.FindName($name)}
 $script:ui.Girl.Source=[Windows.Media.Imaging.BitmapImage]::new([Uri](Join-Path $appDir 'assets\gpt-dragon-niang-bust.png'))

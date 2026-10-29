@@ -2,6 +2,8 @@ param([string]$TestRoot=$PSScriptRoot)
 $ErrorActionPreference='Stop'
 Add-Type -AssemblyName PresentationFramework,PresentationCore,WindowsBase,System.Windows.Forms
 $appDir=Split-Path $TestRoot -Parent
+. (Join-Path $appDir 'runtime\sharp-text.ps1')
+$script:ui=@{}
 . (Join-Path $appDir 'runtime\host-follow.ps1')
 $source=[IO.File]::ReadAllText((Join-Path $appDir 'widget.ps1'),[Text.Encoding]::UTF8)
 $tokens=$null;$errors=$null

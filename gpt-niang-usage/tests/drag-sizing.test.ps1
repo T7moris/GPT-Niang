@@ -1,6 +1,8 @@
 param([string]$TestRoot=$PSScriptRoot,[string]$WidgetSource)
 $ErrorActionPreference='Stop'
 if(!$WidgetSource){$WidgetSource=Join-Path (Split-Path $TestRoot -Parent) 'widget.ps1'}
+Add-Type -AssemblyName PresentationFramework,PresentationCore,WindowsBase
+. (Join-Path (Split-Path $WidgetSource -Parent) 'runtime\sharp-text.ps1')
 . (Join-Path (Split-Path $WidgetSource -Parent) 'runtime\quotes.ps1')
 Initialize-WidgetAutoQuoteSettings $null
 . (Join-Path (Split-Path $WidgetSource -Parent) 'runtime\audio.ps1')
