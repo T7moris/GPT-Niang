@@ -1,9 +1,9 @@
-param([switch]$KeepFixture)
+param([switch]$KeepFixture,[string]$FixtureDirectory=([IO.Path]::GetTempPath()))
 # Optional real Codex CLI / Task Scheduler test. It uses a private Codex home,
 # a dedicated task name, temporary shortcut and launcher, and never opens a GUI.
 $ErrorActionPreference='Stop'
 $source=Split-Path $PSScriptRoot -Parent
-$testRoot=Join-Path ([IO.Path]::GetTempPath()) ('gpt-niang-update-live-'+[Guid]::NewGuid().ToString('N'))
+$testRoot=Join-Path $FixtureDirectory ('gpt-niang-update-live-'+[Guid]::NewGuid().ToString('N'))
 $app=Join-Path $testRoot 'install\gpt-niang-usage';$agent=Join-Path $testRoot 'agent';$data=Join-Path $testRoot 'state'
 $powerShell=Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\powershell.exe'
 $sid=[Security.Principal.WindowsIdentity]::GetCurrent().User.Value
@@ -37,7 +37,8 @@ function Copy-TestPackage([string]$Root,[string]$Version) {
     if(!$text.Contains($entry.Value.Before)){throw ('Isolation patch anchor missing: '+$entry.Key)}
     $text=$text.Replace($entry.Value.Before,$entry.Value.After)
     if($entry.Key-eq 'supervisor.ps1'){$text=$text.Replace('Local\GPTNiangSupervisor-',('Local\GPTNiangSupervisorTest-'+(Split-Path $testRoot -Leaf)+'-'))}
-    [IO.File]::WriteAllText($file,$text,[Text.UTF8Encoding]::new($false))
+    # Windows PowerShell 5.1 needs a BOM for injected non-ASCII fixture paths.
+    [IO.File]::WriteAllText($file,$text,[Text.UTF8Encoding]::new($true))
   }
 }
 function Start-IsolatedPowerShell([string]$Script,[string]$Extra='') {
@@ -86,7 +87,7 @@ try {
   Write-WidgetSupervisorJson (Join-Path $data 'update-preferences.json') @{automatic=$false}
   Wait-IsolatedProcess (Start-IsolatedPowerShell (Join-Path $app 'Install.ps1'))
   $registered=Get-ScheduledTask -TaskName $taskName -ErrorAction Stop
-  if($registered.Actions[0].WorkingDirectory-ine (Join-Path $env:WINDIR 'System32')-or $registered.Actions[0].Arguments-cne (Get-WidgetAgentPowerShellArguments $agent)){throw 'Real task did not use the isolated stable entry.'}
+  if($registered.Actions[0].Execute-ine (Get-WidgetSupervisorHostPath $agent)-or $registered.Actions[0].WorkingDirectory-ine (Join-Path $env:WINDIR 'System32')-or $registered.Actions[0].Arguments-cne '-Supervisor'){throw 'Real task did not use the isolated windowless entry.'}
   Write-Output 'PASS real initial plugin and stable scheduled task registration'
   $lock=Enter-WidgetUpdateLock
   $job=Join-Path $data ('updates\'+$lock.Token);$candidate=Join-Path $job 'package\bundle'
@@ -158,7 +159,7 @@ try {
   foreach($process in $processes){if(!$process.HasExited){$process.Kill();$process.WaitForExit()};$process.Dispose()}
   $task=Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
   if($task){
-    if($task.Actions[0].Arguments-cne (Get-WidgetAgentPowerShellArguments $agent)-or $task.Actions[0].Execute-ine $powerShell){throw 'Refusing cleanup of a foreign integration task.'}
+    if($task.Actions[0].Arguments-cne '-Supervisor'-or $task.Actions[0].Execute-ine (Get-WidgetSupervisorHostPath $agent)){throw 'Refusing cleanup of a foreign integration task.'}
     Stop-ScheduledTask -TaskName $taskName
     Unregister-ScheduledTask -TaskName $taskName -Confirm:$false
   }
@@ -170,7 +171,7 @@ try {
     if($current -and $current.CreationDate-eq $child.CreationDate){Stop-Process -Id $child.ProcessId -Force -ErrorAction SilentlyContinue}
   }
   Start-Sleep -Milliseconds 300
-  $resolved=[IO.Path]::GetFullPath($testRoot);$prefix=[IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd('\')+'\'
+  $resolved=[IO.Path]::GetFullPath($testRoot);$prefix=[IO.Path]::GetFullPath($FixtureDirectory).TrimEnd('\')+'\'
   if(!$resolved.StartsWith($prefix,[StringComparison]::OrdinalIgnoreCase) -or (Split-Path $resolved -Leaf)-notlike 'gpt-niang-update-live-*'){throw 'Unsafe integration cleanup path.'}
   if(!$KeepFixture){Remove-Item -LiteralPath $resolved -Recurse -Force}
 }

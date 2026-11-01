@@ -112,7 +112,11 @@ try{
       if(!$paused -and ($desktop -or $visible.Count-gt 0) -and !$running -and !$pendingGui -and [DateTime]::UtcNow-ge $nextLaunch){
         $nextLaunch=[DateTime]::UtcNow.AddSeconds(10)
         $powerShell=Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\powershell.exe'
-        $pendingGui=Start-Process -FilePath $powerShell -ArgumentList @('-NoLogo','-NoProfile','-STA','-ExecutionPolicy','Bypass','-WindowStyle','Hidden','-File',('"'+(Join-Path $info.AppDir 'runtime\start-widget.ps1')+'"'),'-WidgetPath',('"'+(Join-Path $info.AppDir 'widget.ps1')+'"')) -WindowStyle Hidden -PassThru
+        $start=New-Object Diagnostics.ProcessStartInfo
+        $start.FileName=$powerShell
+        $start.Arguments='-NoLogo -NoProfile -STA -ExecutionPolicy Bypass -WindowStyle Hidden -File "'+(Join-Path $info.AppDir 'runtime\start-widget.ps1')+'" -WidgetPath "'+(Join-Path $info.AppDir 'widget.ps1')+'"'
+        $start.UseShellExecute=$false;$start.CreateNoWindow=$true
+        $pendingGui=[Diagnostics.Process]::Start($start)
       }
       if([DateTime]::UtcNow-ge $nextStatus){
         Write-WidgetSupervisorJson (Join-Path $info.DataDir 'supervisor-status.json') @{pid=$PID;processStartedAt=$processStartedAt;at=[DateTime]::UtcNow.ToString('o');mainWindows=$hosts.Count;visibleWindows=$visible.Count;paused=$paused;widgetRunning=$running;taskName=$info.TaskName}

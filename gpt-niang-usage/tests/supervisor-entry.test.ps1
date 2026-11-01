@@ -13,13 +13,19 @@ try{
  Write-WidgetSupervisorJson (Join-Path $app 'installation.json') $config
  $info=Get-WidgetSupervisorInfo $app
  Write-WidgetSupervisorJson (Join-Path $script:entryAgent 'binding.json') @{sid=$info.Sid;appDir=$app;dataDir=$data}
- Assert ($info.Execute-ieq (Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\powershell.exe')) 'Task still depends on WScript'
+ Assert ($info.Execute-ieq (Join-Path $script:entryAgent 'supervisor-host.exe')) 'Task does not use the windowless host'
  Assert ($info.WorkingDirectory-ieq (Join-Path $env:WINDIR 'System32')) 'Task relies on the potentially redirected agent working directory'
- Assert ($info.Arguments.Contains('-File "'+(Join-Path $script:entryAgent 'update-agent.ps1')+'" -Supervisor')) 'Direct entry path changed'
+ Assert ($info.Arguments-ceq '-Supervisor') 'Unexpected host arguments'
  $script:entryTask=[pscustomobject]@{TaskName=$info.TaskName;TaskPath=$info.TaskPath;State='Running';Principal=@{UserId=$info.Sid;LogonType='Interactive';RunLevel='Limited'};Actions=@(@{Execute=$info.Execute;Arguments=$info.Arguments;WorkingDirectory=$info.WorkingDirectory})}
  Assert-WidgetSupervisorTaskIdentity $script:entryTask $info;$checks++
  $shortcut=@{TargetPath=$info.Execute;Arguments=$info.Arguments}
- Assert (Test-WidgetStartupShortcutIdentity $shortcut $app) 'Independent direct-start shortcut rejected'
+ Assert (Test-WidgetStartupShortcutIdentity $shortcut $app) 'Independent windowless shortcut rejected'
+ $direct=@{TargetPath=(Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\powershell.exe');Arguments=(Get-WidgetAgentPowerShellArguments $script:entryAgent)}
+ Assert (Test-WidgetStartupShortcutIdentity $direct $app) 'Existing direct-start shortcut cannot migrate'
+ $directTask=[pscustomobject]@{TaskName=$info.TaskName;TaskPath=$info.TaskPath;Principal=$script:entryTask.Principal;Actions=@(@{Execute=$direct.TargetPath;Arguments=$direct.Arguments;WorkingDirectory=$info.WorkingDirectory})}
+ Assert-WidgetSupervisorTaskIdentity $directTask $info;$checks++
+ $directTask.Actions[0].Arguments=Get-WidgetAgentLegacyEncodedArguments $script:entryAgent
+ Assert-WidgetSupervisorTaskIdentity $directTask $info;$checks++
  $legacy=[pscustomobject]@{TaskName=$info.TaskName;TaskPath=$info.TaskPath;Principal=$script:entryTask.Principal;Actions=@(@{Execute=(Join-Path $env:WINDIR 'System32\wscript.exe');Arguments=('"'+(Join-Path $script:entryAgent 'agent-supervisor.vbs')+'"');WorkingDirectory=$script:entryAgent})}
  Assert-WidgetSupervisorTaskIdentity $legacy $info;$checks++
  $script:entryTask.Actions[0].Arguments+=' -File C:\foreign.ps1'
@@ -39,7 +45,7 @@ try{
  $script:entryStarted=(Get-Process -Id $PID).StartTime.ToUniversalTime()
  Write-WidgetSupervisorJson (Join-Path $data 'supervisor-status.json') @{pid=$PID;processStartedAt=$script:entryStarted.ToString('o');at=[DateTime]::UtcNow.ToString('o');paused=$false;widgetRunning=$false;visibleWindows=0}
  Wait-WidgetUpdatedHealth @{appDir=$app;dataDir=$data;version='1.3.5';installStartedAt=$script:entryStarted.AddSeconds(-1).ToString('o')};$checks++
- Write-Output ('PASS: '+$checks+' direct task, independent startup, legacy migration, recovery and updater health assertions')
+ Write-Output ('PASS: '+$checks+' windowless task, independent startup, legacy migration, recovery and updater health assertions')
 }finally{
  $resolved=[IO.Path]::GetFullPath($root)
  if(!$resolved.StartsWith([IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd('\')+'\',[StringComparison]::OrdinalIgnoreCase)){throw 'Unsafe entry fixture cleanup'}

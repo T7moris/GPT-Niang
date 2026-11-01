@@ -96,12 +96,37 @@ function Assert-WidgetUpdateBinding([string]$AppDir,[string]$DataDir,[string]$Ag
   if(!$binding -or $binding.sid-ne $sid -or [IO.Path]::GetFullPath($binding.appDir)-ine [IO.Path]::GetFullPath($AppDir) -or [IO.Path]::GetFullPath($binding.dataDir)-ine [IO.Path]::GetFullPath($DataDir)){throw 'Stable update launcher identity mismatch.'}
   return $binding
 }
+function Install-WidgetSupervisorHost([string]$AppDir,[string]$AgentDir) {
+  $source=Join-Path $AppDir 'runtime\supervisor-host.cs'
+  $target=Get-WidgetSupervisorHostPath $AgentDir
+  $stampFile=Join-Path $AgentDir 'supervisor-host-build.json'
+  $sourceHash=Get-WidgetFileHash $source
+  $stamp=Read-WidgetUpdateJson $stampFile
+  # Leave a running, unchanged stable host in place during update recovery.
+  if($stamp -and $stamp.sourceHash-eq $sourceHash -and [IO.File]::Exists($target) -and $stamp.binaryHash-eq (Get-WidgetFileHash $target)){return}
+  $null=[IO.Directory]::CreateDirectory($AgentDir)
+  $temp=Join-Path $AgentDir ('supervisor-host.'+[Guid]::NewGuid().ToString('N')+'.exe')
+  $compiler=New-Object Microsoft.CSharp.CSharpCodeProvider
+  try{
+    # CodeDOM takes literal paths; Add-Type resolves brackets as wildcards.
+    $options=New-Object CodeDom.Compiler.CompilerParameters
+    $options.GenerateExecutable=$true;$options.OutputAssembly=$temp
+    $options.CompilerOptions='/target:winexe /optimize+'
+    $options.TempFiles=New-Object CodeDom.Compiler.TempFileCollection($AgentDir,$false)
+    $null=$options.ReferencedAssemblies.Add('System.dll')
+    $result=$compiler.CompileAssemblyFromSource($options,[IO.File]::ReadAllText($source,[Text.Encoding]::UTF8))
+    if($result.Errors.HasErrors){throw ('Windowless host compilation failed: '+(($result.Errors|Where-Object{!$_.IsWarning}|ForEach-Object{$_.ToString()}) -join '; '))}
+    if([IO.File]::Exists($target)){[IO.File]::Replace($temp,$target,[System.Management.Automation.Language.NullString]::Value)}else{[IO.File]::Move($temp,$target)}
+    Write-WidgetSupervisorJson $stampFile @{sourceHash=$sourceHash;binaryHash=(Get-WidgetFileHash $target)}
+  }finally{$compiler.Dispose();if($options){$options.TempFiles.Delete()};if([IO.File]::Exists($temp)){[IO.File]::Delete($temp)}}
+}
 function Install-WidgetUpdateAgent([string]$AppDir,[string]$DataDir) {
   $agentDir=Get-WidgetUpdateAgentDir
   Assert-WidgetUpdateChildPath $AppDir (Split-Path $AppDir -Parent)
   $old=Read-WidgetUpdateJson (Join-Path $agentDir 'binding.json')
   if($old -and $old.appDir-ine $AppDir -and (Test-Path -LiteralPath $old.appDir)){throw 'Stable launcher belongs to an existing installation.'}
   $null=New-Item -ItemType Directory -Path $agentDir -Force
+  Install-WidgetSupervisorHost $AppDir $agentDir
   foreach($file in @('update-agent.ps1','update-helper.ps1','update-common.ps1','update-lock.ps1','supervisor-task.ps1','install-preflight.ps1','agent-launch.vbs','agent-supervisor.vbs')) {
     $bytes=[IO.File]::ReadAllBytes((Join-Path $AppDir ('runtime\'+$file)))
     $target=Join-Path $agentDir $file

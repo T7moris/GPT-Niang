@@ -11,6 +11,7 @@
 - `runtime/watch.mjs` / `runtime/worker-state.mjs`：双平台共享的额度刷新与单实例 worker。
 - `runtime/thread-speed.mjs`：Mac 聊天速度面板的本地计数 helper，不代表实时模型速度。
 - `runtime/supervisor.ps1`：识别主窗口并自动恢复角色。
+- `runtime/supervisor-host.cs`：安装时编译的无控制台启动器；在当前用户会话内后台运行，保留登录启动、异常重启和更新恢复。
 - `runtime/host-layer.ps1`：主窗口归属与遮挡顺序。
 - `assets/quotes.json`：内置中文语录。
 - `tests/`：额度解析、刷新队列、Windows 安装与生命周期，以及本地线程计数测试。

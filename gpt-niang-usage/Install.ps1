@@ -24,10 +24,10 @@ try {
   Assert-WidgetPluginRegistration $config.codexPath $config.version
   $link=(New-Object -ComObject WScript.Shell).CreateShortcut($config.startupShortcut)
   # Startup is an independent fallback if the scheduled action cannot run.
-  $link.TargetPath=Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\powershell.exe'
-  $link.Arguments=Get-WidgetAgentPowerShellArguments $config.updateAgent
+  $link.TargetPath=Get-WidgetSupervisorHostPath $config.updateAgent
+  $link.Arguments='-Supervisor'
   $link.WorkingDirectory=Join-Path $env:WINDIR 'System32'
-  $link.WindowStyle=7
+  $link.WindowStyle=1
   $link.Description='GPT Niang: Codex subscription quota widget'
   $link.Save()
   $task=Register-WidgetSupervisorTask -AppDir $appDir
