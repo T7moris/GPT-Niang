@@ -15,7 +15,7 @@ export function compileNative(root,output=path.join(root,'native'),{inputDll=nul
   const environment=path.join(visualStudio,'VC','Auxiliary','Build','vcvars64.bat');if(!fs.existsSync(environment))throw Error('MSVC x64 compiler is not available');
   if(/["\r\n]/.test(environment))throw Error('Invalid compiler path');
   if(path.resolve(root,'native')!==path.resolve(output))fs.copyFileSync(path.join(root,'native','mouse-activation.cpp'),path.join(output,'mouse-activation.cpp'));
-  execFileSync(path.join(process.env.WINDIR,'System32','cmd.exe'),['/d','/s','/c',`call "${environment}" >nul && cl.exe /nologo /LD /O2 /MT /EHsc mouse-activation.cpp /link /OUT:GPTNiang.Input.dll comctl32.lib user32.lib`],{cwd:output,windowsHide:true,stdio:'pipe'});
+  execFileSync(path.join(process.env.WINDIR,'System32','cmd.exe'),['/d','/s','/c',`call "${environment}" >nul && cl.exe /nologo /LD /O2 /MT /EHsc mouse-activation.cpp /link /OUT:GPTNiang.Input.dll comctl32.lib user32.lib`],{cwd:output,windowsHide:true,windowsVerbatimArguments:true,stdio:'pipe'});
   for(const suffix of ['obj','lib','exp','pdb'])for(const base of ['mouse-activation','GPTNiang.Input']){const file=path.join(output,base+'.'+suffix);if(fs.existsSync(file))fs.unlinkSync(file);}
  }
 }

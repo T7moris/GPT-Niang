@@ -5,3 +5,4 @@ native/*.lib
 native/*.exp
 native/*.pdb
 node_modules/
+tests/.generated/
