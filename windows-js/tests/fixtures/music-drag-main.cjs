@@ -4,7 +4,7 @@ process.on('uncaughtException',fatal);process.on('unhandledRejection',fatal);
 const root=path.resolve(process.argv[2]),data=path.resolve(process.argv[3]);
 fs.mkdirSync(data,{recursive:true});fs.writeFileSync(path.join(data,'settings.json'),JSON.stringify({layoutVersion:2,scale:1,bubbleScale:1,followHost:true,soundOn:false,colorMode:'original',taskCompletionBubble:false}));
 const config=path.join(data,'test-config.json');fs.writeFileSync(config,JSON.stringify({candidate:true,architecture:'javascript-electron',appDir:root,dataDir:data,nodePath:process.execPath}));
-process.argv=[process.argv[0],process.argv[1],'--candidate','--bench','--data-dir',data,'--config',config];app.setPath('userData',path.join(data,'electron-profile'));
+process.argv=[process.argv[0],process.argv[1],'--candidate','--bench','--hidden-test','--data-dir',data,'--config',config];app.setPath('userData',path.join(data,'electron-profile'));
 const pause=ms=>new Promise(resolve=>setTimeout(resolve,ms)),timer=setTimeout(()=>{console.error('music drag fixture timeout');app.exit(1);},12000);
 (async()=>{try{
   // Keep real native geometry and page input, without exposing test windows.

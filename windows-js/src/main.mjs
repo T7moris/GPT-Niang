@@ -200,6 +200,7 @@ async function run() {
       nodeIntegration: false,
       sandbox: true,
       backgroundThrottling: false,
+      offscreen: candidate && args.includes('--hidden-test'),
       autoplayPolicy: "no-user-gesture-required",
     },
   });

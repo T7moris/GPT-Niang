@@ -6,6 +6,9 @@ on:
   workflow_dispatch:
 permissions:
   contents: read
+concurrency:
+  group: javascript-beta-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   windows-js:
     runs-on: windows-latest
@@ -49,3 +52,35 @@ jobs:
             dist/javascript-beta/package-verification.json
           compression-level: 0
           if-no-files-found: error
+  publish-beta:
+    needs: windows-js
+    if: github.ref == 'refs/heads/beta/javascript-1.4.0'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: javascript-beta-windows
+          path: dist
+      - name: Publish the verified JavaScript Beta draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(node -p "require('./windows-js/package.json').version")"
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+-beta\.[0-9]+$ ]]
+          tag="v$version"
+          (cd dist && sha256sum --check SHA256SUMS.txt)
+          test "$(node -p "require('./dist/package-verification.json').sourceCommit")" = "$GITHUB_SHA"
+          gh api "repos/$GITHUB_REPOSITORY/releases/tags/$tag" > "$RUNNER_TEMP/beta-release.json"
+          jq -e '.draft == true and .prerelease == true' "$RUNNER_TEMP/beta-release.json" >/dev/null
+          test "$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$tag" --jq .object.sha)" = "$GITHUB_SHA"
+          gh release upload "$tag" dist/*-windows-js.zip dist/SHA256SUMS.txt --repo "$GITHUB_REPOSITORY" --clobber
+          notes="$RUNNER_TEMP/beta-notes.md"
+          cp windows-js/RELEASE_NOTES.md "$notes"
+          printf '\n构建检查：[GitHub Actions](%s/%s/actions/runs/%s)。\n' "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID" >> "$notes"
+          gh release edit "$tag" --repo "$GITHUB_REPOSITORY" --draft=false --prerelease --latest=false --notes-file "$notes"
+          test "$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq .tag_name)" = 'v1.3.6'
