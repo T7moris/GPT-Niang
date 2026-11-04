@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; img-src 'self' data:; media-src data:; style-src 'self' 'unsafe-inline'; script-src 'self'"
+    />
+    <link rel="stylesheet" href="widget.css" />
+    <title>GPT 娘 · 额度用量</title>
+  </head>
+  <body>
+    <main id="stage">
+      <div id="root">
+        <div id="bubble" aria-label="点气泡看语录，再点收起">
+          <div id="bubble-animation">
+            <svg width="350" height="239" viewBox="0 0 350 239">
+              <defs>
+                <linearGradient id="flow">
+                  <stop offset="0" stop-color="#D773AD" />
+                  <stop offset=".2" stop-color="#9A79DC" />
+                  <stop offset=".4" stop-color="#579DCF" />
+                  <stop offset=".6" stop-color="#43AE94" />
+                  <stop offset=".8" stop-color="#DBA15C" />
+                  <stop offset="1" stop-color="#D773AD" />
+                </linearGradient>
+              </defs>
+              <path
+                id="bubble-shape"
+                fill="white"
+                stroke="#745A98"
+                stroke-width="4"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                d="M 27,85 A 128,79 0 1 1 283,85 A 128,79 0 0 1 196,160 A 20,10 0 0 1 161,164 A 128,79 0 0 1 27,85 Z"
+              />
+            </svg>
+            <div id="scene">
+              <div id="quota">
+                <div id="header-row">
+                  <span id="header">剩余额度</span
+                  ><button id="refresh" title="立即刷新额度">↻</button>
+                </div>
+                <div id="rows"></div>
+              </div>
+              <div id="quote"></div>
+            </div>
+          </div>
+        </div>
+        <i id="tail" class="tail"></i><i id="tail-near" class="tail"></i
+        ><canvas id="under" width="700" height="700"></canvas>
+        <div id="girl-wrap">
+          <img
+            id="girl"
+            draggable="false"
+            title="点角色看额度；点气泡看语录，再点收起；拖动调整位置；右键设置"
+          />
+          <div id="girl-color"></div>
+        </div>
+        <canvas id="over" width="700" height="700"></canvas
+        ><button id="menu-button" title="挂件设置">
+          <svg viewBox="0 0 16 16">
+            <path
+              d="M 2,4 L 14,4 M 2,8 L 14,8 M 2,12 L 14,12"
+              stroke="currentColor"
+              stroke-width="1.4"
+              stroke-linecap="round"
+              fill="none"
+            />
+          </svg>
+        </button>
+      </div>
+    </main>
+    <script type="module" src="widget.mjs"></script>
+  </body>
+</html>

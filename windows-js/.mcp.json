@@ -1,0 +1,1 @@
+{"mcpServers":{"gpt-niang-usage":{"command":"${CLAUDE_PLUGIN_ROOT}/native/GPTNiang.Start.exe","args":["--mcp"]}}}

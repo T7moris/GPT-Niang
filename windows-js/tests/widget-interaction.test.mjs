@@ -1,0 +1,20 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {spawn} from 'node:child_process';
+import {fileURLToPath} from 'node:url';
+import {guiEnvironment} from '../src/core/storage.mjs';
+test('renderer keeps geometry lightweight and pointer cancellation does not trigger clicks',{skip:process.platform!=='win32',timeout:25000},async()=>{
+  const child=spawn(fileURLToPath(new URL('../node_modules/electron/dist/electron.exe',import.meta.url)),[fileURLToPath(new URL('./fixtures/widget-interaction-electron.mjs',import.meta.url))],{windowsHide:true,env:guiEnvironment(),stdio:'pipe'});
+  let output='',error='';child.stdout.on('data',b=>output+=b);child.stderr.on('data',b=>error+=b);
+  assert.equal(await new Promise((resolve,reject)=>{child.once('exit',resolve);child.once('error',reject);}),0,error);
+  const result=JSON.parse(output.trim().split(/\r?\n/).find(line=>line.startsWith('{')));
+  assert.equal(result.geometry.rowRebuilds,0,JSON.stringify(result));assert.equal(result.geometry.audioKeyBuilds,0);assert.equal(result.geometry.sameRow,true);
+  assert.deepEqual(result.quota,{text:true,width:'39%',sameRow:true});
+  assert.deepEqual(result.audio,{decodeCalls:2,press:true,release:true});
+  assert.deepEqual(result.pointer,{foreign:['arm','end'],cancel:['arm','cancel'],blur:['arm','cancel'],outside:[],pose:['arm','end']});
+  assert.deepEqual(result.audioSwitch,{whileLoading:0,afterLoading:1});
+  assert.deepEqual(result.music,{started:true,width:52,height:208,dragWithoutAudio:true,errors:[]},JSON.stringify(result));
+  assert.deepEqual(result.replacement,{sameIdReloaded:true,resourcesUpdated:true});
+  assert.equal(result.quoteLayout.matching,true);assert.equal(result.quoteLayout.cases,3);assert.ok(result.quoteLayout.actualCalls<result.quoteLayout.referenceCalls);
+  assert.equal(result.quoteLayout.quotaTooltip,true);assert.equal(result.quoteLayout.colorReset,true);
+});

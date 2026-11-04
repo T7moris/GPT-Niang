@@ -1,0 +1,51 @@
+name: JavaScript architecture Beta
+on:
+  push:
+    branches: ['beta/javascript-*']
+    paths: ['windows-js/**', '.github/workflows/javascript-beta.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  windows-js:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: windows-js/package-lock.json
+      - name: Install locked dependencies
+        working-directory: windows-js
+        run: npm ci
+      - name: Prepare Electron runtime
+        working-directory: windows-js
+        run: npm run prepare:runtime
+      - name: Compile native helpers
+        working-directory: windows-js
+        run: npm run compile:native
+      - name: Verify JavaScript architecture
+        uses: actions/upload-artifact@v4
+        with:
+          name: javascript-native-input
+          path: windows-js/native/GPTNiang.Input.dll
+          if-no-files-found: error
+      - name: Verify JavaScript architecture
+        working-directory: windows-js
+        env:
+          GPT_NIANG_LEGACY_ROOT: ../gpt-niang-usage
+        run: npm test
+      - name: Build clean Beta package
+        working-directory: windows-js
+        run: npm run package:beta -- --output ../dist/javascript-beta
+      - uses: actions/upload-artifact@v4
+        with:
+          name: javascript-beta-windows
+          path: |
+            dist/javascript-beta/*.zip
+            dist/javascript-beta/SHA256SUMS.txt
+            dist/javascript-beta/package-verification.json
+          compression-level: 0
+          if-no-files-found: error

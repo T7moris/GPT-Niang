@@ -1,0 +1,29 @@
+GPT-Niang 角色与图片素材使用声明 / GPT-Niang character and image asset notice
+
+适用范围
+本声明适用于 gpt-dragon-niang-bust.png，以及由该图制作的角色图标、
+应用图标和图片副本。该素材不适用项目代码的 MIT License。
+本声明不修改代码许可，也不修改 quotes-LICENSE.txt 中的上游语录许可。
+
+素材来源与权利
+当前龙娘图片由 ImageGen 根据用户提供的角色参考生成，制作过程见
+同目录的“生成说明.md”。参考图、参考角色及可能涉及的第三方图像、
+角色设计或商标的权利仍归各自权利人；本项目不主张拥有这些第三方权利。
+
+使用范围
+在维护者有权许可的范围内，允许图片随本项目及其非商业副本，作为
+挂件或项目说明的一部分展示和分发，并保留本声明与素材来源说明。
+未经相关权利人另行授权，不得将角色或图片用于商业产品、广告、
+周边销售、收费素材包等商业用途，也不得作为独立素材包分发。
+代码的 MIT 许可不构成图片、参考角色、第三方图像或商标的商业授权；
+如需商用，应自行取得相应权利人的许可，或替换为具有适当授权的素材。
+
+Source code and documentation remain under the MIT License. The character
+image, derived icons and image copies are excluded from that license.
+To the extent the maintainers can grant permission, the image may accompany
+non-commercial copies of this project for widget and project-display purposes,
+with this notice and the source information retained. No permission is granted
+for commercial asset use or standalone asset-pack distribution. Rights in
+third-party references, character designs and trademarks remain with their
+respective holders. Obtain the appropriate permissions for commercial use.
+The separate upstream quotation license in quotes-LICENSE.txt is unchanged.

@@ -1,0 +1,111 @@
+import {app,BrowserWindow,ipcMain} from 'electron';
+import fs from 'node:fs';
+import path from 'node:path';
+import {fileURLToPath} from 'node:url';
+import sharp from 'sharp';
+import {defaults} from '../../src/core/settings.mjs';
+import {layout} from '../../src/core/layout.mjs';
+import {palettes} from '../../src/core/colors.mjs';
+import {quoteFitReference} from './quote-fit-reference.mjs';
+const source=fileURLToPath(new URL('../../',import.meta.url)),uiRoot=process.argv[2]??source;
+let window,phase='ready',initial;
+const fatal=error=>{console.error(error?.stack??error);app.exit(1);};
+process.on('uncaughtException',fatal);process.on('unhandledRejection',fatal);
+ipcMain.handle('fixture-ready',()=>initial);
+const timer=setTimeout(()=>{console.error('widget fixture timed out: '+phase);app.exit(1);},20000);
+async function main(){try{
+  const png=await sharp({create:{width:200,height:200,channels:4,background:'#9988bb'}}).png().toBuffer();
+  const portrait=await sharp({create:{width:32,height:128,channels:4,background:{r:150,g:130,b:190,alpha:11/255}}}).png().toBuffer();
+  const pixels=Buffer.alloc(32*128*4);for(let n=0;n<32*64;n++){pixels[n*4]=150;pixels[n*4+1]=130;pixels[n*4+2]=190;pixels[n*4+3]=255;}
+  const edited=await sharp(pixels,{raw:{width:32,height:128,channels:4}}).png().toBuffer();
+  const sound=slot=>'data:audio/wav;base64,'+fs.readFileSync(path.join(source,'assets',slot+'.wav')).toString('base64');
+  const press=sound('press'),release=sound('release');
+  initial={settings:{...defaults},layout:layout(defaults),scene:{collapsed:false,preview:false,mode:'quota',revision:1,text:''},
+    quota:{header:'剩余额度',headerTooltip:'fixture',tooltip:'fixture',rows:[{visible:true,label:'5小时',leftText:'50%',valueColor:'#745a98',bar:50,barColor:'#9b86c1',resetText:'1分钟后重置',tooltip:'fixture'}]},
+    colors:{scope:'none',palette:palettes.rainbow,paused:false},image:{id:'fixture',url:'data:image/png;base64,'+png.toString('base64')},
+    audio:{slots:{press,release},previewSlots:{press,release}},quoteLayouts:{quotes:[]},music:false,musicColor:false,visible:true,blocked:false,temporary:false,
+    faintImage:{id:'faint',url:'data:image/png;base64,'+portrait.toString('base64')},editedImage:{id:'faint',url:'data:image/png;base64,'+edited.toString('base64')},dpi:1,frame:{left:0,top:0,width:1200,height:800},normal:{x:0,y:0},position:{left:0,top:0}};
+  await app.whenReady();
+  window=new BrowserWindow({show:false,width:378,height:378,webPreferences:{offscreen:true,contextIsolation:true,backgroundThrottling:false,autoplayPolicy:'no-user-gesture-required',preload:path.join(source,'tests/fixtures/widget-interaction-preload.cjs')}});
+  window.webContents.setFrameRate(60);
+  await window.loadFile(path.join(uiRoot,'ui/index.html'));phase='render';
+  const report=await window.webContents.executeJavaScript(`(async()=>{
+    const wait=ms=>new Promise(r=>setTimeout(r,ms));
+    for(let n=0;n<100&&!window.widgetVerification?.().ok;n++)await wait(20);
+    for(let n=0;n<100&&!window.widgetVerification?.().audio.press;n++)await wait(10);
+    if(!window.widgetVerification?.().ok)throw Error('renderer failed to initialize');
+    await wait(600);
+    const initial=await window.gpt.ready(),rows=document.getElementById('rows'),first=rows.firstElementChild;
+    let replaces=0,audioKeys=0;
+    const replace=rows.replaceChildren.bind(rows),stringify=JSON.stringify;
+    rows.replaceChildren=(...items)=>{replaces++;return replace(...items);};
+    JSON.stringify=(value,...args)=>{if(value?.slots&&value?.previewSlots)audioKeys++;return stringify(value,...args);};
+    const started=performance.now();window.gpt.fixture.geometryBurst(600);
+    const geometry={events:600,elapsedMs:performance.now()-started,rowRebuilds:replaces,audioKeyBuilds:audioKeys,sameRow:first===rows.firstElementChild};
+    JSON.stringify=stringify;rows.replaceChildren=replace;
+    const newQuota={...initial.quota,rows:initial.quota.rows.map(row=>({...row,leftText:'39%',bar:39}))};
+    window.gpt.fixture.state({...initial,quota:newQuota,image:null,audio:null});
+    const quota={text:rows.textContent.includes('39%'),width:rows.querySelector('.bar').style.width,sameRow:first===rows.firstElementChild};
+    let decoded=0;const decode=AudioContext.prototype.decodeAudioData;
+    AudioContext.prototype.decodeAudioData=function(...args){decoded++;return decode.apply(this,args);};
+    const changed={...initial.audio,preferences:{mode:'custom',revision:1}};
+    window.gpt.fixture.state({...initial,image:null,audio:changed});await wait(250);
+    const audio={decodeCalls:decoded,press:window.widgetVerification().audio.press,release:window.widgetVerification().audio.release};
+    AudioContext.prototype.decodeAudioData=decode;
+    Element.prototype.setPointerCapture=()=>{};Element.prototype.releasePointerCapture=()=>{};
+    let starts=0;AudioBufferSourceNode.prototype.start=()=>{starts++;};AudioBufferSourceNode.prototype.stop=()=>{};
+    const girl=document.getElementById('girl'),r=girl.getBoundingClientRect(),x=r.left+r.width/2,y=r.top+r.height/2;
+    const event=(type,id=1,xx=x,yy=y,target=girl)=>target.dispatchEvent(new PointerEvent(type,{bubbles:true,pointerId:id,button:0,clientX:xx,clientY:yy,screenX:xx,screenY:yy}));
+    window.gpt.fixture.clear();event('pointerdown');event('pointermove',2,x+60,y+60);event('lostpointercapture',2);event('pointerup');
+    const foreign=window.gpt.fixture.events().filter(e=>e.type==='drag').map(e=>e.value.op);
+    window.gpt.fixture.clear();event('pointerdown');event('pointercancel');event('pointerup');
+    const cancel=window.gpt.fixture.events().filter(e=>e.type==='drag').map(e=>e.value.op);
+    window.gpt.fixture.clear();event('pointerdown');window.dispatchEvent(new Event('blur'));event('pointerup');
+    const blur=window.gpt.fixture.events().filter(e=>e.type==='drag').map(e=>e.value.op);
+    const refresh=document.getElementById('refresh'),rr=refresh.getBoundingClientRect();
+    window.gpt.fixture.clear();event('pointerdown',1,rr.left+rr.width/2,rr.top+rr.height/2,refresh);event('pointerup',1,0,377,refresh);
+    const outside=window.gpt.fixture.events().filter(e=>e.type==='command').map(e=>e.name);
+    document.getElementById('root').style.transform='scale(1.05,.88)';const squeezed=girl.getBoundingClientRect();
+    window.gpt.fixture.clear();event('pointerdown',1,squeezed.left+squeezed.width*.025,squeezed.top+squeezed.height/2);event('pointerup',1,squeezed.left+squeezed.width*.025,squeezed.top+squeezed.height/2);
+    const pose=window.gpt.fixture.events().filter(e=>e.type==='drag').map(e=>e.value.op);document.getElementById('root').style.transform='scale(1,1)';
+    let staleStarts=starts;
+    const originalDecode=AudioContext.prototype.decodeAudioData;
+    AudioContext.prototype.decodeAudioData=function(...args){return new Promise((resolve,reject)=>setTimeout(()=>originalDecode.apply(this,args).then(resolve,reject),30));};
+    window.gpt.fixture.state({...initial,image:null,audio:{...initial.audio,preferences:{revision:2}}});
+    window.gpt.fixture.audio({preview:'press'});const whileLoading=starts-staleStarts;
+    await wait(200);window.gpt.fixture.audio({preview:'press'});const afterLoading=starts-staleStarts;
+    AudioContext.prototype.decodeAudioData=originalDecode;
+    const errors=[];window.addEventListener('unhandledrejection',event=>errors.push(String(event.reason)));window.addEventListener('error',event=>errors.push(event.message));
+    window.gpt.fixture.state({...initial,audio:null,image:initial.faintImage,music:true,scene:{...initial.scene,collapsed:true}});
+    for(let n=0;n<100&&!window.widgetVerification().motion;n++)await wait(10);
+    const motion=window.widgetVerification().motion;
+    const pr=girl.getBoundingClientRect();event('pointerdown',1,pr.left+pr.width/2,pr.top+pr.height/2);await wait(20);
+    const beforeHold=window.widgetVerification().motion,previousX=beforeHold?.X;
+    window.gpt.fixture.pointer({id:1,cursor:{x:500,y:250}});await wait(40);
+    const afterHold=window.widgetVerification().motion;
+    const dragWithoutAudio=afterHold?.Held===true&&afterHold.X-previousX>100;
+    event('pointercancel');event('pointerdown',1,pr.left+pr.width/2,pr.top+pr.height/2);window.gpt.fixture.state({...initial,image:null,audio:null,music:false});await wait(30);event('pointerup');
+    const music={started:!!motion,width:motion?.FigureWidth,height:motion?.FigureHeight,dragWithoutAudio,errors};
+    const oldMask=window.gpt.fixture.masks(),oldRevision=girl.dataset.maskRevision;
+    window.gpt.fixture.state({...initial,image:initial.editedImage,audio:null});
+    for(let n=0;n<100&&girl.dataset.maskRevision===oldRevision;n++)await wait(10);await wait(40);
+    const replacement={sameIdReloaded:window.widgetVerification().bounds?.height===.5,resourcesUpdated:window.gpt.fixture.masks()>oldMask};
+    const quote=document.createElement('div'),scene=document.createElement('div'),quoteFitCache=new Map(),referenceFit=${quoteFitReference};
+    const measure=CanvasRenderingContext2D.prototype.measureText;let measured=0,referenceCalls=0,actualCalls=0,matching=true,revision=20;
+    CanvasRenderingContext2D.prototype.measureText=function(...args){measured++;return measure.apply(this,args);};
+    const texts=['长语录排版验证'.repeat(20),'Mixed 中文 punctuation，'.repeat(6),'第一行\u005cn第二行有一些文字\u005cnemoji 👨‍👩‍👧‍👦'];
+    for(const text of texts){
+      measured=0;referenceFit(text);referenceCalls+=measured;const expected={font:quote.style.fontSize,width:quote.style.width};
+      measured=0;window.gpt.fixture.state({...initial,image:null,audio:null,scene:{...initial.scene,mode:'quote',text,revision:revision++}});actualCalls+=measured;
+      const node=document.getElementById('quote');matching&&=node.style.fontSize===expected.font&&node.style.width===expected.width&&node.textContent===text;
+    }
+    CanvasRenderingContext2D.prototype.measureText=measure;
+    window.gpt.fixture.state({...initial,image:null,audio:null,colors:{...initial.colors,scope:'full'}});
+    window.gpt.fixture.state({...initial,image:null,audio:null});
+    const colorReset=!document.querySelector('.bar').style.backgroundImage&&!document.querySelector('.bar').classList.contains('flow-fill');
+    const quoteLayout={cases:texts.length,matching,referenceCalls,actualCalls,quotaTooltip:document.getElementById('bubble').title==='fixture',colorReset};
+    return {geometry,quota,audio,audioSwitch:{whileLoading,afterLoading},pointer:{foreign,cancel,blur,outside,pose},music,replacement,quoteLayout,holdDiagnostics:{beforeHold,afterHold,rect:{x:pr.x,y:pr.y,width:pr.width,height:pr.height}}};
+  })()`);
+  console.log(JSON.stringify(report));
+}catch(error){console.error(error.stack);process.exitCode=1;}finally{clearTimeout(timer);window?.destroy();app.quit();}}
+void main();

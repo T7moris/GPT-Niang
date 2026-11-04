@@ -1,0 +1,222 @@
+* {
+  box-sizing: border-box;
+}
+html,
+body {
+  margin: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: transparent;
+  user-select: none;
+  font-family: "Microsoft YaHei UI", sans-serif;
+  color: #745a98;
+}
+#stage {
+  width: 378px;
+  height: 378px;
+  transform-origin: 0 0;
+}
+#root {
+  position: absolute;
+  left: 14px;
+  top: 14px;
+  width: 350px;
+  height: 350px;
+  transform-origin: 50% 100%;
+}
+#root > * {
+  position: absolute;
+}
+#bubble {
+  width: 350px;
+  height: 239px;
+  transform-origin: 0 0;
+  cursor: pointer;
+}
+#bubble-animation {
+  width: 350px;
+  height: 239px;
+  transform-origin: 44.25% 36%;
+}
+#bubble svg {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+#scene {
+  position: absolute;
+  left: 63px;
+  top: 22px;
+  width: 184px;
+  height: 115px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transform-origin: 50% 50%;
+  pointer-events: none;
+}
+#quota {
+  width: 184px;
+}
+#header-row {
+  height: 16px;
+  position: relative;
+  text-align: center;
+  font-size: 12px;
+  line-height: 16px;
+  font-weight: 600;
+  color: #7d6b91;
+}
+#header {
+  display: block;
+  max-width: 136px;
+  margin: auto;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  overflow: hidden;
+}
+button {
+  border: 0;
+  background: transparent;
+  color: #79659a;
+  border-radius: 6px;
+  cursor: pointer;
+  font: inherit;
+  padding: 0;
+}
+button:hover {
+  background: #ede7f6;
+}
+#refresh {
+  position: absolute;
+  right: 0;
+  top: 0;
+  width: 20px;
+  height: 16px;
+  font-size: 12px;
+  pointer-events: auto;
+}
+.quota-row {
+  margin-top: 1px;
+}
+.quota-row + .quota-row {
+  margin-top: 4px;
+}
+.row-top {
+  height: 25px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.row-label {
+  font-size: 13px;
+  color: #76638d;
+}
+.row-left {
+  font:
+    700 24px/25px "Segoe UI",
+    sans-serif;
+}
+.track {
+  height: 4px;
+  background: #eae4f3;
+  border-radius: 2px;
+  margin-top: 1px;
+  overflow: hidden;
+}
+.bar {
+  height: 100%;
+  border-radius: 2px;
+}
+.reset {
+  margin-top: 1px;
+  font-size: 12px;
+  line-height: 15px;
+  color: #7d6b91;
+}
+.tail {
+  display: block;
+  border: 4px solid #745a98;
+  background: #fff;
+  border-radius: 50%;
+  transform-origin: 50% 50%;
+  pointer-events: none;
+}
+#girl-wrap {
+  cursor: pointer;
+  transform-origin: 50% 100%;
+}
+#girl {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  pointer-events: none;
+}
+#girl-color {
+  position: absolute;
+  inset: 0;
+  opacity: 0.27;
+  pointer-events: none;
+  mask-size: contain;
+  mask-position: center;
+  mask-repeat: no-repeat;
+}
+#under,
+#over {
+  left: 0;
+  top: 0;
+  width: 350px;
+  height: 350px;
+  pointer-events: none;
+}
+#menu-button {
+  background: #ede7f6;
+  opacity: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+#menu-button svg {
+  width: 58.333%;
+  height: 58.333%;
+}
+#quote {
+  font-weight: 700;
+  text-align: center;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: 1.15;
+  color: #745a98;
+}
+body.hover #menu-button:not(.hidden) {
+  opacity: 1;
+  pointer-events: auto;
+}
+body.temporary #menu-button {
+  opacity: 0;
+  pointer-events: none;
+}
+.flow-text {
+  background-size: 200% 100%;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+.flow-text,
+.flow-fill,
+#girl-color {
+  animation: flow 2.6s linear infinite;
+}
+.paused,
+.paused * {
+  animation-play-state: paused !important;
+}
+@keyframes flow {
+  to {
+    background-position: -200% 0;
+  }
+}
+.not-visible {
+  visibility: hidden;
+}

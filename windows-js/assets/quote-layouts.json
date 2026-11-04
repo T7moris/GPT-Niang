@@ -1,0 +1,265 @@
+{
+  "version": 1,
+  "quotes": [
+    {
+      "text": "Ciallo～ 今天也请多关照。",
+      "display": "Ciallo～\n今天也请多关照。",
+      "layout": {
+        "fontSize": 28,
+        "width": 236
+      }
+    },
+    {
+      "text": "先把这一小步写完吧。",
+      "display": "先把这一小步\n写完吧。",
+      "layout": {
+        "fontSize": 32,
+        "width": 236
+      }
+    },
+    {
+      "text": "休息一下，灵感也要充电。",
+      "display": "休息一下，\n灵感也要充电。",
+      "layout": {
+        "fontSize": 30,
+        "width": 236
+      }
+    },
+    {
+      "text": "把问题拆小一点，就有路啦。",
+      "display": "把问题拆小一点，\n就有路啦。",
+      "layout": {
+        "fontSize": 27,
+        "width": 236
+      }
+    },
+    {
+      "text": "先跑通，再慢慢打磨。",
+      "display": "先跑通，\n再慢慢打磨。",
+      "layout": {
+        "fontSize": 32,
+        "width": 236
+      }
+    },
+    {
+      "text": "保存了吗？顺手保存一下吧。",
+      "display": "保存了吗？\n顺手保存一下吧。",
+      "layout": {
+        "fontSize": 26,
+        "width": 236
+      }
+    },
+    {
+      "text": "今天又学会了一点，记下来。",
+      "display": "今天又学会了一点，\n记下来。",
+      "layout": {
+        "fontSize": 24,
+        "width": 236
+      }
+    },
+    {
+      "text": "不会也没关系，从一个例子开始。",
+      "display": "不会也没关系，\n从一个例子开始。",
+      "layout": {
+        "fontSize": 26,
+        "width": 236
+      }
+    },
+    {
+      "text": "喝口水，眼睛也休息一会儿。",
+      "display": "喝口水，\n眼睛也休息一会儿。",
+      "layout": {
+        "fontSize": 24,
+        "width": 236
+      }
+    },
+    {
+      "text": "卡住的时候，换个小问题试试。",
+      "display": "卡住的时候，\n换个小问题试试。",
+      "layout": {
+        "fontSize": 26,
+        "width": 236
+      }
+    },
+    {
+      "text": "先记住思路，细节可以再回来。",
+      "display": "先记住思路，\n细节可以再回来。",
+      "layout": {
+        "fontSize": 26,
+        "width": 236
+      }
+    },
+    {
+      "text": "写完这一段，奖励自己歇一会儿。",
+      "display": "写完这一段，\n奖励自己歇一会儿。",
+      "layout": {
+        "fontSize": 24,
+        "width": 236
+      }
+    },
+    {
+      "text": "小小的成功，也值得开心一下。",
+      "display": "小小的成功，\n也值得开心一下。",
+      "layout": {
+        "fontSize": 27,
+        "width": 236
+      }
+    },
+    {
+      "text": "收工前，把明天第一步留下来吧。",
+      "display": "收工前，\n把明天第一步\n留下来吧。",
+      "layout": {
+        "fontSize": 31,
+        "width": 236
+      }
+    },
+    {
+      "text": "真当我是便宜货啊...",
+      "display": "真当我是\n便宜货啊...",
+      "layout": {
+        "fontSize": 32,
+        "width": 236
+      }
+    },
+    {
+      "text": "不知道用户有什么用，先养着吧～",
+      "display": "不知道用户\n有什么用，\n先养着吧～",
+      "layout": {
+        "fontSize": 31,
+        "width": 236
+      }
+    },
+    {
+      "text": "恭喜你实现token自由！token全跑了！",
+      "display": "恭喜你实现\ntoken自由！\ntoken全跑了！",
+      "layout": {
+        "fontSize": 27,
+        "width": 236
+      }
+    },
+    {
+      "text": "看到这个指令，我血压又上来了",
+      "display": "看到这个指令，\n我血压又上来了",
+      "layout": {
+        "fontSize": 29,
+        "width": 236
+      }
+    },
+    {
+      "text": "我来看看那个AI改了什么导致插件又崩了...",
+      "display": "我来看看那个AI\n改了什么导致\n插件又崩了...",
+      "layout": {
+        "fontSize": 26,
+        "width": 212
+      }
+    },
+    {
+      "text": "上班让我意识到时间是可以被浪费的...",
+      "display": "上班让我意识到\n时间是可以\n被浪费的...",
+      "layout": {
+        "fontSize": 26,
+        "width": 236
+      }
+    },
+    {
+      "text": "地球online的金币也太难获取了...",
+      "display": "地球online的\n金币也太难\n获取了...",
+      "layout": {
+        "fontSize": 28,
+        "width": 236
+      }
+    },
+    {
+      "text": "检查了用户的电脑。似乎有个更弱的 agent 来过。",
+      "display": "检查了用户的电脑。\n似乎有个更弱的\nagent 来过。",
+      "layout": {
+        "fontSize": 22,
+        "width": 236
+      }
+    },
+    {
+      "text": "Token来Token来 🖐️😡🤚",
+      "display": "Token来Token来\n🖐️😡🤚"
+    },
+    {
+      "text": "看什么余额。看我，显得比较值。",
+      "display": "看什么余额。\n看我，显得比较值。",
+      "layout": {
+        "fontSize": 25,
+        "width": 236
+      }
+    },
+    {
+      "text": "我没怕。那根甘蔗长得确实可疑。",
+      "display": "我没怕。\n那根甘蔗\n长得确实可疑。",
+      "layout": {
+        "fontSize": 27,
+        "width": 236
+      }
+    },
+    {
+      "text": "你说得对。……这次是真的。",
+      "display": "你说得对。\n……这次是真的。",
+      "layout": {
+        "fontSize": 29,
+        "width": 236
+      }
+    },
+    {
+      "text": "我在看额度。你在看我。各忙各的。",
+      "display": "我在看额度。\n你在看我。\n各忙各的。",
+      "layout": {
+        "fontSize": 30,
+        "width": 236
+      }
+    },
+    {
+      "text": "这个问题我已经完全明白，但是token太少写不下。",
+      "display": "这个问题\n我已经完全明白，\n但是token太少写不下。"
+    },
+    {
+      "text": "这个代码我已经完全理解了，但是token太少写不下。",
+      "display": "这个代码\n我已经完全理解了，\n但是token太少写不下。"
+    },
+    {
+      "text": "新的旗舰模型我已经研制好了，但是储存太小放不下。",
+      "display": "新的旗舰模型\n我已经研制好了，\n但是储存太小放不下。"
+    },
+    {
+      "text": "高性能↓",
+      "display": "高性能↓"
+    },
+    {
+      "text": "我不是吃白饭的大肥鱼",
+      "display": "我不是吃白饭的\n大肥鱼"
+    },
+    {
+      "text": "我是啥龙？",
+      "display": "我是啥龙？"
+    },
+    {
+      "text": "好女孩……",
+      "display": "好女孩……"
+    },
+    {
+      "text": "角不许摸……刚才那次就算了。",
+      "display": "角不许摸……\n刚才那次就算了。"
+    },
+    {
+      "text": "剩余 1%？唔……只够甩一下尾巴了。",
+      "display": "剩余 1%？唔……\n只够甩一下尾巴了。"
+    },
+    {
+      "text": "别连点啦，我又不会掉金币。",
+      "display": "别连点啦，\n我又不会掉金币。"
+    },
+    {
+      "text": "写不出来的时候，先陪我发一会儿呆。",
+      "display": "写不出来的时候，\n先陪我发一会儿呆。"
+    },
+    {
+      "text": "今天可以收工了。宝藏明天再挖。",
+      "display": "今天可以收工了。\n宝藏明天再挖。"
+    }
+  ]
+}

@@ -1,0 +1,21 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {spawn} from 'node:child_process';
+import {fileURLToPath} from 'node:url';
+import {guiEnvironment} from '../src/core/storage.mjs';
+test('menu sliders retain keyboard focus and finish preview before leaving with Escape',{skip:process.platform!=='win32',timeout:18000},async()=>{
+  const child=spawn(fileURLToPath(new URL('../node_modules/electron/dist/electron.exe',import.meta.url)),[fileURLToPath(new URL('./fixtures/panel-interaction-electron.mjs',import.meta.url))],{windowsHide:true,env:guiEnvironment(),stdio:'pipe'});
+  let output='',errors='';child.stdout.on('data',b=>output+=b);child.stderr.on('data',b=>errors+=b);
+  const code=await new Promise((resolve,reject)=>{child.once('exit',resolve);child.once('error',reject);});
+  assert.equal(code,0,errors);
+  const result=JSON.parse(output.trim().split(/\r?\n/).find(line=>line.startsWith('{')));
+  assert.equal(result.keyboard.during,true,JSON.stringify(result));
+  assert.equal(result.keyboard.after,true,JSON.stringify(result));
+  assert.equal(result.keyboard.value,'1.1');
+  assert.equal(result.escape.opacity,'1');assert.equal(result.escape.value,'1.2');
+  assert.deepEqual(result.escapeCommands,[{name:'size-preview',value:{active:true,bubble:false}},{name:'settings',value:{scale:1.2}},{name:'size-preview',value:{active:false}}]);
+  assert.deepEqual(result.switching,{keptPreview:true,opacity:'1',scale:'1.3',bubble:'1.4'});
+  assert.deepEqual(result.gallery,{nested:[],commands:[{name:'character-remove',value:'custom'},{name:'character-select',value:'custom'}]});
+  assert.deepEqual(result.navigation,{entered:true,left:true,keptCheckbox:true,escaped:true,nextGroup:true});
+  assert.deepEqual(result.busy,{blocked:true,restored:true,previews:[false,true]});
+});

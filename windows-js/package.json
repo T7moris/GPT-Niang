@@ -1,0 +1,27 @@
+{
+  "name": "gpt-niang-usage",
+  "version": "1.4.0-beta.1",
+  "private": true,
+  "type": "module",
+  "main": "src/bootstrap.cjs",
+  "architecture": "javascript-electron",
+  "description": "GPT 娘 Windows JavaScript / Electron 架构 Beta 测试版",
+  "license": "MIT",
+  "scripts": {
+    "start": "electron . --candidate",
+    "test": "node --test --test-concurrency=1 tests/*.test.mjs",
+    "verify": "electron . --candidate --verify",
+    "prepare:runtime": "node node_modules/electron/install.js",
+    "compile:native": "node scripts/compile-native.mjs",
+    "package:beta": "node scripts/build-release.mjs"
+  },
+  "engines": { "node": ">=22.12.0" },
+  "dependencies": {
+    "bmp-js": "0.1.0",
+    "koffi": "3.3.4",
+    "sharp": "0.35.5"
+  },
+  "devDependencies": {
+    "electron": "45.0.0"
+  }
+}
