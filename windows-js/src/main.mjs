@@ -163,6 +163,7 @@ async function run() {
         contextIsolation: true,
         nodeIntegration: false,
         sandbox: true,
+        offscreen: candidate && args.includes('--hidden-test'),
       },
     });
     host = native.handle(bench);
@@ -1013,6 +1014,7 @@ async function run() {
         contextIsolation: true,
         nodeIntegration: false,
         sandbox: true,
+        offscreen: candidate && args.includes('--hidden-test'),
       },
     });
     menu.on('close',()=>{menuClosing=true;});
@@ -1104,6 +1106,7 @@ async function run() {
         contextIsolation: true,
         nodeIntegration: false,
         sandbox: true,
+        offscreen: candidate && args.includes('--hidden-test'),
       },
     });
     opened=editor;

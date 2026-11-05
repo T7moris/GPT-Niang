@@ -6,7 +6,7 @@ const fatal=error=>{console.error(phase+': '+(error?.stack??error));app.exit(1);
 const timer=setTimeout(()=>fatal(Error('functional main timeout')),35000);
 fs.mkdirSync(data,{recursive:true});fs.writeFileSync(path.join(data,'settings.json'),JSON.stringify({layoutVersion:2,followHost:true,soundOn:false,colorMode:'original',taskCompletionBubble:false,personalField:'keep'}));
 const config=path.join(data,'fixture-config.json');fs.writeFileSync(config,JSON.stringify({candidate:true,architecture:'javascript-electron',appDir:root,dataDir:data,nodePath:process.execPath,codexPath:process.execPath,codexHome:path.join(data,'fake-codex')}));
-process.argv=[process.argv[0],process.argv[1],'--candidate','--bench','--data-dir',data,'--config',config];app.setPath('userData',path.join(data,'profile'));
+process.argv=[process.argv[0],process.argv[1],'--candidate','--bench','--hidden-test','--data-dir',data,'--config',config];app.setPath('userData',path.join(data,'profile'));
 async function until(fn,label){for(let n=0;n<150;n++){const value=await fn();if(value)return value;await pause(15);}throw Error(label);}
 function record(name,value){if(!value)throw Error('check failed: '+name);checks.push(name);}
 const read=name=>JSON.parse(fs.readFileSync(path.join(data,name),'utf8'));
@@ -23,7 +23,10 @@ async function close(w){if(w&&!w.isDestroyed()){void evaluate(w,'void window.gpt
 async function main(){try{
  const {WindowsBridge}=await import(pathToFileURL(path.join(root,'src/windows/bridge.mjs')));WindowsBridge.prototype.capture=()=>{};
  const {NativeWindows}=await import(pathToFileURL(path.join(root,'src/windows/native.mjs')));NativeWindows.prototype.mouseMask=()=>0;
- BrowserWindow.prototype.show=function(){return this.showInactive();};
+ const visible=NativeWindows.prototype.visible;
+ NativeWindows.prototype.visible=function(h){return this.pid(h)===process.pid?this.valid(h):visible.call(this,h);};
+ // Exercise the real menu commands without physical focus or pointer events.
+ BrowserWindow.prototype.show=function(){};BrowserWindow.prototype.showInactive=function(){};
  const {Updater}=await import(pathToFileURL(path.join(root,'src/core/updater.mjs')));Updater.prototype.check=async function(){this.state={...this.state,status:'checking',message:'本地验证检查中'};this.changed();await pause(60);this.state={...this.state,status:'current',message:'本地验证：没有新版本'};this.changed();};
  dialog.showOpenDialog=async()=>files.shift()??{canceled:true,filePaths:[]};
  await import(pathToFileURL(path.join(root,'src/main.mjs')));

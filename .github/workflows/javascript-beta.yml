@@ -29,6 +29,19 @@ jobs:
       - name: Compile native helpers
         working-directory: windows-js
         run: npm run compile:native
+      - name: Prepare isolated integration test environment
+        shell: pwsh
+        run: |
+          $testTemp = Join-Path $env:GITHUB_WORKSPACE '.ci-tmp'
+          New-Item -ItemType Directory -Path $testTemp -Force | Out-Null
+          "TEMP=$testTemp" >> $env:GITHUB_ENV
+          "TMP=$testTemp" >> $env:GITHUB_ENV
+          $cliRoot = Join-Path $env:RUNNER_TEMP 'codex-integration-cli'
+          npm install --prefix $cliRoot @openai/codex@0.166.0
+          if ($LASTEXITCODE -ne 0) { throw 'Codex integration dependency installation failed' }
+          $cli = Get-ChildItem -LiteralPath $cliRoot -Recurse -File -Filter codex.exe | Select-Object -First 1
+          if (-not $cli) { throw 'Codex integration executable is missing' }
+          "CODEX_CLI_PATH=$($cli.FullName)" >> $env:GITHUB_ENV
       - name: Verify JavaScript architecture
         uses: actions/upload-artifact@v4
         with:
