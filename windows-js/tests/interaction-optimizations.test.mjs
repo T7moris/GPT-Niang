@@ -64,7 +64,7 @@ test('gallery preparation cannot create duplicate editors and failure releases t
   const code=fs.readFileSync(path.join(app,'src/main.mjs'),'utf8'),start=code.indexOf('  async function openEditor(kind)'),end=code.indexOf('  function trusted(',start);
   let finish,prepared=0,created=0;
   class Window{constructor(){created++;}on(){}async loadFile(){}show(){}isDestroyed(){return false;}focus(){}}
-  const c={stopping:false,openingEditor:false,editor:null,menu:null,blocked:false,resetSchedule(){},send(){},prepareGallery:()=>{prepared++;return new Promise(resolve=>finish=resolve);},BrowserWindow:Window,path,root:app,verifySuite:false};
+  const c={candidate:false,args:[],stopping:false,openingEditor:false,editor:null,menu:null,blocked:false,resetSchedule(){},send(){},prepareGallery:()=>{prepared++;return new Promise(resolve=>finish=resolve);},BrowserWindow:Window,path,root:app,verifySuite:false};
   c.unblock=()=>{c.blocked=!!c.editor;};vm.createContext(c);vm.runInContext(code.slice(start,end),c);
   const first=c.openEditor('characters');await c.openEditor('characters');assert.equal(prepared,1);assert.equal(created,0);finish();await first;assert.equal(created,1);assert.equal(c.openingEditor,false);
   c.editor=null;c.prepareGallery=async()=>{throw Error('injected gallery failure');};await assert.rejects(c.openEditor('characters'),/gallery failure/);assert.equal(c.blocked,false);assert.equal(c.openingEditor,false);
