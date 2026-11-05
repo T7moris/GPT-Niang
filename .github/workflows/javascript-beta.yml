@@ -88,12 +88,19 @@ jobs:
           tag="v$version"
           (cd dist && sha256sum --check SHA256SUMS.txt)
           test "$(node -p "require('./dist/package-verification.json').sourceCommit")" = "$GITHUB_SHA"
-          gh api "repos/$GITHUB_REPOSITORY/releases/tags/$tag" > "$RUNNER_TEMP/beta-release.json"
+          gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" --jq ".[] | select(.tag_name == \"$tag\")" > "$RUNNER_TEMP/beta-release.json"
+          jq -s -e 'length == 1' "$RUNNER_TEMP/beta-release.json" >/dev/null
           jq -e '.draft == true and .prerelease == true' "$RUNNER_TEMP/beta-release.json" >/dev/null
           test "$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$tag" --jq .object.sha)" = "$GITHUB_SHA"
-          gh release upload "$tag" dist/*-windows-js.zip dist/SHA256SUMS.txt --repo "$GITHUB_REPOSITORY" --clobber
+          release_id="$(jq -r .id "$RUNNER_TEMP/beta-release.json")"
+          while read -r asset_id; do
+            gh api --method DELETE "repos/$GITHUB_REPOSITORY/releases/assets/$asset_id"
+          done < <(jq -r '.assets[].id' "$RUNNER_TEMP/beta-release.json")
+          for asset in dist/*-windows-js.zip dist/SHA256SUMS.txt; do
+            gh api --method POST -H 'Content-Type: application/octet-stream' --input "$asset" "https://uploads.github.com/repos/$GITHUB_REPOSITORY/releases/$release_id/assets?name=$(basename "$asset")" --silent
+          done
           notes="$RUNNER_TEMP/beta-notes.md"
           cp windows-js/RELEASE_NOTES.md "$notes"
           printf '\n构建检查：[GitHub Actions](%s/%s/actions/runs/%s)。\n' "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID" >> "$notes"
-          gh release edit "$tag" --repo "$GITHUB_REPOSITORY" --draft=false --prerelease --latest=false --notes-file "$notes"
+          gh api --method PATCH "repos/$GITHUB_REPOSITORY/releases/$release_id" -F draft=false -F prerelease=true -f make_latest=false -f "tag_name=$tag" -F "body=@$notes" --silent
           test "$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq .tag_name)" = 'v1.3.6'
