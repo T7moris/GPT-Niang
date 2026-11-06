@@ -203,6 +203,7 @@ function Initialize-WidgetSettingsMenu {
     $hint.TextWrapping=[Windows.TextWrapping]::Wrap;$hint.Margin=[Windows.Thickness]::new(0,8,0,0)
     Add-SettingsPanel $hint -Passive
   } -ReturnItem
+  $script:settingsMenuUi.LiveTasks=Add-SettingsAction '任务进度与完成气泡' {param($sender,$event)Set-LiveTasksEnabled ([bool]$sender.IsChecked);Update-WidgetSettingsMenu} -Checkable -ReturnItem
   $script:settingsMenuUi.Completion=Add-SettingsAction '回答结束提醒' {param($sender,$event)Set-CompletionNotificationEnabled ([bool]$sender.IsChecked);Update-WidgetSettingsMenu} -Checkable -ReturnItem
   $script:settingsMenuUi.Completion.ToolTip='回答结束后在当前位置提醒；后台时临时置顶，显示后恢复'
   Add-SettingsDivider
@@ -268,6 +269,7 @@ function Update-WidgetSettingsMenu{
   try{
     Update-WidgetUpdateMenu
     $script:settingsMenuUi.MusicEnabled.IsChecked=Test-WidgetMusicActive
+    $script:settingsMenuUi.LiveTasks.IsChecked=[bool]$script:liveTasksEnabled
     $script:settingsMenuUi.Completion.IsChecked=$script:completionNotificationsEnabled
     $script:settingsMenuUi.AutoQuoteEnabled.IsChecked=$script:autoQuoteEnabled
     foreach($choice in $script:settingsMenuUi.AutoQuoteIntervals){$choice.IsChecked=[int]$choice.Tag-eq $script:autoQuoteIntervalSeconds}

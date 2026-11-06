@@ -6,6 +6,7 @@ if(!(Test-Path -LiteralPath $script:configPath)){throw 'Please run Install.ps1 f
 $script:config=Get-Content -LiteralPath $script:configPath -Raw -Encoding UTF8 | ConvertFrom-Json
 $script:dataDir=$script:config.dataDir
 $null=New-Item -ItemType Directory -Path $script:dataDir -Force
+. (Join-Path $script:appDir 'runtime\live-tasks.ps1')
 . (Join-Path $script:appDir 'runtime\quotes.ps1')
 . (Join-Path $script:appDir 'runtime\completion-notifications.ps1')
 . ([ScriptBlock]::Create([IO.File]::ReadAllText((Join-Path $script:appDir 'runtime\ui-settings.ps1'),[Text.Encoding]::UTF8)))
@@ -561,6 +562,7 @@ function Show-Quota {
 }
 function Show-Quote {Open-WidgetBubble 'quote'}
 function Open-WidgetBubble([ValidateSet('quota','quote','completion')][string]$Mode) {
+  if($script:liveShown){Hide-LiveTaskBubble}
   Reset-WidgetAutoQuoteSchedule
   if(!$script:collapsed){if($Mode-eq 'quote' -or $script:bubbleMode-ne $Mode){Switch-Scene $Mode}else{Restart-SceneTtl};return}
   $script:bubbleEpoch++;$script:collapsed=$false;$script:sceneRevision++
@@ -947,6 +949,7 @@ function Stop-WidgetRuntime {
   try{Stop-WidgetMusic}catch{}
   try{if($script:hostFollower){$script:hostFollower.Dispose()}}catch{}
   foreach($timer in @($script:settingsMenuDismissTimer,$script:timer,$script:hostEventTimer,$script:menuTimer,$script:sceneTimer,$script:resetPhaseTimer,$script:closeTimer)){try{if($timer){$timer.Stop()}}catch{}}
+  try{Stop-LiveTasks}catch{}
   try{Stop-CompletionMonitor;Clear-CompletionNotifications}catch{}
   try{Close-WidgetAudio}catch{}
   foreach($hook in $script:eventHooks){try{if($hook-ne [IntPtr]::Zero){[GptWidgetNative]::UnhookWinEvent($hook)|Out-Null}}catch{}}
@@ -961,7 +964,8 @@ function Stop-WidgetRuntime {
   try{if($script:mutexOwned){$script:mutex.ReleaseMutex();$script:mutexOwned=$false}}catch{};try{$script:mutex.Dispose()}catch{}
 }
 function Write-WidgetPresence([bool]$visible,[long]$now){
-Write-WidgetJson (Join-Path $script:dataDir 'presence.json') @{visible=[bool]$visible;at=$now;host=$script:hostHandle.ToInt64();widget=$script:widgetHandle.ToInt64();pid=$PID;character=@{id=$script:characterId;name=$script:activeCharacter.name;galleryOpen=[bool]($script:characterGallery -and $script:characterGallery.IsVisible)};sound=(Get-WidgetAudioStatus);followHost=$script:followHost;follow=@{ready=$script:hostFollower.Ready;events=$script:hostFollower.MovementEvents;mode='native-immediate';animationPaddingDip=14};sizing=@{character=$script:scale;bubble=$script:bubbleScale;display=$script:displayScale;preview=[bool]$script:settingsSizePreview};autoQuotes=@{enabled=$script:autoQuoteEnabled;intervalSeconds=$script:autoQuoteIntervalSeconds;nextAt=$script:autoQuoteNextAt;displayCount=$script:autoQuoteDisplayCount};completion=(Get-CompletionNotificationStatus);recovery=@{checks=$script:occlusionRecovery.Checks;toggles=$script:occlusionRecovery.Toggles;pending=$script:occlusionRecovery.Pending;cloaked=$script:occlusionRecovery.OwnedCloak;failed=$script:occlusionRecovery.Failed;hresult=$script:occlusionRecovery.LastHresult};music=(Get-WidgetMusicStatus);scene=@{open=!$script:collapsed;mode=$script:bubbleMode;resetTimeMode=$script:resetTimeMode;startedAt=$script:sceneStartedAt;closesAt=$script:sceneDeadline;shortReset=$script:ui.ShortReset.Text;weekReset=$script:ui.WeekReset.Text}}
+Update-LiveTaskBadge $visible
+Write-WidgetJson (Join-Path $script:dataDir 'presence.json') @{liveTasks=@{count=$script:liveCount;shown=$script:liveShown;kind=$script:liveKind;enabled=$script:liveTasksEnabled};visible=[bool]$visible;at=$now;host=$script:hostHandle.ToInt64();widget=$script:widgetHandle.ToInt64();pid=$PID;character=@{id=$script:characterId;name=$script:activeCharacter.name;galleryOpen=[bool]($script:characterGallery -and $script:characterGallery.IsVisible)};sound=(Get-WidgetAudioStatus);followHost=$script:followHost;follow=@{ready=$script:hostFollower.Ready;events=$script:hostFollower.MovementEvents;mode='native-immediate';animationPaddingDip=14};sizing=@{character=$script:scale;bubble=$script:bubbleScale;display=$script:displayScale;preview=[bool]$script:settingsSizePreview};autoQuotes=@{enabled=$script:autoQuoteEnabled;intervalSeconds=$script:autoQuoteIntervalSeconds;nextAt=$script:autoQuoteNextAt;displayCount=$script:autoQuoteDisplayCount};completion=(Get-CompletionNotificationStatus);recovery=@{checks=$script:occlusionRecovery.Checks;toggles=$script:occlusionRecovery.Toggles;pending=$script:occlusionRecovery.Pending;cloaked=$script:occlusionRecovery.OwnedCloak;failed=$script:occlusionRecovery.Failed;hresult=$script:occlusionRecovery.LastHresult};music=(Get-WidgetMusicStatus);scene=@{open=!$script:collapsed;mode=$script:bubbleMode;resetTimeMode=$script:resetTimeMode;startedAt=$script:sceneStartedAt;closesAt=$script:sceneDeadline;shortReset=$script:ui.ShortReset.Text;weekReset=$script:ui.WeekReset.Text}}
 }
 function Tick-Widget {
   if($script:updating){return}

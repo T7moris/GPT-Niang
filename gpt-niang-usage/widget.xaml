@@ -27,6 +27,22 @@
   <Canvas x:Name="AnimationStage" Width="378" Height="378">
   <Canvas x:Name="Root" Canvas.Left="14" Canvas.Top="14" Width="350" Height="350" RenderTransformOrigin="0.5,1">
     <Canvas.RenderTransform><TransformGroup><ScaleTransform x:Name="PressScale"/><ScaleTransform x:Name="FacingScale"/></TransformGroup></Canvas.RenderTransform>
+    <Canvas x:Name="LiveTaskBadge" Width="350" Height="350" IsHitTestVisible="False" Visibility="Collapsed">
+      <Canvas Canvas.Left="{Binding ElementName=Bubble,Path=(Canvas.Left)}" Canvas.Top="{Binding ElementName=Bubble,Path=(Canvas.Top)}" Width="350" Height="239" LayoutTransform="{Binding ElementName=Bubble,Path=LayoutTransform}">
+        <Path Fill="White" Stroke="#745A98" StrokeThickness="4" StrokeLineJoin="Round" Data="{Binding ElementName=BubbleShape,Path=Data}"/>
+        <Grid Canvas.Left="41" Canvas.Top="17" Width="228" Height="136" RenderTransformOrigin="0.5,0.5"
+              RenderTransform="{Binding ElementName=SceneText,Path=RenderTransform}">
+          <StackPanel VerticalAlignment="Center">
+            <TextBlock x:Name="LiveTaskHeading" MaxWidth="156" TextAlignment="Center" FontSize="11" FontWeight="SemiBold" Foreground="#806C97"/>
+            <TextBlock x:Name="LiveTaskDialogue" Margin="0,1,0,2" TextAlignment="Center" TextWrapping="NoWrap"
+                       FontSize="27" FontWeight="Bold" LineHeight="31" LineStackingStrategy="BlockLineHeight" Foreground="#745A98"/>
+            <TextBlock x:Name="LiveTaskTitles" MaxWidth="150" TextAlignment="Center" TextTrimming="CharacterEllipsis" FontSize="11" Foreground="#806C97"/>
+          </StackPanel>
+        </Grid>
+      </Canvas>
+      <Ellipse Canvas.Left="{Binding ElementName=Tail,Path=(Canvas.Left)}" Canvas.Top="{Binding ElementName=Tail,Path=(Canvas.Top)}" Width="{Binding ElementName=Tail,Path=Width}" Height="{Binding ElementName=Tail,Path=Height}" Fill="#FFFFFF" Stroke="#745A98" StrokeThickness="4"/>
+      <Ellipse Canvas.Left="{Binding ElementName=TailNear,Path=(Canvas.Left)}" Canvas.Top="{Binding ElementName=TailNear,Path=(Canvas.Top)}" Width="{Binding ElementName=TailNear,Path=Width}" Height="{Binding ElementName=TailNear,Path=Height}" Fill="#FFFFFF" Stroke="#745A98" StrokeThickness="4"/>
+    </Canvas>
     <Canvas x:Name="Bubble" Width="350" Height="239" Cursor="Hand" RenderTransformOrigin="0.4425,0.36">
       <Canvas.RenderTransform><ScaleTransform ScaleX="1" ScaleY="1"/></Canvas.RenderTransform>
       <Path x:Name="BubbleShape" Fill="#FFFFFF" Stroke="#745A98" StrokeThickness="4"

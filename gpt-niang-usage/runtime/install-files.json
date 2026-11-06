@@ -10,6 +10,8 @@
   "assets/press.wav",
   "assets/release.wav",
   "runtime/completion-monitor.mjs",
+  "runtime/live-tasks.mjs",
+  "runtime/live-tasks.ps1",
   "runtime/completion-notifications.ps1",
   "runtime/music.ps1",
   "runtime/music-audio.cs",
