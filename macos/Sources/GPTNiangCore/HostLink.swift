@@ -1,4 +1,30 @@
 import Foundation
+import MachO
+
+public enum HostLinkInstallation {
+    /// SMAppService may supply a relative argv[0] even with the working directory
+    /// set to /. Ask dyld for the executable instead of interpreting argv[0].
+    public static func currentApplicationURL() -> URL? {
+        var size: UInt32 = 0
+        _ = _NSGetExecutablePath(nil, &size)
+        guard size > 0 else { return nil }
+        var path = [CChar](repeating: 0, count: Int(size))
+        guard _NSGetExecutablePath(&path, &size) == 0 else { return nil }
+        return applicationURL(executablePath: String(cString: path))
+    }
+
+    public static func applicationURL(executablePath: String) -> URL? {
+        guard executablePath.hasPrefix("/") else { return nil }
+        let executable = URL(fileURLWithPath: executablePath).resolvingSymlinksInPath()
+        let helpers = executable.deletingLastPathComponent()
+        let contents = helpers.deletingLastPathComponent()
+        let app = contents.deletingLastPathComponent()
+        guard executable.lastPathComponent == "GPTNiangHostLink",
+              helpers.lastPathComponent == "Helpers", contents.lastPathComponent == "Contents",
+              app.pathExtension == "app" else { return nil }
+        return app
+    }
+}
 
 /// Links application lifetimes, independent of windows, foreground state or chats.
 public struct HostLinkPreferences: Codable, Equatable {

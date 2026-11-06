@@ -21,8 +21,7 @@ import os
     private let logger = Logger(subsystem: "io.github.t7moris.GPTNiangMac", category: "host-link")
     // The agent is bundled in Contents/Helpers; resolve this installation, not a
     // similarly named app returned by Launch Services or another build checkout.
-    private let appURL = URL(fileURLWithPath: CommandLine.arguments[0]).resolvingSymlinksInPath()
-        .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+    private let appURL = HostLinkInstallation.currentApplicationURL()
     private var preferencesURL: URL {
         let args = CommandLine.arguments
         // Isolated integration checks can use a disposable data directory.
@@ -41,6 +40,7 @@ import os
         return prefs
     }
     func applicationDidFinishLaunching(_ notification: Notification) {
+        logger.info("Host-link installation: \(self.appURL?.path ?? "unavailable", privacy: .public)")
         let center = NSWorkspace.shared.notificationCenter
         for name in [NSWorkspace.didLaunchApplicationNotification, NSWorkspace.didTerminateApplicationNotification] {
             center.addObserver(self, selector: #selector(applicationChanged), name: name, object: nil)
@@ -75,6 +75,13 @@ import os
         switch action {
         case .none: break
         case .launch:
+            guard let appURL, let bundle = Bundle(url: appURL),
+                  bundle.bundleIdentifier == "io.github.t7moris.GPTNiangMac",
+                  let executable = bundle.executableURL,
+                  FileManager.default.isExecutableFile(atPath: executable.path) else {
+                logger.error("Refusing to launch an invalid GPT Niang installation")
+                return
+            }
             guard !opening, matchingPets().isEmpty else { return }
             opening = true
             let configuration = NSWorkspace.OpenConfiguration()
@@ -100,7 +107,7 @@ import os
         }
     }
     private func matchingPets() -> [NSRunningApplication] {
-        guard let identifier = Bundle(url: appURL)?.bundleIdentifier else { return [] }
+        guard let appURL, let identifier = Bundle(url: appURL)?.bundleIdentifier else { return [] }
         return NSRunningApplication.runningApplications(withBundleIdentifier: identifier).filter {
             $0.bundleURL?.resolvingSymlinksInPath() == appURL && !$0.isTerminated
         }
