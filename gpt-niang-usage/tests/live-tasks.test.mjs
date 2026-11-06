@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import {monitor,runningScene,endScene} from '../runtime/live-tasks.mjs';
+import {monitor,runningScene,endScene,reloadTaskDialogue} from '../runtime/live-tasks.mjs';
 
 test('monitor reads active user sessions without a database and handles fast or interrupted turns',t=>{
   const root=fs.mkdtempSync(path.join(os.tmpdir(),'niang-live-'));
@@ -54,4 +54,27 @@ test('a state cycles through eight distinct phrases and is stable between displa
     }
     assert.equal(phrases.size,8);
   }
+});
+
+test('a long task holds its line for twenty seconds and uses all 32 long-task defaults',async()=>{
+  const {runningScene}=await import('../runtime/live-tasks.mjs?fresh-long-deck');
+  const task={id:'long-rotation',started:0,phaseSince:0,phase:'正在使用工具',title:'测试'};
+  const start=113771;
+  assert.equal(runningScene(task,start).line,runningScene(task,start+19999).line);
+  const lines=Array.from({length:32},(_,i)=>runningScene(task,start+i*20000).line);
+  assert.equal(new Set(lines).size,32);
+});
+
+test('saving a one-line custom group updates a running task and restoring the group reuses defaults',t=>{
+  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'niang-custom-'));
+  t.after(()=>fs.rmSync(dir,{recursive:true,force:true}));
+  const file=path.join(dir,'custom.json');
+  const task={id:'custom-rotation',started:0,phaseSince:0,phase:'正在使用工具',title:'测试'};
+  const line='换一句自己的！\n我还在～';
+  fs.writeFileSync(file,JSON.stringify({version:1,groups:{long:[line]}}));
+  reloadTaskDialogue(file);
+  assert.equal(runningScene(task,125000).line,line);
+  fs.writeFileSync(file,JSON.stringify({version:1,groups:{}}));
+  reloadTaskDialogue(file);
+  assert.notEqual(runningScene(task,125001).line,line);
 });

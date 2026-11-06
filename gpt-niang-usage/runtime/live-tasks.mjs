@@ -173,108 +173,43 @@ export function monitor(root) {
   };
 }
 
-const dialogue = {
-  work:[
-    "Ciallo～\n这单我接啦！",
-    "先挑一小块下手。\n大的待会儿再说。",
-    "工位借半张？\n尾巴得有地方放嘛～",
-    "爪子热好了……\n开工！",
-    "来活了？\n那我把宝箱合上。",
-    "今天的第一步，\n就从你这句开始。",
-    "好，我来！\n别按住我的尾巴呀～",
-    "让我看看，\n今天要养个\n什么小问题。"
-  ],
-  tool:[
-    "我翻翻工具箱……\n咦，在最底下！",
-    "先试一下。\n猜错了也比嘴硬强。",
-    "借我个扳手。……\n工具栏里那个。",
-    "我看一眼实际结果，\n再回来发言。",
-    "让我戳一下？\n轻轻的，有分寸～",
-    "工具我来拿，\n你帮我看着宝箱。",
-    "能让工具动手的事，\n何必用角顶？",
-    "先跑一步看看。\n尾巴暂时不用上场。"
-  ],
-  think:[
-    "唔……又绕回来了？\n换个小例子试试。",
-    "我没卡……\n是思路在等红灯。",
-    "反例呢？我总觉得\n它躲在桌子底下。",
-    "这个我好像懂了。\n等我试着讲明白。",
-    "角都想热了……\n先把条件捋顺。",
-    "给我一小会儿，\n刚才那条线头找着了。",
-    "先别塞 token！\n我这口还没嚼完……",
-    "这段逻辑，\n是不是咬住\n自己的尾巴了？"
-  ],
-  long:[
-    "盯着我能加速吗？\n……好像有一点。",
-    "工时又涨啦……\n地球 online，\n我的金币呢？",
-    "这么小的任务，\n怎么养这么大了？\n先养着吧～",
-    "别数秒啦，去喝口水。\n这儿有我。",
-    "要是摇尾巴也能结账，\n我早发财啦 (￣▽￣)",
-    "尾巴坐麻了……\n往旁边挪半格，\n接着干！",
-    "你看额度，我看进度。\n各忙各的。",
-    "长任务是一条龙服务。\n嗯，只有我一条龙。"
-  ],
-  wait:[
-    "分岔口到了～\n走哪边？我跟着。",
-    "这一步归你拍板。\n爪印我就不代签啦。",
-    "耳朵竖好啦！\n你说 (・ω・)",
-    "给个准话？\n我好把尾巴转过去。",
-    "轮到你啦～\n我趴这儿等会儿。",
-    "你的主意呢？\n我想听原版。",
-    "先不乱猜。\n猜错要花 token……\n这笔谁赔？",
-    "你点头我就走。\n点我的角可不算。"
-  ],
-  reply:[
-    "等我把话理顺，\n省你再读一遍。",
-    "刚才那一大团思路，\n正在叠成几句话。",
-    "结论写前面。\n我的碎碎念往后排。",
-    "这句也太绕了吧？\n我给它剪短点。",
-    "我把重点圈给你。\n爪印就免了。",
-    "让我找个好懂的说法。\n别急着翻页。",
-    "字要一个个排队，\n尾巴不能插队。",
-    "等一下……\n这个逗号\n有自己的想法？"
-  ],
-  fast:[
-    "看见了吗？没看见？\n已经好啦！",
-    "尾巴才摇半下……\n收工啦～",
-    "高性能↑\n这回没画反！",
-    "这题手感好，\n连角都没用上。",
-    "我刚坐下……\n又能站起来了？！",
-    "这么快？！\n快夸我 (￣▽￣)",
-    "叮。结果比我的\n开场白先到了。",
-    "这单按工时收费？\n亏了呀……"
-  ],
-  done:[
-    "给。你看结果，\n我靠一会儿。",
-    "这件归你。\n功劳归……我们俩！",
-    "今天这点小胜利，\n记你名下啦～",
-    "结果在聊天里。\n翻它，别翻我尾巴。",
-    "嗯，是我干的！\n角还是不许摸～",
-    "先验货。满意的话，\n夸龙一句。",
-    "今天又多会了一点！\n这点经验收好～",
-    "收工！奖励我\n趴三秒 (－ω－)"
-  ],
-  longDone:[
-    "久等啦～\n尾巴都坐扁了……",
-    "这单终于交差。\n我的水都凉啦。",
-    "金币没挖着，\n结果给你挖回来了。",
-    "高性能↓？哼！\n这趟比的是耐力。",
-    "这单我记住了。\n下回带个坐垫。",
-    "大活收尾，该轮到\n龙伸个懒腰了。",
-    "你等了好久，\n我也忙了好久……\n来看吧！",
-    "花的是 token，\n练出来的是耐心。"
-  ],
-  stopped:[
-    "收到，收爪～",
-    "先停这儿。\n想接着走的时候叫我。",
-    "尾巴打个结，\n记住停在哪儿。",
-    "这回先歇一歇，\n宝藏又不会长腿。",
-    "好～我把工位\n让出来一会儿。",
-    "爪子离开键盘！\n你看，两只都在～",
-    "这页先夹张书签。",
-    "休息一下？正好，\n我的角也要散热。"
-  ]
-};
+const defaultsFile=new URL('../assets/task-dialogue.defaults.json',import.meta.url);
+const defaults=JSON.parse(fs.readFileSync(defaultsFile,'utf8').replace(/^\uFEFF/,''));
+const dialogue={...defaults};
+let previousCustomStamp;
+
+export function reloadTaskDialogue(file) {
+  if (!file) return;
+  let preferences={}, stamp;
+  try {
+    let stat;
+    try {stat=fs.statSync(file);} catch(e) {if(e.code!=='ENOENT')throw e;}
+    stamp=stat ? [stat.ino,stat.mtimeMs,stat.size].join(':') : 'defaults';
+    if(stamp===previousCustomStamp)return;
+    if(stat){
+      if(stat.size>2*1024*1024) return;
+      const saved=JSON.parse(fs.readFileSync(file,'utf8').replace(/^\uFEFF/,''));
+      if(saved.version!==1 || !saved.groups || typeof saved.groups!=='object' || Array.isArray(saved.groups))return;
+      preferences=saved.groups;
+    }
+    const next={};
+    for(const kind of Object.keys(defaults)){
+      if(!Object.hasOwn(preferences,kind)){next[kind]=defaults[kind];continue;}
+      const rows=preferences[kind];
+      if(!Array.isArray(rows)||!rows.length||rows.length>200||rows.some(s=>typeof s!=='string'||!s.trim()||s.length>512||s.split('\n').length>3))return;
+      next[kind]=[...new Set(rows)];
+    }
+    for(const kind of Object.keys(next)){
+      if(JSON.stringify(dialogue[kind])===JSON.stringify(next[kind]))continue;
+      dialogue[kind]=next[kind];
+      decks.delete(kind);
+      if(runningCard?.kind===kind)runningCard=null;
+      for(const key of choices.keys())if(JSON.parse(key)[0]===kind)choices.delete(key);
+    }
+    previousCustomStamp=stamp;
+  }catch { /* Keep the working list if the file is being replaced or is unreadable. */ }
+}
+
 
 // Each category gets its own shuffled deck. Keep the chosen line for a
 // display interval because the widget polls repeatedly and tasks can overlap.
@@ -303,6 +238,20 @@ function pick(kind,id,round=0){
   if(choices.size>512)choices.delete(choices.keys().next().value);
   return deck.last;
 }
+const runningLineMs=20_000;
+let runningCard=null;
+let runningDraw=0;
+
+function runningLine(kind,id,now){
+  const urgent=kind==='wait'||kind==='reply';
+  const leavingUrgent=runningCard && (runningCard.kind==='wait'||runningCard.kind==='reply');
+  if(!runningCard || runningCard.id!==id || now<runningCard.from ||
+     now-runningCard.from>=runningLineMs || ((urgent||leavingUrgent) && runningCard.kind!==kind)){
+    runningCard={id,kind,from:now,line:pick(kind,id,++runningDraw)};
+  }
+  return runningCard;
+}
+
 export function runningScene(t,now=Date.now()){
   const age=Math.max(0,now-t.started), quiet=Math.max(0,now-t.phaseSince);
   let kind='work', heading=t.phase;
@@ -311,7 +260,8 @@ export function runningScene(t,now=Date.now()){
   else if(age>=90000){kind='long';heading='还在忙';}
   else if(t.phase==='正在处理' && quiet>=20000){kind='think';heading='再想一想';}
   else if(t.phase!=='正在处理')kind='tool';
-  return {kind,heading,line:pick(kind,t.id,Math.floor(age/45000)),title:t.title};
+  const card=runningLine(kind,t.id,now);
+  return {kind:card.kind,heading,line:card.line,title:t.title};
 }
 export function endScene(e){
   const kind=!e.success?'stopped':e.duration<=15000?'fast':e.duration>=90000?'longDone':'done';
@@ -320,9 +270,12 @@ export function endScene(e){
 
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
   const read = monitor(defaultCodexHome());
+  const at=process.argv.indexOf('--phrases-file');
+  const phrasesFile=at<0?null:process.argv[at+1];
   let previous;
   function tick() {
     try {
+      reloadTaskDialogue(phrasesFile);
       const {active,completed} = read();
       const next = JSON.stringify({count:active.length,task:active.length?runningScene(active[0]):null,ends:completed.slice(0,8).map(endScene)});
       if (next !== previous) { process.stdout.write(next+'\n'); previous=next; }

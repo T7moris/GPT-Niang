@@ -203,6 +203,7 @@ function Initialize-WidgetSettingsMenu {
     $hint.TextWrapping=[Windows.TextWrapping]::Wrap;$hint.Margin=[Windows.Thickness]::new(0,8,0,0)
     Add-SettingsPanel $hint -Passive
   } -ReturnItem
+  Add-SettingsAction '编辑任务台词' {Open-TaskEditor}
   $script:settingsMenuUi.LiveTasks=Add-SettingsAction '任务进度与完成气泡' {param($sender,$event)Set-LiveTasksEnabled ([bool]$sender.IsChecked);Update-WidgetSettingsMenu} -Checkable -ReturnItem
   $script:settingsMenuUi.Completion=Add-SettingsAction '回答结束提醒' {param($sender,$event)Set-CompletionNotificationEnabled ([bool]$sender.IsChecked);Update-WidgetSettingsMenu} -Checkable -ReturnItem
   $script:settingsMenuUi.Completion.ToolTip='回答结束后在当前位置提醒；后台时临时置顶，显示后恢复'

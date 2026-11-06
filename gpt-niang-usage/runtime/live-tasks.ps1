@@ -36,6 +36,7 @@ function Read-LiveTasks {
     $start=New-Object Diagnostics.ProcessStartInfo
     $start.FileName=$script:config.nodePath
     $start.Arguments='"'+(Join-Path $script:appDir 'runtime\live-tasks.mjs')+'"'
+    $start.Arguments+=' --phrases-file "'+(Join-Path $script:dataDir 'task-dialogue.user.json')+'"'
     $start.UseShellExecute=$false
     $start.CreateNoWindow=$true
     $start.RedirectStandardInput=$true
@@ -115,4 +116,114 @@ function Update-LiveTaskBadge([bool]$Visible) {
     $script:liveShown=$true
     $badge.Visibility='Visible'
   }catch{Hide-LiveTaskBubble;Stop-LiveTasks}
+}
+
+$script:taskGroupNames=[ordered]@{
+  work='刚开始／处理中';tool='正在使用工具';think='想了有一会儿';long='还在忙（长任务）';wait='等你回复'
+  reply='正在写回复';fast='很快完成';done='普通完成';longDone='长任务完成';stopped='已停止／中断'
+}
+function ConvertTo-TaskEditorLines($Quotes){
+  return (@(foreach($quote in $Quotes){([string]$quote) -replace '\r?\n',' | '}) -join [Environment]::NewLine)
+}
+function Read-TaskEditorLines([string]$Value,[string]$Group){
+  $name=$script:taskGroupNames[$Group]
+  $unique=[Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+  $face=[Windows.Media.Typeface]::new([Windows.Media.FontFamily]::new('Microsoft YaHei UI'),[Windows.FontStyles]::Normal,[Windows.FontWeights]::Bold,[Windows.FontStretches]::Normal)
+  $lineNo=0
+  foreach($raw in ($Value -split '\r?\n')){
+    $lineNo++;if(!$raw.Trim()){continue}
+    $parts=@(($raw -split '[|｜]') | ForEach-Object {$_.Trim()})
+    if($parts.Count -gt 3 -or $parts -contains ''){throw "「$name」第 $lineNo 句：每句最多三行，换行符两边都要有字。"}
+    foreach($part in $parts){
+      $m=[Windows.Media.FormattedText]::new($part,[Globalization.CultureInfo]::CurrentCulture,[Windows.FlowDirection]::LeftToRight,$face,15,[Windows.Media.Brushes]::Black)
+      if($m.WidthIncludingTrailingWhitespace -gt 188){throw "「$name」第 $lineNo 句太长，请用 | 分行，或缩短这一句。"}
+    }
+    $quote=$parts -join "`n"
+    if($unique.Add($quote)){$quote}
+  }
+  if(!$unique.Count){throw "「$name」至少留一句，也可以点「恢复本组内置」。"}
+  if($unique.Count -gt 200){throw "「$name」每组最多保存 200 句。"}
+}
+function Save-TaskEditor {
+  $script:taskDraft[$script:taskEditingGroup]=$script:taskEditor.FindName('Lines').Text
+  $groups=@{}
+  foreach($key in $script:taskGroupNames.Keys){
+    $lines=@(Read-TaskEditorLines $script:taskDraft[$key] $key)
+    $defaults=@($script:taskDefaults.$key)
+    if(($defaults -join [char]0) -cne ($lines -join [char]0)){$groups[$key]=[string[]]$lines}
+  }
+  Write-WidgetJson $script:taskCustomFile @{version=1;groups=$groups}
+  $script:taskSavedDraft=$script:taskDraft.Clone()
+  $script:taskEditor.FindName('Feedback').Text='已保存。挂件会自动读取新台词。'
+}
+function Open-TaskEditor {
+  if($script:taskEditor -and $script:taskEditor.IsVisible){$script:taskEditor.Activate()|Out-Null;return}
+  $w=[Windows.Markup.XamlReader]::Parse(@'
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" Title="GPT 娘 · 任务台词" Width="590" Height="490" MinWidth="465" MinHeight="330" ShowInTaskbar="False" WindowStartupLocation="CenterScreen" FontFamily="Microsoft YaHei UI" FontSize="14" Background="#FAF8FD">
+  <Grid Margin="20">
+    <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+    <ComboBox x:Name="Group" Width="235" HorizontalAlignment="Left" Padding="7,4"/>
+    <TextBlock Grid.Row="1" Margin="0,12,0,8" Text="每行一句，长句用 | 指定气泡里的换行。保存会应用所有分组的修改。" Foreground="#745A98" TextWrapping="Wrap"/>
+    <TextBox x:Name="Lines" Grid.Row="2" AcceptsReturn="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" Padding="10" FontSize="15" BorderBrush="#BBAACA"/>
+    <TextBlock x:Name="Feedback" Grid.Row="3" Margin="0,8" Foreground="#745A98" TextWrapping="Wrap"/>
+    <Grid Grid.Row="4">
+      <Button x:Name="Defaults" Content="恢复本组内置" Padding="10,5" HorizontalAlignment="Left"/>
+      <StackPanel HorizontalAlignment="Right" Orientation="Horizontal">
+        <Button x:Name="Save" Content="保存" Padding="18,5" Margin="0,0,8,0"/>
+        <Button x:Name="Done" Content="关闭" Padding="15,5"/>
+      </StackPanel>
+    </Grid>
+  </Grid>
+</Window>
+'@)
+  $script:taskDefaults=ConvertFrom-Json ([IO.File]::ReadAllText((Join-Path $script:appDir 'assets\task-dialogue.defaults.json')))
+  $script:taskCustomFile=Join-Path $script:dataDir 'task-dialogue.user.json'
+  $script:taskDraft=@{}
+  $script:taskEditingGroup=$null
+  $script:taskEditor=$w
+  $w.Owner=$script:window
+  $custom=$null
+  if([IO.File]::Exists($script:taskCustomFile)){
+    try{
+      $custom=ConvertFrom-Json ([IO.File]::ReadAllText($script:taskCustomFile))
+      if($custom.version -ne 1 -or $null -eq $custom.groups){throw '未知文件格式'}
+    }catch{
+      $w.FindName('Feedback').Text='个人台词文件无法读取。为保护原文件，本次只能查看。'
+      $w.FindName('Save').IsEnabled=$false
+    }
+  }
+  foreach($key in $script:taskGroupNames.Keys){
+    $values=$script:taskDefaults.$key
+    if($custom -and $custom.groups.$key){$values=$custom.groups.$key}
+    $script:taskDraft[$key]=ConvertTo-TaskEditorLines $values
+    $option=[Windows.Controls.ComboBoxItem]::new()
+    $option.Tag=$key;$option.Content=$script:taskGroupNames[$key]
+    $null=$w.FindName('Group').Items.Add($option)
+  }
+  $script:taskSavedDraft=$script:taskDraft.Clone()
+  $w.FindName('Group').Add_SelectionChanged({
+    $lines=$script:taskEditor.FindName('Lines')
+    if($script:taskEditingGroup){$script:taskDraft[$script:taskEditingGroup]=$lines.Text}
+    $script:taskEditingGroup=$script:taskEditor.FindName('Group').SelectedItem.Tag
+    $lines.Text=$script:taskDraft[$script:taskEditingGroup]
+  })
+  $w.FindName('Defaults').Add_Click({
+    $key=$script:taskEditingGroup
+    $script:taskEditor.FindName('Lines').Text=ConvertTo-TaskEditorLines $script:taskDefaults.$key
+    $script:taskEditor.FindName('Feedback').Text='已载入本组内置台词，点「保存」后生效。'
+  })
+  $w.FindName('Save').Add_Click({try{Save-TaskEditor}catch{$script:taskEditor.FindName('Feedback').Text=$_.Exception.Message}})
+  $w.FindName('Done').Add_Click({$script:taskEditor.Close()})
+  $w.Add_Closing({param($sender,$args)
+    if(!$sender.FindName('Save').IsEnabled -or !$script:taskEditingGroup){return}
+    $script:taskDraft[$script:taskEditingGroup]=$sender.FindName('Lines').Text
+    $dirty=@($script:taskGroupNames.Keys|Where-Object {$script:taskDraft[$_] -cne $script:taskSavedDraft[$_]})
+    if(!$dirty.Count){return}
+    $answer=[Windows.MessageBox]::Show($sender,'关闭前要保存修改过的任务台词吗？','任务台词','YesNoCancel','Question')
+    if($answer -eq 'Cancel'){$args.Cancel=$true}
+    elseif($answer -eq 'Yes'){try{Save-TaskEditor}catch{$sender.FindName('Feedback').Text=$_.Exception.Message;$args.Cancel=$true}}
+  })
+  $w.Add_Closed({$script:taskEditor=$null})
+  $w.FindName('Group').SelectedIndex=3
+  $w.Show()
 }

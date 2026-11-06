@@ -14,6 +14,7 @@
 - `runtime/host-layer.ps1`：主窗口归属与遮挡顺序。
 - `assets/quotes.json`：内置中文语录。
 - Windows 下右键龙娘，在「任务进度与完成气泡」切换任务提示。打开时，挂件在本机读取最近的 Codex 会话日志，显示任务标题、当前阶段和完成台词；归档和子代理会话不显示。点击查看额度或打开设置时，任务气泡会让位。此项默认开启，可随时关闭。
+- 「编辑任务台词」支持按状态修改、保存和恢复本组内置，一行一句，竖线 `|` 指定气泡里的换行。默认共 104 句，其中「还在忙」32 句；普通运行台词每 20 秒换一句，等待回复与完成会及时显示。个人台词保存在本机数据目录。
 - `tests/`：额度解析、刷新队列、Windows 安装与生命周期，以及本地线程计数测试。
 
 `installation.json` 在本机安装时生成，不包含在仓库中。Windows 默认个人数据位于 `%LOCALAPPDATA%\GPTNiangUsage\state`，停用后保留。Mac 数据位于 `~/Library/Application Support/GPTNiangUsage`；下载与安装说明见 [Mac README](../macos/README.md)。
