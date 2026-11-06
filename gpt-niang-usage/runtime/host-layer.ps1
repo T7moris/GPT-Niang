@@ -10,6 +10,34 @@ public static class GptWidgetZOrderNative {
  [DllImport("user32.dll",EntryPoint="SetWindowLongPtrW")]public static extern IntPtr SetWindowLongPtr(IntPtr h,int index,IntPtr value);
  [DllImport("user32.dll")]public static extern bool SetWindowPos(IntPtr h,IntPtr after,int x,int y,int width,int height,uint flags);
  [DllImport("dwmapi.dll")]static extern int DwmGetWindowAttribute(IntPtr h,int attribute,out uint value,int size);
+ [DllImport("user32.dll")]static extern IntPtr GetForegroundWindow();
+ [DllImport("user32.dll")]static extern uint GetWindowThreadProcessId(IntPtr h,out uint processId);
+ [StructLayout(LayoutKind.Sequential)]struct Rect { public int Left,Top,Right,Bottom; }
+ [DllImport("user32.dll")]static extern bool GetWindowRect(IntPtr h,out Rect rect);
+ static IntPtr lastWidget,lastForeground;
+ static long lastDesktopCheck;
+ public static bool CoveredByForeground(IntPtr widget){
+  IntPtr foreground=GetForegroundWindow();
+  long now=System.Diagnostics.Stopwatch.GetTimestamp();
+  if(widget==lastWidget && foreground==lastForeground &&
+     now-lastDesktopCheck<System.Diagnostics.Stopwatch.Frequency)return false;
+  lastWidget=widget;lastForeground=foreground;lastDesktopCheck=now;
+  if(foreground==IntPtr.Zero || foreground==widget || Topmost(foreground) ||
+     !VisibleSurface(foreground) || IsIconic(foreground))return false;
+  uint foregroundPid,widgetPid;
+  GetWindowThreadProcessId(foreground,out foregroundPid);
+  GetWindowThreadProcessId(widget,out widgetPid);
+  if(foregroundPid==widgetPid)return false;
+  Rect app,pet;
+  if(!GetWindowRect(foreground,out app) || !GetWindowRect(widget,out pet) ||
+     app.Left>=pet.Right || app.Right<=pet.Left || app.Top>=pet.Bottom || app.Bottom<=pet.Top)return false;
+  // A restored extended style can say "topmost" even while the window is behind an ordinary app.
+  IntPtr prior=GetWindow(widget,3);
+  for(int i=0;prior!=IntPtr.Zero && i<2048;i++,prior=GetWindow(prior,3)){
+   if(prior==foreground)return true;
+  }
+  return false;
+ }
  public static bool Topmost(IntPtr h){return (GetWindowLongPtr(h,-20).ToInt64()&8)!=0;}
  public static bool NonActivatingOverlay(long extended){return (extended&0x08000080)==0x08000080;}
  public static bool VisibleSurface(IntPtr h){uint cloaked;return IsWindowVisible(h)&&(DwmGetWindowAttribute(h,14,out cloaked,4)!=0||cloaked==0);}
@@ -43,9 +71,10 @@ function Set-WidgetDesktopLayer([IntPtr]$Widget,[bool]$Topmost=$true){
   if([GptWidgetZOrderNative]::GetWindowLongPtr($Widget,-8)-ne [IntPtr]::Zero){
     [GptWidgetZOrderNative]::SetWindowLongPtr($Widget,-8,[IntPtr]::Zero)|Out-Null
   }
-  if([GptWidgetZOrderNative]::Topmost($Widget)-ne $Topmost){
+  if(([GptWidgetZOrderNative]::Topmost($Widget)-ne $Topmost) -or
+     ($Topmost -and [GptWidgetZOrderNative]::CoveredByForeground($Widget))){
     $band=if($Topmost){[IntPtr](-1)}else{[IntPtr](-2)}
-    [GptWidgetZOrderNative]::SetWindowPos($Widget,$band,0,0,0,0,0x13)|Out-Null
+    [GptWidgetZOrderNative]::SetWindowPos($Widget,$band,0,0,0,0,0x213)|Out-Null
   }
 }
 function Set-WidgetAboveHost([IntPtr]$Widget,[IntPtr]$HostWindowHandle,[IntPtr]$Companion=[IntPtr]::Zero){
