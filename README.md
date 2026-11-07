@@ -1,8 +1,8 @@
 # GPT-Niang（GPT 娘）
 
-> **JavaScript 架构测试版：1.4.0-beta.1（Windows x64）**
+> **JavaScript 架构测试版：1.4.0-beta.2（Windows x64）**
 >
-> 提供 JS / Electron 架构、菜单界面和交互调整，安装时识别原安装并保留个人数据。安装包通过构建检查后在 [Beta 发布页](https://github.com/T7moris/GPT-Niang/releases/tag/v1.4.0-beta.1) 公开；[测试版说明与验收范围](https://github.com/T7moris/GPT-Niang/blob/v1.4.0-beta.1/windows-js/README.md) 包含仍需观察的场景。完整解压后运行 `安装GPT娘.cmd`，无需另装 Node.js。稳定版及 macOS 继续使用 **1.3.6**，正式版用户不会自动收到本测试版。
+> 提供 JS / Electron 架构、菜单界面和交互调整，Beta.2 新增不同名称的目录兼容、对话 token 用量及自定义单价的本地费用估算。安装时识别原安装并保留个人数据。[Beta 发布页](https://github.com/T7moris/GPT-Niang/releases/tag/v1.4.0-beta.2) 提供已通过构建检查的安装包；[测试版说明与验收范围](https://github.com/T7moris/GPT-Niang/blob/v1.4.0-beta.2/windows-js/README.md) 包含使用方法与仍需观察的场景。费用估算不代表平台账单或订阅额度百分比。完整解压后运行 `安装GPT娘.cmd`，无需另装 Node.js。稳定版及 macOS 继续使用 **1.3.6**，正式版用户不会自动收到本测试版。
 
 让一只白发紫瞳的小龙娘，陪你看 Codex 的剩余额度。
 
