@@ -4,6 +4,7 @@ import {createHash} from 'node:crypto';
 import {StringDecoder} from 'node:string_decoder';
 import {fileURLToPath} from 'node:url';
 import {resolveCodexHome} from './codex-home.mjs';
+import {readSessionMetadata} from './session-header.mjs';
 
 const NORMAL_ENDINGS=new Set(['task_complete','turn_complete']);
 const MAX_READ_BYTES=4*1024*1024,MAX_LINE_CHARACTERS=1024*1024,MAX_SEEN_TURNS=4096;
@@ -87,18 +88,15 @@ function isWithin(root,file){const relative=path.relative(root,file);return rela
 function readSessionHeader(file,{withBoundary=false}={}) {
   let fd;
   try{
-    fd=fs.openSync(file,'r');const buffer=Buffer.alloc(64*1024),count=fs.readSync(fd,buffer,0,buffer.length,0);
-    const contents=buffer.subarray(0,count).toString('utf8'),newline=contents.indexOf('\n');
-    if(newline<0)return null;
-    const record=JSON.parse(contents.slice(0,newline).replace(/^\uFEFF/,''));
-    if(record?.type!=='session_meta')return null;
-    const source=record.payload?.source;
+    fd=fs.openSync(file,'r');
+    const header=readSessionMetadata(file,{fd});
+    if(header.status!=='ok')return null;
+    const source=header.metadata.source;
     let baselineBoundary=null;
     if(withBoundary){
       try{
-        const size=count<buffer.length?count:fs.fstatSync(fd).size,length=Math.min(size,BOUNDARY_BYTES),bytes=Buffer.alloc(length);
-        if(size<=count)buffer.copy(bytes,0,size-length,size);
-        if(size<=count || fs.readSync(fd,bytes,0,length,size-length)===length)baselineBoundary={offset:size,bytes,proof:{length,sha256:createHash('sha256').update(bytes).digest('hex')}};
+        const size=fs.fstatSync(fd).size,length=Math.min(size,BOUNDARY_BYTES),bytes=Buffer.alloc(length);
+        if(fs.readSync(fd,bytes,0,length,size-length)===length)baselineBoundary={offset:size,bytes,proof:{length,sha256:createHash('sha256').update(bytes).digest('hex')}};
       }catch{}
     }
     return {subagent:source==='subagent' || Boolean(source && typeof source==='object' && Object.hasOwn(source,'subagent')),baselineBoundary};

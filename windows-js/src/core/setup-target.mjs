@@ -1,5 +1,6 @@
 import path from 'node:path';import {spawnSync} from 'node:child_process';
 import {readJson,samePath} from './storage.mjs';import {resolveInstallCli} from './cli.mjs';
+import {stableInstallPaths} from './install-paths.mjs';
 export function resolveSetupTarget({env=process.env,execute=spawnSync,codexPath=resolveInstallCli(undefined,{env,execute}),read=readJson}={}){
   if(!codexPath)throw Error('未找到 Codex 桌面程序');
   const result=execute(codexPath,['plugin','list','--marketplace','gpt-niang-local','--json'],{windowsHide:true,timeout:30000,encoding:'utf8',env});
@@ -15,6 +16,5 @@ export function resolveSetupTarget({env=process.env,execute=spawnSync,codexPath=
     if(pkg?.name!=='gpt-niang-usage'||!path.isAbsolute(config?.dataDir??'')||(config.appDir&&!samePath(config.appDir,target)))throw Error('原安装信息不完整，请先修复原版本；个人设置未改变');
     return {target:path.resolve(target),dataDir:path.resolve(config.dataDir),existing:true};
   }
-  if(!path.isAbsolute(env.LOCALAPPDATA??''))throw Error('本机应用数据目录无效');
-  const base=path.join(env.LOCALAPPDATA,'GPTNiangUsage');return {target:path.join(base,'app'),dataDir:path.join(base,'state'),existing:false};
+  return {...stableInstallPaths(env),existing:false};
 }

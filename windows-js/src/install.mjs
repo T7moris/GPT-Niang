@@ -14,6 +14,8 @@ import { processIdentity } from "../runtime/process-identity.mjs";
 import {readInstallRecord,writeInstallRecord,installFinished,claimInstall,prepareInstallRecovery,recoverInstall,snapshotFile,stopProgramOwners} from './core/install-recovery.mjs';
 import {capturePluginRegistration,restorePluginRegistration,retainPluginPreference} from './core/plugin-registration.mjs';
 import {resolveCodexHome,applyCodexHomeArgument} from '../runtime/codex-home.mjs';
+import {stableInstallPaths} from './core/install-paths.mjs';
+import {resolveLauncherBinding,resolveLegacyLauncherBinding} from './core/launcher-binding.mjs';
 if(process.versions.electron)process.noAsar=true;
 const source = path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".."),
   args = process.argv.slice(2),
@@ -121,7 +123,7 @@ export function preflight() {
   const dataDir = assertDirectory(
     option("--data-dir") ??
       previous?.dataDir ??
-      path.join(process.env.LOCALAPPDATA, "GPTNiangUsage", "state"),
+      stableInstallPaths().dataDir,
   );
   if (
     same(dataDir, target) ||
@@ -156,8 +158,7 @@ export function preflight() {
       ? [quote(path.join(legacyAgent, "agent-supervisor.vbs"))]
       : []),
   ];
-  const launcherPath=path.join(dataDir,"launcher","GPTNiang.Start.exe"),binding=readJson(path.join(dataDir,"launcher","launcher.json"));
-  if((same(task.command,launcherPath)||same(link.target,launcherPath))&&(!same(binding?.appDir,target)||!same(binding?.dataDir,dataDir)||!same(binding?.sid,sid)))throw Error("独立启动器绑定不匹配");
+  const launcherPath=path.join(dataDir,"launcher","GPTNiang.Start.exe"),bindingFile=path.join(dataDir,'launcher','launcher.json');
   if (
     task.exists &&
     (!(
@@ -174,6 +175,7 @@ export function preflight() {
       !same(task.sid ?? task.user, sid))
   )
     throw Error("已有启动任务属于其他安装，已停止检查");
+  let repairLegacyBinding=false;
   if (
     legacyAgent &&
     task.exists &&
@@ -183,13 +185,8 @@ export function preflight() {
     ) ||
       same(task.arguments, legacyArguments))
   ) {
-    const binding = readJson(path.join(legacyAgent, "binding.json"));
-    if (
-      !same(binding?.appDir, target) ||
-      !same(binding?.dataDir, dataDir) ||
-      !same(binding?.sid, sid)
-    )
-      throw Error("旧启动器绑定不匹配");
+    const file=path.join(legacyAgent,'binding.json');
+    repairLegacyBinding=resolveLegacyLauncherBinding({exists:fs.existsSync(file),binding:readJson(file),previous,target,dataDir,sid,agent:legacyAgent,task}).recovered;
   }
   const linkArguments = [
     quote(path.join(target, "launch.vbs")),
@@ -207,6 +204,8 @@ export function preflight() {
     )
   )
     throw Error("现有启动快捷方式不属于该安装");
+  const launcherBinding=(same(task.command,launcherPath)||same(link.target,launcherPath))?
+    resolveLauncherBinding({exists:fs.existsSync(bindingFile),binding:readJson(bindingFile),previous,target,dataDir,sid,launcherPath,task,link}):null;
   const pkg = readJson(path.join(source, "package.json"));
   if (pkg?.architecture !== "javascript-electron")
     throw Error("源程序架构不匹配");
@@ -252,6 +251,8 @@ export function preflight() {
     version: pkg.version,
     integrity,
     previous,
+    repairLauncherBinding:launcherBinding?.recovered===true,
+    repairLegacyBinding,
     task,
     link,
   };
@@ -322,8 +323,15 @@ export async function install(
         return [name, fs.existsSync(file) ? fs.readFileSync(file) : null];
       }),
     );
-  const bootstrapFiles=[plan.launcherPath,path.join(path.dirname(plan.launcherPath),"launcher.json"),path.join(path.dirname(plan.launcherPath),"launcher.json.bak")];
+  const bootstrapFiles=[plan.launcherPath,path.join(path.dirname(plan.launcherPath),"launcher.json"),path.join(path.dirname(plan.launcherPath),"launcher.json.bak"),...(plan.repairLegacyBinding?[path.join(plan.previous.updateAgent,'binding.json')]:[])];
   const oldBootstrap=new Map(bootstrapFiles.map(file=>[file,fs.existsSync(file)?fs.readFileSync(file):null]));
+  const bootstrapOriginal=new Map(oldBootstrap);
+  if(plan.repairLauncherBinding){
+    // A failed upgrade must also restore a usable old launcher, rather than
+    // reintroducing the absent binding that preflight has safely reconstructed.
+    oldBootstrap.set(path.join(path.dirname(plan.launcherPath),'launcher.json'),Buffer.from(JSON.stringify({appDir:plan.target,dataDir:plan.dataDir,sid:plan.sid},null,2)+'\n'));
+  }
+  if(plan.repairLegacyBinding)oldBootstrap.set(path.join(plan.previous.updateAgent,'binding.json'),Buffer.from(JSON.stringify({appDir:plan.target,dataDir:plan.dataDir,sid:plan.sid},null,2)+'\n'));
   const priorMarket = oldMarket
     ? JSON.parse(oldMarket.toString("utf8").replace(/^\uFEFF/, ""))
     : null;
@@ -342,7 +350,7 @@ export async function install(
     return !!(identity&&Number.isFinite(started)&&identity.startedAt===started);
   });
   let record={schema:1,token,root:plan.target,dataDir:plan.dataDir,transaction,stage,backup,source:path.resolve(fileSource),hadTarget:fs.existsSync(plan.target),migration,resumeTask:plan.task.exists&&(plan.task.state===4||detachedRunning),
-    plan:Object.fromEntries(['target','dataDir','launcherPath','taskName','sid','shortcut','marketplaceRoot','nodePath','codexPath','task'].map(name=>[name,plan[name]])),
+    plan:{...Object.fromEntries(['target','dataDir','launcherPath','taskName','sid','shortcut','marketplaceRoot','nodePath','codexPath','task'].map(name=>[name,plan[name]])),...(plan.repairLegacyBinding?{legacyBindingPath:path.join(plan.previous.updateAgent,'binding.json')}:{})},
     snapshots:{market:oldMarket?.toString('base64')??null,marketBackup:snapshotFile(market+'.bak'),shortcut:oldShortcut?.toString('base64')??null,
       flags:Object.fromEntries([...oldFlags].map(([name,value])=>[name,value?.toString('base64')??null])),bootstrap:[...oldBootstrap].map(([file,value])=>[file,value?.toString('base64')??null]),
       identity:Object.fromEntries(['package.json','installation.json'].map(name=>[name,snapshotFile(path.join(plan.target,name))]))}};
@@ -395,6 +403,11 @@ export async function install(
     if(currentTask&&Boolean(currentTask.exists)!==Boolean(plan.task.exists)||currentTask?.exists&&(!same(currentTask.command,plan.task.command)||currentTask.arguments!==plan.task.arguments||currentTask.sid!==plan.task.sid))throw Error('启动任务在安装准备期间发生变化，现用版本保留');
     if(snapshotFile(plan.shortcut)!==(oldShortcut?.toString('base64')??null))throw Error('启动快捷方式在安装准备期间发生变化，现用版本保留');
     record.recovery=prepareInstallRecovery(record,source);
+    for(const [file,value]of bootstrapOriginal)if(snapshotFile(file)!==(value?.toString('base64')??null))throw Error('启动器在安装准备期间发生变化，现用版本保留');
+    // A waiting GUI supervisor host holds its executable open on Windows.
+    // Older JS launchers already understand this durable recovery journal.
+    const stopBeforeLauncher=plan.previous?.architecture==='javascript-electron';
+    if(stopBeforeLauncher){await phase('stopping',{systemTouched:true,pluginSnapshot});await stop(plan);}
     await phase('arming-launcher',{bootstrapTouched:true,pluginSnapshot});
     fs.mkdirSync(path.dirname(plan.launcherPath),{recursive:true});
     writeJson(path.join(path.dirname(plan.launcherPath),"launcher.json"),{appDir:plan.target,dataDir:plan.dataDir,sid:plan.sid});
@@ -404,8 +417,7 @@ export async function install(
     windows('task-register',plan.taskName,taskFile,plan.sid);
     await phase('arming-shortcut',{shortcutTouched:true});
     windows('shortcut-write',plan.shortcut,plan.launcherPath,'',path.dirname(plan.launcherPath));
-    await phase('stopping',{systemTouched:true});
-    await stop(plan);
+    if(!stopBeforeLauncher){await phase('stopping',{systemTouched:true});await stop(plan);}
     if (fs.existsSync(plan.target)) {
       await phase('moving-old');
       await renameWithRetry(plan.target, backup);

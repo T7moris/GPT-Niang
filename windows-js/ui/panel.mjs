@@ -271,9 +271,11 @@ function patchMenu(target,draft){
     if(next.nodeType!==1)continue;
     for(const attribute of Array.from(current.attributes))if(!next.hasAttribute(attribute.name)&&!(current.tagName==='DETAILS'&&attribute.name==='open'))current.removeAttribute(attribute.name);
     for(const attribute of next.attributes)if(!(current.tagName==='DETAILS'&&attribute.name==='open')&&current.getAttribute(attribute.name)!==attribute.value)current.setAttribute(attribute.name,attribute.value);
-    if(current.tagName==='INPUT'){current.checked=next.checked;current.disabled=next.disabled;if(current.value!==next.value)current.value=next.value;}
+    if(current.tagName==='INPUT'){current.checked=next.checked;current.disabled=next.disabled;if(current.value!==next.value)current.value=next.value;if(current.dataset.focusKey?.startsWith('auto-quote:')){current.oninput=next.oninput;current.onchange=next.onchange;}}
+    if(current.tagName==='SELECT'){current.disabled=next.disabled;current.onchange=next.onchange;}
     if(current.tagName==='BUTTON'){current.disabled=next.disabled;current.onclick=next.onclick;}
     patchMenu(current,next);
+    if(current.tagName==='SELECT')current.value=next.value;
   }
   while(target.childNodes.length>incoming.length)target.lastChild.remove();
 }
@@ -384,7 +386,7 @@ document.addEventListener("keydown", (event) => {
     if(event.key==='ArrowRight'&&summary){
       event.preventDefault();summary.click();details?.querySelector('.flyout button:not(:disabled),.flyout input:not(:disabled)')?.focus();return;
     }
-    if((event.key==='Escape'||(event.key==='ArrowLeft'&&!event.target.matches?.('input[type=radio]')))&&details?.open){
+    if((event.key==='Escape'||(event.key==='ArrowLeft'&&!event.target.matches?.('input[type=radio],input[type=text],input[type=number],textarea,select')))&&details?.open){
       event.preventDefault();details.open=false;details.querySelector('summary')?.focus();positionFlyouts();return;
     }
     if(['ArrowUp','ArrowDown'].includes(event.key)&&(summary||event.target.matches?.('button')&&!details)){

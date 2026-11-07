@@ -32,6 +32,7 @@ import { OcclusionRecovery } from "./core/occlusion.mjs";
 import { WorkerStarter } from "./core/worker-starter.mjs";
 import { readRefreshRequest } from "../runtime/refresh-queue.mjs";
 import {UsageService} from './core/usage-service.mjs';
+import {parseAutoQuoteInterval,validAutoQuoteSeconds} from './core/auto-quote-interval.mjs';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".."),
   args = process.argv.slice(2),
   option = (name) => {
@@ -606,7 +607,7 @@ async function run() {
       if (follow) native.above(handle, host, music ? lampHandle : 0);
       else {
         native.owner(handle, 0);
-        native.band(handle, settings.desktopTopmost);
+        native.desktopBand(handle, settings.desktopTopmost);
       }
     }
     recovery.configure(
@@ -623,7 +624,7 @@ async function run() {
       if (follow) native.above(lampHandle, host);
       else {
         native.owner(lampHandle, 0);
-        native.band(lampHandle, settings.desktopTopmost);
+        native.desktopBand(lampHandle, settings.desktopTopmost);
       }
       lamp.showInactive();
       if (follow) native.above(handle, host, lampHandle);
@@ -835,7 +836,7 @@ async function run() {
         native.move(handle, { x, y });
       }
       native.owner(handle, 0);
-      win.setIgnoreMouseEvents(true);
+      win.setIgnoreMouseEvents(!nativeShape, {forward:true});
       hit = false;
       native.band(handle, true);
       win.showInactive();
@@ -1151,7 +1152,7 @@ async function run() {
     return dialogState(new URL(event.sender.getURL()).searchParams.get("kind"));
   });
   ipcMain.on("hit", (event, inside) => {
-    if (!widgetEvent(event) || temporary || nativeShape)
+    if (!widgetEvent(event) || nativeShape)
       return;
     inside = inside === true;
     if (hit !== inside) {
@@ -1167,7 +1168,7 @@ async function run() {
         shapeError = null;
         if (!nativeShape) {
           nativeShape = true;
-          if (!temporary) win.setIgnoreMouseEvents(false);
+          win.setIgnoreMouseEvents(false);
         }
       }
     } catch (error) {
@@ -1337,8 +1338,11 @@ async function run() {
         dismissCompletion();
         scene.characterClick();
       } else if (name === "bubble") {
+        const returnToHost=scene.mode==='completion'&&!scene.collapsed;
+        const targetHost=host;
         dismissCompletion();
         scene.bubbleClick();
+        if(returnToHost&&!native.activateCodex(targetHost))return {ok:false,error:'未能返回 Codex 窗口，请从任务栏打开。'};
       } else if (name === "quote") {
         dismissCompletion();
         scene.show("quote");
@@ -1399,6 +1403,8 @@ async function run() {
           );
           if (menuNativeShape) menu.setIgnoreMouseEvents(false);
         }
+      } else if(name==='auto-quote-interval'){
+        save({autoQuoteIntervalSeconds:parseAutoQuoteInterval(value?.raw,value?.unit)});
       } else if (name === "settings") {
         if (!value || typeof value !== "object" || Array.isArray(value))
           throw Error("无效设置");
@@ -1409,6 +1415,7 @@ async function run() {
           "soundOn",
           "soundVolume",
           "bubbleTapAdvance",
+          "characterQuoteRepeat",
           "autoQuoteEnabled",
           "autoQuoteIntervalSeconds",
           "taskCompletionBubble",
@@ -1422,6 +1429,7 @@ async function run() {
         const patch = Object.fromEntries(
           Object.entries(value).filter(([k]) => allowed.includes(k)),
         );
+        if(Object.hasOwn(patch,'autoQuoteIntervalSeconds')&&!validAutoQuoteSeconds(patch.autoQuoteIntervalSeconds))throw Error('自动语录间隔须在 10 秒至 24 小时之间。');
         const normalized = normalizeSettings({ ...settings, ...patch });
         save(
           Object.fromEntries(Object.keys(patch).map((k) => [k, normalized[k]])),

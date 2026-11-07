@@ -33,6 +33,11 @@ export function validateInstallRecord(record,dataDir){
   if(record.pluginSnapshot&&(record.pluginSnapshot.schema!==1||!same(record.pluginSnapshot.target,root)||!same(record.pluginSnapshot.codexPath,plan.codexPath)||!same(record.pluginSnapshot.marketplaceRoot,plan.marketplaceRoot)||!path.isAbsolute(record.pluginSnapshot.home??'')))throw Error('插件恢复绑定无效');
   if(record.pluginTouched&&!record.pluginSnapshot)throw Error('插件恢复记录缺失');
   const bootstrap=[plan.launcherPath,path.join(path.dirname(plan.launcherPath),'launcher.json'),path.join(path.dirname(plan.launcherPath),'launcher.json.bak')];
+  if(plan.legacyBindingPath){
+    let old;try{old=JSON.parse(bytes(record.snapshots?.identity?.['installation.json']).toString('utf8').replace(/^\uFEFF/,''));}catch{throw Error('旧启动器恢复身份无效');}
+    if(!same(old?.appDir,root)||!same(old?.dataDir,data)||!path.isAbsolute(old?.updateAgent??'')||!same(plan.legacyBindingPath,path.join(old.updateAgent,'binding.json')))throw Error('旧启动器恢复绑定无效');
+    bootstrap.push(plan.legacyBindingPath);
+  }
   if(!Array.isArray(record.snapshots?.bootstrap)||record.snapshots.bootstrap.length!==bootstrap.length||record.snapshots.bootstrap.some(([file])=>!bootstrap.some(expected=>same(expected,file))))throw Error('启动器恢复记录无效');
   for(const name of Object.keys(record.snapshots.flags))if(!['stop.flag','supervisor-stop.flag','supervisor-disabled.flag','supervisor-pause.json'].includes(name))throw Error('停止标记恢复记录无效');
   if(record.recovery&&(!same(record.recovery.agent,path.join(transaction,'recovery'))||!same(record.recovery.script,path.join(transaction,'recovery/src/install-recovery.mjs'))||!path.isAbsolute(record.recovery.executable??'')))throw Error('恢复助手绑定无效');

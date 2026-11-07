@@ -349,7 +349,7 @@ function render(value) {
   $("quota").style.display = isQuote ? "none" : "block";
   quote.style.display = isQuote ? "block" : "none";
   if (isQuote) {
-    bubble.title = value.scene.text;
+    bubble.title = value.scene.text+(value.scene.mode==='completion'?'\n点击返回 Codex 窗口':'');
     if (lastRevision !== value.scene.revision)
       fitQuote(value.scene.text, value.quoteLayouts);
   } else {

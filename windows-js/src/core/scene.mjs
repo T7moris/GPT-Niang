@@ -62,6 +62,7 @@ export class Scene extends EventEmitter {
   }
   characterClick() {
     if (this.collapsed) this.show("quota");
+    else if (this.settings.characterQuoteRepeat) this.show('quote');
     else if (this.settings.bubbleTapAdvance) this.next();
     else if (this.mode !== "quota") this.show("quota");
     else this.restart();

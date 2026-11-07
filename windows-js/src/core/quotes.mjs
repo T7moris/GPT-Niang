@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import {validAutoQuoteSeconds} from './auto-quote-interval.mjs';
 import path from "node:path";
 import { readJson, writeJson } from "./storage.mjs";
 import { normalizeQuotes } from './quote-values.mjs';
@@ -100,8 +101,8 @@ export class AutoQuoteSchedule {
     this.eligible = false;
   }
   configure(enabled, seconds, now = Date.now()) {
-    if (![60, 300, 900].includes(seconds))
-      throw new Error("请选择 1、5 或 15 分钟。");
+    if (!validAutoQuoteSeconds(seconds))
+      throw new Error("自动语录间隔须在 10 秒至 24 小时之间。");
     this.enabled = enabled;
     this.seconds = seconds;
     this.reset(now);

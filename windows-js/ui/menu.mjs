@@ -1,3 +1,4 @@
+let intervalDraft = null, intervalDirty = false, intervalSaved = null;
 export function buildMenu(
   { el, button, check, section, slider, radio, command },
   state,
@@ -55,6 +56,8 @@ export function buildMenu(
   el("hr", undefined, sound);
   check("点角色也切换内容", "bubbleTapAdvance", sound);
   el("div", "开启后依次切换：额度 → 语录 → 收起。", sound).className = "hint";
+  check('点角色连续换语录', 'characterQuoteRepeat', sound);
+  el('div', '开启后优先使用：首次查看额度，之后连续换语录；点气泡仍可收起。', sound).className = 'hint';
   const position = section("显示与位置");
   radio(
     "仅在 Codex 窗口内",
@@ -88,6 +91,24 @@ export function buildMenu(
       () => command("settings", { autoQuoteIntervalSeconds: seconds }),
       intervals,
     );
+  if(!intervalDraft || !intervalDirty && intervalSaved!==state.settings.autoQuoteIntervalSeconds){
+    const seconds=state.settings.autoQuoteIntervalSeconds;
+    const unit=seconds%3600===0?'hours':seconds%60===0?'minutes':'seconds';
+    intervalDraft={raw:String(seconds/({hours:3600,minutes:60,seconds:1}[unit])),unit};
+    intervalSaved=seconds;
+  }
+  const custom=el('div',undefined,quotes);custom.className='auto-quote-custom';
+  const intervalLabel=el('label','自定义间隔',custom),value=el('input',undefined,intervalLabel);
+  value.type='text';value.inputMode='decimal';value.maxLength=12;value.value=intervalDraft.raw;
+  value.dataset.focusKey='auto-quote:value';value.setAttribute('aria-label','自动语录自定义间隔');
+  value.oninput=event=>{intervalDraft.raw=event.currentTarget.value;intervalDirty=true;};
+  const unit=el('select',undefined,custom);unit.dataset.focusKey='auto-quote:unit';unit.setAttribute('aria-label','自动语录时间单位');
+  for(const [id,name]of [['seconds','秒'],['minutes','分钟'],['hours','小时']]){const option=el('option',name,unit);option.value=id;}
+  unit.value=intervalDraft.unit;
+  unit.onchange=event=>{intervalDraft.unit=event.currentTarget.value;intervalDirty=true;};
+  const apply=button('应用间隔','auto-quote-interval',undefined,custom);
+  apply.onclick=async()=>{const submitted={...intervalDraft},result=await command('auto-quote-interval',submitted);if(result&&JSON.stringify(submitted)===JSON.stringify(intervalDraft))intervalDirty=false;};
+  el('div','支持 10 秒至 24 小时，也可输入 1.5 分钟等小数。',quotes).className='hint';
   el("div", "仅在挂件可见且空闲时显示。", quotes).className = "hint";
   el("hr", undefined, quotes);
   check("回答结束提醒", "taskCompletionBubble", quotes);

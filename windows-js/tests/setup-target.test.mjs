@@ -1,7 +1,7 @@
 import test from 'node:test';import assert from 'node:assert/strict';import path from 'node:path';
 import {resolveSetupTarget} from '../src/core/setup-target.mjs';
 const target=path.resolve('fixture-existing'),dataDir=path.resolve('fixture-personal'),row={pluginId:'gpt-niang-usage@gpt-niang-local',installed:true,source:{path:target}};
-const options=(installed,config={appDir:target,dataDir})=>({codexPath:'fixture-codex',execute:()=>({status:0,stdout:JSON.stringify({installed})}),read:file=>file.endsWith('package.json')?{name:'gpt-niang-usage'}:config,env:{LOCALAPPDATA:path.resolve('fixture-local')}});
+const options=(installed,config={appDir:target,dataDir})=>({codexPath:'fixture-codex',execute:()=>({status:0,stdout:JSON.stringify({installed})}),read:file=>file.endsWith('package.json')?{name:'gpt-niang-usage'}:config,env:{LOCALAPPDATA:path.resolve('fixture-local'),USERPROFILE:path.resolve('fixture-profile')}});
 test('public installer keeps existing JavaScript and legacy installations with their original personal directory',()=>{
  assert.deepEqual(resolveSetupTarget(options([row])),{target,dataDir,existing:true});
  assert.deepEqual(resolveSetupTarget(options([row],{dataDir,version:'1.3.6'})),{target,dataDir,existing:true});

@@ -3,6 +3,7 @@ import path from "node:path";
 import { createHash } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import { listRolloutFiles } from "../../runtime/completion-monitor.mjs";
+import {readSessionMetadata} from '../../runtime/session-header.mjs';
 import {
   newUsageState,
   acceptUsageRecord,
@@ -12,27 +13,9 @@ import { estimateCost } from "./usage-pricing.mjs";
 const hash = (bytes) => createHash("sha256").update(bytes).digest("hex");
 const identity = (stat) => `${stat.dev}:${stat.ino}`;
 function header(file) {
-  let fd;
-  try {
-    fd = fs.openSync(file, "r");
-    const bytes = Buffer.alloc(65536),
-      size = fs.readSync(fd, bytes, 0, bytes.length, 0),
-      line = bytes.subarray(0, size).toString("utf8").split("\n")[0];
-    const record = JSON.parse(line.replace(/^\uFEFF/, "")),
-      id = record.payload?.id;
-    if (
-      record.type !== "session_meta" ||
-      typeof id !== "string" ||
-      !id ||
-      id.length > 200
-    )
-      return null;
-    return { id, metadata: record.payload };
-  } catch {
-    return null;
-  } finally {
-    if (fd !== undefined) fs.closeSync(fd);
-  }
+  const result=readSessionMetadata(file),id=result.metadata?.id;
+  if(result.status!=='ok'||typeof id!=='string'||!id||id.length>200)return null;
+  return {id,metadata:result.metadata};
 }
 function boundary(file, offset) {
   if (!offset) return "";

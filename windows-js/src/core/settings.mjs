@@ -1,4 +1,5 @@
 import { readJson, writeJson } from "./storage.mjs";
+import {validAutoQuoteSeconds} from './auto-quote-interval.mjs';
 export const defaults = Object.freeze({
   layoutVersion: 2,
   right: 0,
@@ -12,6 +13,7 @@ export const defaults = Object.freeze({
   soundOn: true,
   soundVolume: 0.9,
   bubbleTapAdvance: false,
+  characterQuoteRepeat: false,
   hideMenu: false,
   colorMode: "mixed",
   colorChance: 0.5,
@@ -54,6 +56,7 @@ export function normalizeSettings(saved) {
   for (const key of [
     "soundOn",
     "bubbleTapAdvance",
+    "characterQuoteRepeat",
     "hideMenu",
     "colorPaused",
     "followHost",
@@ -83,7 +86,7 @@ export function normalizeSettings(saved) {
       Number(saved[key]) <= 30
     )
       s[key] = Number(saved[key]);
-  if ([60, 300, 900].includes(Number(saved.autoQuoteIntervalSeconds)))
+  if (validAutoQuoteSeconds(Number(saved.autoQuoteIntervalSeconds)))
     s.autoQuoteIntervalSeconds = Number(saved.autoQuoteIntervalSeconds);
   if (typeof saved.characterId === "string") s.characterId = saved.characterId;
   return s;

@@ -1,6 +1,7 @@
 import koffi from "koffi";
 import { GdiShape } from "./shape.mjs";
 import { MouseActivation } from "./mouse-activation.mjs";
+import {DesktopLayerRecovery,activateCodexWindow} from './window-policy.mjs';
 const user = koffi.load("user32.dll"),
   kernel = koffi.load("kernel32.dll"),
   dwm = koffi.load("dwmapi.dll"),
@@ -28,6 +29,8 @@ const u = {
   iconic: fn(user, "bool __stdcall IsIconic(intptr_t h)"),
   valid: fn(user, "bool __stdcall IsWindow(intptr_t h)"),
   foreground: fn(user, "intptr_t __stdcall GetForegroundWindow()"),
+  show: fn(user, 'bool __stdcall ShowWindow(intptr_t h,int command)'),
+  activate: fn(user, 'bool __stdcall SetForegroundWindow(intptr_t h)'),
   ancestor: fn(
     user,
     "intptr_t __stdcall GetAncestor(intptr_t h,uint32_t flags)",
@@ -165,6 +168,10 @@ export class NativeWindows {
   foreground() {
     return u.ancestor(u.foreground(), 2);
   }
+  minimized(h) { return this.valid(h)&&u.iconic(h); }
+  restoreWindow(h) { if(this.isCodex(h))u.show(h,9); }
+  foregroundWindow(h) { return this.isCodex(h)&&u.activate(h); }
+  activateCodex(preferred) { return activateCodexWindow(this,preferred); }
   visible(h) {
     const b = Buffer.alloc(4);
     return (
@@ -303,6 +310,14 @@ export class NativeWindows {
   band(h, topmost) {
     if (this.topmost(h) !== topmost)
       u.pos(h, topmost ? -1 : -2, 0, 0, 0, 0, 0x13);
+  }
+  desktopBand(h, topmost) {
+    this.desktopRecovery??=new DesktopLayerRecovery();
+    this.desktopRecovery.synchronize(this,h,topmost);
+  }
+  reassertTopmost(h) {
+    if(this.pid(h)===process.pid)return u.pos(h,-1,0,0,0,0,0x213);
+    return false;
   }
   previous(h) {
     for (let n = 0; n < 10000; n++) {
@@ -514,6 +529,7 @@ export class NativeWindows {
     return h ? null : false;
   }
   close() {
+    this.desktopRecovery?.close();
     this.mouseActivation?.close();
     for (const h of this.hooks) if (h) u.unhook(h);
     for (const cb of this.callbacks) koffi.unregister(cb);

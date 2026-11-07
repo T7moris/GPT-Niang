@@ -203,3 +203,7 @@ body.usage main { max-width:1100px; margin:auto; }
   input[type="checkbox"]::before { background:CanvasText; }
   input[type="checkbox"]:checked::before { background:HighlightText; }
 }
+.auto-quote-custom { display:flex; flex-wrap:wrap; gap:8px; align-items:flex-end; margin-top:10px; }
+.auto-quote-custom label { display:flex; flex:1; min-width:90px; flex-direction:column; gap:4px; }
+.auto-quote-custom input { width:100%; min-width:0; }
+.auto-quote-custom select { max-width:90px; padding:7px; border-radius:8px; }

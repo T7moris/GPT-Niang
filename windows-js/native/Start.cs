@@ -1,4 +1,4 @@
-using System;using System.Diagnostics;using System.IO;using System.Reflection;using System.Collections.Generic;using System.Web.Script.Serialization;using System.Threading.Tasks;
+using System;using System.Diagnostics;using System.IO;using System.Reflection;using System.Collections.Generic;using System.Web.Script.Serialization;using System.Threading.Tasks;using System.Text;
 public static class GptStart {
  static string Quote(string value){return "\""+value+"\"";}
  static bool Same(string a,string b){return String.Equals(Path.GetFullPath(a),Path.GetFullPath(b),StringComparison.OrdinalIgnoreCase);}
@@ -45,11 +45,28 @@ public static class GptStart {
   var start=new ProcessStartInfo(Convert.ToString(recovery["executable"]));start.UseShellExecute=false;start.CreateNoWindow=true;start.WindowStyle=ProcessWindowStyle.Hidden;start.WorkingDirectory=data;start.EnvironmentVariables["ELECTRON_RUN_AS_NODE"]="1";
   start.Arguments=Quote(script)+" "+Quote(data)+" "+Quote(token)+" --launcher-resume";Process.Start(start);return true;
  }
- public static void Main(string[] args){
+ static void Drain(StreamReader reader,StringBuilder errors){
+  char[] bytes=new char[2048];int count;
+  while((count=reader.Read(bytes,0,bytes.Length))>0)if(errors!=null){lock(errors){errors.Append(bytes,0,count);if(errors.Length>16384)errors.Remove(0,errors.Length-16384);}}
+ }
+ static int Supervise(ProcessStartInfo start,string diagnostic){
+  try{File.Delete(diagnostic);}catch{}
+  start.RedirectStandardInput=true;start.RedirectStandardOutput=true;start.RedirectStandardError=true;
+  start.StandardOutputEncoding=Encoding.UTF8;start.StandardErrorEncoding=Encoding.UTF8;
+  using(var child=Process.Start(start)){
+   child.StandardInput.Close();var errors=new StringBuilder();
+   var output=Task.Factory.StartNew(()=>Drain(child.StandardOutput,null));
+   var error=Task.Factory.StartNew(()=>Drain(child.StandardError,errors));
+   child.WaitForExit();Task.WaitAll(output,error);
+   if(child.ExitCode!=0)try{lock(errors)File.WriteAllText(diagnostic,"Supervisor exit code: "+child.ExitCode+Environment.NewLine+errors,new UTF8Encoding(false));}catch{}
+   return child.ExitCode;
+  }
+ }
+ public static int Main(string[] args){
   string directory=Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
   string root=Path.GetDirectoryName(directory);
   if(args.Length==1&&args[0]=="--mcp"){
-   try{Environment.ExitCode=Mcp(root);}catch(Exception error){Console.Error.WriteLine("GPT Niang MCP startup failed: "+error.Message);Environment.ExitCode=1;}return;
+   try{return Mcp(root);}catch(Exception error){Console.Error.WriteLine("GPT Niang MCP startup failed: "+error.Message);return 1;}
   }
   bool candidate=Array.IndexOf(args,"--candidate")>=0;
   try{
@@ -57,7 +74,7 @@ public static class GptStart {
    if(!candidate&&File.Exists(bindingFile)){
     var json=new JavaScriptSerializer();var binding=json.Deserialize<Dictionary<string,object>>(File.ReadAllText(bindingFile));
     root=Path.GetFullPath(Convert.ToString(binding["appDir"]));string data=Path.GetFullPath(Convert.ToString(binding["dataDir"]));
-    if(RecoverInstall(data,root,args,json))return;
+    if(RecoverInstall(data,root,args,json))return 0;
     string journalFile=Path.Combine(data,"javascript-update-journal.json");
     if(File.Exists(journalFile)){
      var journal=json.Deserialize<Dictionary<string,object>>(File.ReadAllText(journalFile));string phase=Convert.ToString(journal["phase"]);
@@ -65,17 +82,20 @@ public static class GptStart {
       string agent=Path.GetFullPath(Convert.ToString(journal["agent"])),job=Path.GetFullPath(Convert.ToString(journal["job"]));
       if(!agent.StartsWith(Path.Combine(data,"update-agent-js")+Path.DirectorySeparatorChar,StringComparison.OrdinalIgnoreCase)||!String.Equals(job,Path.Combine(agent,"job.json"),StringComparison.OrdinalIgnoreCase)||!String.Equals(root,Path.GetFullPath(Convert.ToString(journal["root"])),StringComparison.OrdinalIgnoreCase))throw new Exception("Update recovery binding mismatch");
       var recover=new ProcessStartInfo(Convert.ToString(journal["executable"]));recover.UseShellExecute=false;recover.CreateNoWindow=true;recover.WindowStyle=ProcessWindowStyle.Hidden;recover.WorkingDirectory=agent;recover.EnvironmentVariables["ELECTRON_RUN_AS_NODE"]="1";
-      recover.Arguments=Quote(Path.Combine(agent,"src","update-agent.mjs"))+" "+Quote(job)+" --recover --launcher-resume";foreach(string arg in args)recover.Arguments+=" "+Quote(arg);Process.Start(recover);return;
+      recover.Arguments=Quote(Path.Combine(agent,"src","update-agent.mjs"))+" "+Quote(job)+" --recover --launcher-resume";foreach(string arg in args)recover.Arguments+=" "+Quote(arg);Process.Start(recover);return 0;
      }
     }
    }
-  }catch(Exception e){try{File.AppendAllText(Path.Combine(directory,"launcher-error.txt"),e.ToString());}catch{}return;}
+  }catch(Exception e){try{File.AppendAllText(Path.Combine(directory,"launcher-error.txt"),e.ToString());}catch{}return 1;}
   var start=new ProcessStartInfo(Path.Combine(root,"node_modules","electron","dist","electron.exe"));
   start.Arguments=Quote(candidate?root:Path.Combine(root,"src","start.mjs"));
   foreach(string arg in args)start.Arguments+=" "+Quote(arg);
   start.WorkingDirectory=root;start.UseShellExecute=false;start.CreateNoWindow=true;
   if(candidate){start.WindowStyle=ProcessWindowStyle.Normal;start.EnvironmentVariables.Remove("ELECTRON_RUN_AS_NODE");}
   else{start.WindowStyle=ProcessWindowStyle.Hidden;start.EnvironmentVariables["ELECTRON_RUN_AS_NODE"]="1";}
-  try{Process.Start(start);}catch(Exception e){try{File.AppendAllText(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"GPTNiang-launch-error.txt"),e.ToString());}catch{}}
+  try{
+   if(!candidate&&Array.IndexOf(args,"--supervise")>=0)return Supervise(start,Path.Combine(directory,"supervisor-launch-error.txt"));
+   Process.Start(start);return 0;
+  }catch(Exception e){try{File.AppendAllText(Path.Combine(directory,"launcher-error.txt"),e.ToString());}catch{}return 1;}
  }
 }
