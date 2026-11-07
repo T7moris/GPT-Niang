@@ -49,6 +49,9 @@ test("accounting worker saves prices, preserves good preferences after errors, a
   const worker = service.worker,
     exited = once(worker, "exit");
   service.close();
+  // Production close deliberately unrefs the worker. This test must keep its
+  // exit observable even when Node 22 has no other referenced event-loop work.
+  worker.ref();
   await exited;
   assert.equal(service.worker, null);
   assert.equal(service.pending.size, 0);
