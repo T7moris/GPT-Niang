@@ -9,6 +9,16 @@ test('failed color-list persistence keeps the active custom triggers unchanged',
  const start=code.indexOf('} else if (name === "colors-save") {'),end=code.indexOf('} else if (name === "character-select") {',start),c={colors:{triggers:['原触发词']},normalizeQuotes:rows=>rows.map(text=>({text})),path,dataDir:'unused',writeJson(){throw Error('disk unavailable');},send(){}};
  vm.createContext(c);vm.runInContext('async function command(name,value){if(false){'+code.slice(start,end)+'}}',c);await assert.rejects(c.command('colors-save','新的触发词'),/disk unavailable/);assert.deepEqual(c.colors.triggers,['原触发词']);
 });
+test('a usage window creation failure stops accounting and preserves the menu for retry',async()=>{
+ const start=code.indexOf('  async function openEditor(kind)'),end=code.indexOf('  function trusted(',start);let started=0,closed=0;
+ const menu={close(){throw Error('menu must remain available');}};
+ const c={stopping:false,menu,editor:null,openingEditor:false,blocked:false,resetSchedule(){},send(){},unblock(){c.blocked=!!c.menu;},
+  usageService:{start(){started++;},close(){closed++;}},path,root,candidate:false,
+  BrowserWindow:class{constructor(){throw Error('window creation failed');}}};
+ vm.createContext(c);vm.runInContext(code.slice(start,end),c);
+ await assert.rejects(c.openEditor('usage'),/window creation failed/);
+ assert.equal(started,1);assert.equal(closed,1);assert.equal(c.editor,null);assert.equal(c.menu,menu);assert.equal(c.openingEditor,false);
+});
 test('a file worker exiting cleanly without a result releases the pending operation',async()=>{
  const start=code.indexOf('  function runIo(kind, value)'),end=code.indexOf('  const quoteLayouts =',start);
  class Worker extends EventEmitter{constructor(){super();queueMicrotask(()=>this.emit('exit',0));}}

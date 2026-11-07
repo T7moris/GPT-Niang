@@ -64,6 +64,22 @@ async function main(){try{
  if(!findPanel('menu')||!updateText.includes('本地验证：没有新版本'))throw Error('update status: '+updateText);record('手动检查保留状态菜单',true);await close(menu);
  phase='completion';await command(widget,'settings',{taskCompletionBubble:true});await command(widget,'hide');await command(bench,'bench-completion');record('注入完成提醒显示',(await view()).scene.mode==='completion'&&!(await view()).scene.collapsed);await command(widget,'settings',{taskCompletionBubble:false});record('关闭提醒立即收起',(await view()).scene.collapsed);
  record('保留未知个人字段',read('settings.json').personalField==='keep');
+ phase='usage';const usageHome=path.join(data,'fake-codex');fs.mkdirSync(path.join(usageHome,'sessions'),{recursive:true});
+ const usageRecord={type:'event_msg',timestamp:new Date().toISOString(),payload:{type:'token_count',info:{total_token_usage:{input_tokens:5000,cached_input_tokens:2000,output_tokens:500},last_token_usage:{input_tokens:5000,cached_input_tokens:2000,output_tokens:500}}}};
+ fs.writeFileSync(path.join(usageHome,'sessions/usage.jsonl'),[{type:'session_meta',payload:{id:'usage-fixture',title:'用量测试',model_provider:'relay',source:'cli'}},{type:'turn_context',payload:{model:'model-a',turn_id:'usage-turn'}},usageRecord].map(row=>JSON.stringify(row)).join('\n')+'\n');
+ let usagePanel=await panel('usage');await until(async()=>await evaluate(usagePanel,'document.body.innerText.includes("5,500 tokens")'),'usage counters missing');record('对话用量读取',true);
+ await click(usagePanel,'[data-action=usage-add-price]');
+ await evaluate(usagePanel,`(()=>{for(const [key,value]of Object.entries({provider:'relay',model:'*',input:'2',cached:'0.5',cacheWrite:'2',output:'10'})){const input=document.querySelector('[data-focus-key="usage:price:0:'+key+'"]');input.value=value;input.dispatchEvent(new Event('input',{bubbles:true}));}})()`);
+ await click(usagePanel,'[data-action=usage-save]');await until(()=>fs.existsSync(path.join(data,'usage-preferences.json')),'price preferences missing');await until(async()=>await evaluate(usagePanel,'document.body.innerText.includes("¥0.012000")'),'cost estimate missing');record('自定义单价估算费用',true);
+ record('记账刷新保留币种键盘焦点',await evaluate(usagePanel,`(async()=>{document.querySelector('[data-focus-key="usage:price:0:currency"]').focus();await window.gpt.command('usage-refresh');await new Promise(resolve=>setTimeout(resolve,50));return document.activeElement?.dataset.focusKey==='usage:price:0:currency';})()`));
+ files.push({canceled:true,filePaths:[]});await click(usagePanel,'[data-action=usage-folder]');record('取消日志目录选择保留数据',read('usage-preferences.json').codexHome===null);
+ await close(usagePanel);usagePanel=await panel('usage');await until(async()=>await evaluate(usagePanel,'document.body.innerText.includes("¥0.012000")'),'cost not retained');record('记账关闭重开不重复累计',true);
+ if(process.env.GPT_NIANG_USAGE_SCREENSHOT_DIR){
+  const {nativeTheme}=require('electron'),directory=path.resolve(process.env.GPT_NIANG_USAGE_SCREENSHOT_DIR);fs.mkdirSync(directory,{recursive:true});
+  for(const theme of ['light','dark']){nativeTheme.themeSource=theme;await pause(150);fs.writeFileSync(path.join(directory,'usage-'+theme+'.png'),(await usagePanel.webContents.capturePage()).toPNG());}
+  usagePanel.setSize(560,600);await pause(150);record('记账窄窗口没有横向溢出',await evaluate(usagePanel,'document.documentElement.scrollWidth<=innerWidth+1'));fs.writeFileSync(path.join(directory,'usage-narrow.png'),(await usagePanel.webContents.capturePage()).toPNG());
+ }
+ await close(usagePanel);
  phase='rapid-open-close';const baselineWindows=BrowserWindow.getAllWindows().length;
  for(let n=0;n<8;n++){await Promise.all([command(widget,'menu'),command(widget,'menu')]);record('重复打开只保留一个菜单'+n,BrowserWindow.getAllWindows().filter(w=>!w.isDestroyed()&&w.webContents.getURL().includes('kind=menu')).length===1);await close(findPanel('menu'));}
  await Promise.all([command(widget,'characters'),command(widget,'characters')]);record('重复打开只保留一个图库',BrowserWindow.getAllWindows().filter(w=>!w.isDestroyed()&&w.webContents.getURL().includes('kind=characters')).length===1);await close(findPanel('characters'));

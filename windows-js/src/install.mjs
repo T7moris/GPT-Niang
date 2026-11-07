@@ -13,6 +13,7 @@ import { ownerAlive, renameWithRetry,terminalPhases } from "./core/update-transa
 import { processIdentity } from "../runtime/process-identity.mjs";
 import {readInstallRecord,writeInstallRecord,installFinished,claimInstall,prepareInstallRecovery,recoverInstall,snapshotFile,stopProgramOwners} from './core/install-recovery.mjs';
 import {capturePluginRegistration,restorePluginRegistration,retainPluginPreference} from './core/plugin-registration.mjs';
+import {resolveCodexHome,applyCodexHomeArgument} from '../runtime/codex-home.mjs';
 if(process.versions.electron)process.noAsar=true;
 const source = path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".."),
   args = process.argv.slice(2),
@@ -111,6 +112,7 @@ function writeXml(file, xml) {
   );
 }
 export function preflight() {
+  applyCodexHomeArgument(args);
   if (process.platform !== "win32") throw Error("此安装包用于 Windows");
   assertDirectory(source);
   assertDirectory(target);
@@ -245,6 +247,7 @@ export function preflight() {
     electronPath,
     nodePath,
     codexPath,
+    codexHome:resolveCodexHome(option('--codex-home')??previous?.codexHome),
     marketplaceRoot,
     version: pkg.version,
     integrity,
@@ -374,6 +377,7 @@ export async function install(
       electronPath: plan.electronPath,
       nodePath: plan.nodePath,
       codexPath: plan.codexPath,
+      codexHome:resolveCodexHome(plan.codexHome??plan.previous?.codexHome),
       startupShortcut: plan.shortcut,
       launcherPath: plan.launcherPath,
       marketplaceRoot: plan.marketplaceRoot,

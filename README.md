@@ -1,6 +1,6 @@
 # JavaScript 架构 Beta 测试分支
 
-当前测试版本为 **1.4.0-beta.1**，仅提供 Windows x64 的 JS / Electron 包。请从 [Beta 发布页](https://github.com/T7moris/GPT-Niang/releases/tag/v1.4.0-beta.1) 下载包含 `windows-js.zip` 的附件，完整解压后运行 `安装GPT娘.cmd`。功能与验收范围见 [测试版说明](windows-js/README.md)。
+当前测试版本为 **1.4.0-beta.2**，仅提供 Windows x64 的 JS / Electron 包。请从 [Beta 发布页](https://github.com/T7moris/GPT-Niang/releases/tag/v1.4.0-beta.2) 下载包含 `windows-js.zip` 的附件，完整解压后运行 `安装GPT娘.cmd`。功能与验收范围见 [测试版说明](windows-js/README.md)。
 
 正式版及 macOS 用户继续使用 [v1.3.6](https://github.com/T7moris/GPT-Niang/releases/tag/v1.3.6)。测试版不会自动推送给正式版用户。
 

@@ -31,6 +31,7 @@ import { Updater } from "./core/updater.mjs";
 import { OcclusionRecovery } from "./core/occlusion.mjs";
 import { WorkerStarter } from "./core/worker-starter.mjs";
 import { readRefreshRequest } from "../runtime/refresh-queue.mjs";
+import {UsageService} from './core/usage-service.mjs';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".."),
   args = process.argv.slice(2),
   option = (name) => {
@@ -151,6 +152,9 @@ async function run() {
     frame = null,
     metrics = { movementEvents: 0, positionChanges: 0 },
     lastRuntime = 0;
+  const usageService=new UsageService({dataDir,codexHome:config.codexHome,onChange:()=>{
+    if(editor&&!editor.isDestroyed()&&new URL(editor.webContents.getURL()||'about:blank').searchParams.get('kind')==='usage')editor.webContents.send('state',dialogState('usage'));
+  }});
   let bench = null;
   if (candidate && args.includes("--bench")) {
     bench = new BrowserWindow({
@@ -890,6 +894,7 @@ async function run() {
   scene.on("refresh", refresh);
   let verificationSection = null;
   function dialogState(kind) {
+    if(kind==='usage')return {kind,usage:usageService.value};
     if (kind === "quotes")
       return {
         kind,
@@ -1082,13 +1087,14 @@ async function run() {
     let opened,editorClosing=false;
     try{
     if (kind === "characters") await prepareGallery();
+    if(kind==='usage')usageService.start();
     if(stopping)return;
     editor = new BrowserWindow({
-      width: kind === "characters" ? 610 : 540,
-      height: kind === "characters" ? 560 : kind === "audio" ? 620 : 480,
+      width: kind === 'usage' ? 820 : kind === "characters" ? 610 : 540,
+      height: kind === 'usage' ? 720 : kind === "characters" ? 560 : kind === "audio" ? 620 : 480,
       frame: kind !== "characters",
       resizable: kind !== "characters",
-      minWidth: 440,
+      minWidth: kind==='usage'?560:440,
       minHeight: 330,
       title:
         kind === "characters"
@@ -1097,7 +1103,7 @@ async function run() {
             ? "GPT 娘 · 我的语录"
             : kind === "audio"
               ? "GPT 娘 · 点击音效"
-              : "GPT 娘 · 特殊台词",
+              : kind==='usage'?'GPT 娘 · 用量与记账':"GPT 娘 · 特殊台词",
       backgroundColor: "#FAF8FD",
       skipTaskbar: true,
       show: false,
@@ -1113,6 +1119,7 @@ async function run() {
     opened.on('close',()=>{editorClosing=true;});
     opened.on("closed", () => {
       if(editor===opened)editor = null;
+      if(kind==='usage')usageService.close();
       unblock();
     });
     await opened.loadFile(path.join(root, "ui", "panel.html"), {
@@ -1124,7 +1131,7 @@ async function run() {
     else opened.show();
     send();
     }catch(error){if(editorClosing||opened?.isDestroyed()||stopping)return;if(opened&&!opened.isDestroyed())opened.destroy();throw error;}
-    finally{openingEditor=false;if(!editor)unblock();}
+    finally{openingEditor=false;if(!editor){if(kind==='usage')usageService.close();unblock();}}
   }
   function widgetEvent(event) {
     return !stopping && !win.isDestroyed() && event.sender === win.webContents;
@@ -1269,9 +1276,9 @@ async function run() {
   ipcMain.handle("command", async (event, name, value) => {
     if (!trusted(event)) throw Error("Unknown window");
     let guarded=false;
-    const fileCommands=['character-select','character-import','character-remove','character-restore','audio-import','audio-mode','audio-clear'];
+    const fileCommands=['character-select','character-import','character-remove','character-restore','audio-import','audio-mode','audio-clear','usage-save','usage-folder','usage-home-auto'];
     const notifyBusy=value=>{
-      if(editor&&!editor.isDestroyed()&&['characters','audio'].includes(new URL(editor.webContents.getURL()||'file:///').searchParams.get('kind')))
+      if(editor&&!editor.isDestroyed()&&['characters','audio','usage'].includes(new URL(editor.webContents.getURL()||'file:///').searchParams.get('kind')))
         editor.webContents.send('busy',value);
     };
     try {
@@ -1342,8 +1349,21 @@ async function run() {
       } else if (name === "hide") {
         scene.hide();
       } else if (name === "menu") await openMenu();
-      else if (["quotes", "characters", "colors", "audio"].includes(name))
+      else if (["quotes", "characters", "colors", "audio",'usage'].includes(name))
         await openEditor(name);
+      else if(name.startsWith('usage-')){
+        if(!editor||editor.isDestroyed()||event.sender.id!==editor.webContents.id||new URL(editor.webContents.getURL()).searchParams.get('kind')!=='usage')throw Error('请在用量面板中操作');
+        if(name==='usage-folder'){
+          dialogBusy=true;let choice;
+          try{choice=await dialog.showOpenDialog(editor,{title:'选择 Codex 数据目录',properties:['openDirectory']});}finally{dialogBusy=false;}
+          if(!choice.canceled)await usageService.request('save',{...usageService.value.preferences,codexHome:choice.filePaths[0]});
+        }else if(name==='usage-home-auto')await usageService.request('save',{...usageService.value.preferences,codexHome:null});
+        else if(name==='usage-save')await usageService.request('save',{...usageService.value.preferences,rules:value?.rules});
+        else if(name==='usage-select')await usageService.request('select',value);
+        else if(name==='usage-refresh')await usageService.request('refresh');
+        else throw Error('未知记账操作');
+        return {ok:true,state:dialogState('usage')};
+      }
       else if (name === "close-panel") {
         BrowserWindow.fromWebContents(event.sender)?.close();
       } else if (name === "menu-hit") {
@@ -1830,6 +1850,7 @@ async function run() {
   }
   app.on("before-quit", () => {
     stopping = true;
+    usageService.close();
     for (const worker of ioWorkers) void worker.terminate();
     clearInterval(timer);
     clearInterval(completionTimer);

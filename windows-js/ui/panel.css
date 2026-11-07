@@ -178,6 +178,25 @@ body.characters .card .remove { position:absolute; right:7px; top:7px; min-heigh
   body.menu main::before,body.menu .flyout::before { backdrop-filter:none; -webkit-backdrop-filter:none; background:var(--canvas); }
 }
 @media (prefers-reduced-motion:reduce) { *,*::before,*::after { animation:none !important; transition:none !important; } }
+body.usage main { max-width:1100px; margin:auto; }
+.usage-heading h2 { margin-bottom:4px; }
+.usage-source { border:1px solid var(--line); border-radius:14px; padding:14px; background:var(--card); margin-bottom:18px; }
+.usage-path { overflow-wrap:anywhere; margin:6px 0; color:var(--muted); }
+.usage-source .hint,.usage-heading .hint { padding-left:0; }
+.usage-filters { display:grid; grid-template-columns:1fr 2fr; gap:12px; margin-bottom:16px; }
+.usage-filters label,.usage-price-row label { display:flex; flex-direction:column; gap:5px; min-width:0; color:var(--muted); font-size:12px; }
+.usage-filters select,.usage-price-row select,.usage-price-row input { width:100%; min-width:0; height:36px; border:1px solid var(--line); border-radius:9px; background:var(--card); color:var(--ink); padding:5px 8px; font:inherit; }
+.usage-filters select { text-overflow:ellipsis; }
+.usage-cards { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:18px; }
+.usage-cards section { border:1px solid var(--line); border-radius:14px; background:var(--card); padding:16px; min-width:0; }
+.usage-cards h3,.usage-prices h3 { font-size:13px; font-weight:600; margin:0 0 10px; }
+.usage-cards strong { font-size:21px; font-weight:600; overflow-wrap:anywhere; }
+.usage-cards .hint { margin:5px 0; padding:0; }
+.usage-cost { color:var(--accent-ink); font-size:15px; margin-top:8px; overflow-wrap:anywhere; }
+.usage-warning { color:var(--danger); border-left:3px solid var(--danger); padding:8px 12px; margin:8px 0 14px; }
+.usage-prices { margin-top:22px; }
+.usage-price-row { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:10px; padding:14px; margin:10px 0; border:1px solid var(--line); border-radius:14px; background:var(--card); }
+@media (max-width:640px) { .usage-filters { grid-template-columns:1fr; } .usage-price-row { grid-template-columns:1fr 1fr; } .usage-cards strong { font-size:17px; } body.usage main { padding:16px; } }
 @media (forced-colors:active) {
   :root { --ink:CanvasText; --muted:CanvasText; --accent:Highlight; --accent-ink:CanvasText; --accent-soft:Canvas; --surface:Canvas; --canvas:Canvas; --card:Canvas; --line:CanvasText; --edge:CanvasText; --hover:Canvas; --track:Canvas; --danger:CanvasText; }
   input[type="checkbox"] { border:1px solid CanvasText; }

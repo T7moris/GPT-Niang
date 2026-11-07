@@ -68,7 +68,7 @@ function configPath(home){
   for(let current=file;current!==path.dirname(current);current=path.dirname(current))if(fs.existsSync(current)&&fs.lstatSync(current).isSymbolicLink())throw Error('Codex 设置路径不能包含文件链接');
   return file;
 }
-export function capturePluginRegistration(plan,{execute=spawnSync,home=process.env.CODEX_HOME??path.join(os.homedir(),'.codex')}={}){
+export function capturePluginRegistration(plan,{execute=spawnSync,home=plan.codexHome??process.env.CODEX_HOME??path.join(os.homedir(),'.codex')}={}){
   const file=configPath(home),sections=pluginSections(fs.existsSync(file)?fs.readFileSync(file,'utf8'):'').sections;
   const catalog=call(plan.codexPath,['list','--marketplace',marketplace],execute,home),matches=(catalog.installed??[]).filter(row=>row.pluginId===pluginId&&row.installed===true);
   if(matches.length>1)throw Error('Codex 存在重复 GPT 娘插件注册');

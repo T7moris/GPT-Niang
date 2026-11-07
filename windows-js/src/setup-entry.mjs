@@ -1,6 +1,8 @@
 import {resolveSetupTarget} from './core/setup-target.mjs';
 import path from 'node:path';import {spawn,spawnSync} from 'node:child_process';
+import {applyCodexHomeArgument} from '../runtime/codex-home.mjs';
 async function main(){
+ applyCodexHomeArgument(process.argv.slice(2));
  const explicit=process.argv.includes('--target'),target=explicit?null:resolveSetupTarget();
  if(process.argv.includes('--open')||process.argv.includes('--disable')||process.argv.includes('--uninstall')){
   if(!target?.existing)throw Error('请先运行安装GPT娘.cmd 完成安装');

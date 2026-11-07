@@ -27,6 +27,7 @@ export function buildMenu(
   music.classList.toggle("active", state.music);
   music.setAttribute("aria-pressed", String(state.music));
   button("刷新额度", "refresh-menu", undefined, quick);
+  button('用量与记账…','usage',undefined,quick);
   el("hr");
   const appearance = section("形象与大小");
   button("更换形象…", "characters", undefined, appearance);

@@ -1,9 +1,9 @@
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import {createHash} from 'node:crypto';
 import {StringDecoder} from 'node:string_decoder';
 import {fileURLToPath} from 'node:url';
+import {resolveCodexHome} from './codex-home.mjs';
 
 const NORMAL_ENDINGS=new Set(['task_complete','turn_complete']);
 const MAX_READ_BYTES=4*1024*1024,MAX_LINE_CHARACTERS=1024*1024,MAX_SEEN_TURNS=4096;
@@ -122,7 +122,7 @@ export function listRolloutFiles(codexHome) {
   }
   return [...new Set(files)];
 }
-export function defaultCodexHome(env=process.env){return path.resolve(env.CODEX_HOME || path.join(env.USERPROFILE || env.HOME || os.homedir(),'.codex'));}
+export function defaultCodexHome(env=process.env){return resolveCodexHome(null,env);}
 
 function checkpointMatches(file,tail,checkpoint){
   if(tail.lastKnownSize<checkpoint.offset)return {matches:false};

@@ -14,3 +14,8 @@ test('uncertain, duplicate or conflicting installations never silently become a 
  assert.throws(()=>resolveSetupTarget({...options([]),execute:()=>({status:1})}));
  assert.throws(()=>resolveSetupTarget({...options([]),execute:()=>({status:0,stdout:'{}'})}));
 });
+test('custom home environment is carried into read-only existing-install discovery',()=>{
+ const custom=path.resolve('不同名称的 Codex 根目录'),opts=options([row]);opts.env.CODEX_HOME=custom;
+ opts.execute=(_file,_args,configuration)=>{assert.equal(configuration.env.CODEX_HOME,custom);return {status:0,stdout:JSON.stringify({installed:[row]})};};
+ assert.equal(resolveSetupTarget(opts).target,target);
+});

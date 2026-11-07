@@ -166,10 +166,12 @@ export function readPackageZip(zip) {
   return files;
 }
 export function inspectJavaScriptPackage(zip, version) {
-  const files = readPackageZip(zip),
-    packageFile =
-      files.find((f) => f.name === "package.json") ??
-      files.find((f) => f.name.endsWith("/gpt-niang-usage/package.json"));
+  const files = readPackageZip(zip);
+  const candidates=files.filter(file=>file.name==='package.json'||file.name.endsWith('/package.json')).filter(file=>{
+    try{const meta=JSON.parse(file.bytes.toString('utf8').replace(/^\uFEFF/,''));return meta.name==='gpt-niang-usage'&&meta.architecture==='javascript-electron';}catch{return false;}
+  });
+  if(candidates.length>1)throw Error('更新包包含多个 GPT 娘程序目录');
+  const packageFile=candidates[0];
   if (!packageFile)
     throw Error("此更新包仍使用旧架构，等待 JavaScript 发行包。");
   const prefix = packageFile.name.slice(0, -12);
@@ -179,7 +181,7 @@ export function inspectJavaScriptPackage(zip, version) {
       ...f,
       name: f.name.slice(prefix.length),
     })),
-    meta = JSON.parse(packageFile.bytes.toString("utf8"));
+    meta = JSON.parse(packageFile.bytes.toString("utf8").replace(/^\uFEFF/,''));
   if (
     meta.architecture !== "javascript-electron" ||
     meta.name !== "gpt-niang-usage"

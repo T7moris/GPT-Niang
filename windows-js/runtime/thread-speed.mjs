@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {spawnSync} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
+import {resolveCodexHome} from './codex-home.mjs';
 
 // Accounting checkpoints include tools, network and reasoning. They are NOT
 // decoder/streaming TPS. Only metadata and token counters leave this process.
@@ -74,7 +75,7 @@ export function allowedRollout(file, codexHome) {
   } catch { return null; }
 }
 function run() {
-  const codexHome = process.env.CODEX_HOME || path.join(process.env.HOME || '', '.codex');
+  const codexHome = resolveCodexHome();
   const tails = new Map();
   const send = value => process.stdout.write(JSON.stringify(value) + '\n');
   function update() {

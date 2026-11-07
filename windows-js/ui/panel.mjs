@@ -1,6 +1,7 @@
 import { buildMenu } from "./menu.mjs";
 import { buildGallery } from "./gallery.mjs";
 import { buildAudio } from "./audio-panel.mjs";
+import {buildUsage} from './usage-panel.mjs';
 const panel = document.getElementById("panel"),
   feedback = document.getElementById("feedback");
 let state = await window.gpt.ready();
@@ -22,6 +23,7 @@ let sliding = false,
 document.body.classList.toggle("menu", kind === "menu");
 document.body.classList.toggle("characters", kind === "characters");
 document.body.classList.toggle("editor", kind === "quotes" || kind === "colors");
+document.body.classList.toggle('usage',kind==='usage');
 const el = (tag, text, parent = mount) => {
   const element = document.createElement(tag);
   if (text !== undefined) element.textContent = text;
@@ -227,6 +229,7 @@ function render() {
   else if (kind === "characters") renderCharacters();
   else if (kind === "audio")
     buildAudio({ el, button, check, slider, radio, command }, state);
+  else if(kind==='usage')buildUsage({el,button,command},state);
   else renderEditor();
   mount=panel;
   if(menuDraft)patchMenu(panel,menuDraft);
@@ -413,8 +416,9 @@ document.addEventListener('pointerdown',()=>{clearHover();if(kind==='menu')keybo
 window.gpt.onState((value) => {
   state = value;
   if(typeof value.busy==='boolean')busy=value.busy;
-  if (!sliding) render();
+  if (!sliding&&!(kind==='usage'&&document.activeElement?.closest('.usage-prices'))) render();
 });
+panel.addEventListener('focusout',event=>{if(kind==='usage'&&event.target.closest('.usage-prices'))setTimeout(()=>{if(!document.activeElement?.closest('.usage-prices'))render();},0);});
 window.gpt.onBusy?.(value=>{busy=value===true;applyBusy();});
 panel.addEventListener('scroll',()=>{if(kind==='menu')positionFlyouts();});
 window.addEventListener('resize',()=>{if(kind==='menu')positionFlyouts();});
@@ -425,5 +429,5 @@ if(kind==='menu')new MutationObserver(()=>{
 }).observe(feedback,{childList:true,characterData:true,subtree:true});
 window.panelVerification=()=>({kind,sliding,busy,editorSaving,keyboardNavigation,active:document.activeElement?.dataset.focusKey,groups:Array.from(panel.querySelectorAll('details[open]')).map(details=>details.dataset.key)});
 render();
-panel.setAttribute('aria-label',kind==='menu'?'GPT 娘设置':kind==='characters'?'形象图库':kind==='audio'?'点击音效':'语录编辑');
+panel.setAttribute('aria-label',kind==='menu'?'GPT 娘设置':kind==='characters'?'形象图库':kind==='audio'?'点击音效':kind==='usage'?'用量与记账':'语录编辑');
 document.body.classList.add('panel-ready');
