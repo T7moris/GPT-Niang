@@ -16,7 +16,7 @@ function fixture(t){
  const tasks=new Map([[config.taskName,task('--supervise',4)]]),events=[];
  const windows=(op,...args)=>{
    if(op==='task-info')return {...(tasks.get(args[0])??{exists:false})};events.push([op,...args]);
-   if(op==='task-register'){const raw=fs.readFileSync(args[1]).subarray(2).toString('utf16le');assert.equal(raw.includes('<Triggers>'),false);const arguments_=raw.match(/<Arguments>(.*?)<\/Arguments>/)[1];tasks.set(args[0],task(arguments_));}
+   if(op==='task-register'){const raw=fs.readFileSync(args[1]).subarray(2).toString('utf16le');assert.equal(raw.includes('<Triggers>'),false);assert.match(raw,/<DisallowStartIfOnBatteries>false<\/DisallowStartIfOnBatteries>/);assert.match(raw,/<StopIfGoingOnBatteries>false<\/StopIfGoingOnBatteries>/);const arguments_=raw.match(/<Arguments>(.*?)<\/Arguments>/)[1];tasks.set(args[0],task(arguments_));}
    if(op==='task-start')tasks.get(args[0]).state=4;
    if(op==='task-stop')tasks.get(args[0]).state=3;
    if(op==='task-delete')tasks.delete(args[0]);
