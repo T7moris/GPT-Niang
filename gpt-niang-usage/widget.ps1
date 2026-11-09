@@ -552,7 +552,9 @@ function Test-WidgetCompletionHostForeground {
   return $foreground-eq $script:hostHandle
 }
 function Tick-WidgetAutoQuote([long]$Now,[bool]$Visible) {
-  $busy=($script:completionNotificationsEnabled -and $script:completionPending) -or !$script:collapsed -or [bool]$script:drag -or $script:context.IsOpen -or $script:settingsSizePreview -or ($script:closeTimer -and $script:closeTimer.IsEnabled) -or (Test-WidgetUpdateEditor)
+  # A running task is busy even while its bubble is hidden; let completion lines finish too.
+  $liveBusy=$script:liveTasksEnabled -and ($script:liveCount-gt 0 -or $script:liveShown)
+  $busy=$liveBusy -or ($script:completionNotificationsEnabled -and $script:completionPending) -or !$script:collapsed -or [bool]$script:drag -or $script:context.IsOpen -or $script:settingsSizePreview -or ($script:closeTimer -and $script:closeTimer.IsEnabled) -or (Test-WidgetUpdateEditor)
   if(Test-WidgetAutoQuoteDue $Now $Visible ([bool]$busy)){Show-Quote;$script:autoQuoteDisplayCount++}
 }
 function Show-Quota {

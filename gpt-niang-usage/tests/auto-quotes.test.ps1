@@ -84,7 +84,7 @@ try{
   $null=Save-WidgetQuotes $script:dataDir @(@{text='这是自动语录测试，直接显示台词。';weight=1},@{text='操作结束后重新计时，不打断查看额度。';weight=1})
   Initialize-WidgetAutoQuoteSettings @{autoQuoteEnabled=$true;autoQuoteIntervalSeconds=60}
   Tick-ToBeforeDeadline 1000 60000
-  foreach($guard in @('collapsed','drag','menu','preview','gallery','quote-editor','color-editor','closing')){
+  foreach($guard in @('collapsed','drag','menu','preview','gallery','quote-editor','color-editor','closing','live-running-hidden','live-running','live-ending')){
     switch($guard){
       'collapsed'{$script:collapsed=$false}
       'drag'{$script:drag=@{moved=$true}}
@@ -94,17 +94,40 @@ try{
       'quote-editor'{$script:quoteEditor=@{IsVisible=$true}}
       'color-editor'{$script:colorTriggerEditor=@{IsVisible=$true}}
       'closing'{$script:closeTimer=@{IsEnabled=$true}}
+      'live-running-hidden'{$script:liveTasksEnabled=$true;$script:liveCount=1;$script:liveShown=$false}
+      'live-running'{$script:liveTasksEnabled=$true;$script:liveCount=1;$script:liveShown=$true}
+      'live-ending'{$script:liveTasksEnabled=$true;$script:liveCount=0;$script:liveShown=$true}
     }
     $script:autoQuoteLastTickAt=60000;$script:autoQuoteWasEligible=$true;$script:autoQuoteNextAt=61000
     Tick-WidgetAutoQuote 61000 $true
     Assert ($script:autoQuoteDisplayCount-eq 0) ('Actual tick failed to defer '+$guard)
     $script:collapsed=$true;$script:drag=$null;$script:context.IsOpen=$false;$script:settingsSizePreview=$false
     $script:characterGallery=$null;$script:quoteEditor=$null;$script:colorTriggerEditor=$null;$script:closeTimer=$null
+    $script:liveTasksEnabled=$true;$script:liveCount=0;$script:liveShown=$false
+  }
+  # A task can stay active while its bubble is hidden. Finishing one of several
+  # tasks must not start the idle timer, and the final completion bubble also wins.
+  Initialize-WidgetAutoQuoteSettings @{autoQuoteEnabled=$true;autoQuoteIntervalSeconds=60}
+  $script:liveCount=2
+  for($point=1000;$point-le 189000;$point+=1000){
+    if($point-eq 122000){$script:liveCount=1}
+    if($point-eq 183000){$script:liveCount=0;$script:liveShown=$true}
+    Tick-WidgetAutoQuote $point $true
+    Assert ($script:autoQuoteDisplayCount-eq 0) 'Active tasks and their completion bubble must suppress periodic quotes'
+  }
+  $script:liveShown=$false
+  Tick-WidgetAutoQuote 190000 $true
+  Assert ($script:autoQuoteNextAt-eq 250000 -and $script:autoQuoteDisplayCount-eq 0) 'Last task completion must restart a complete quiet interval'
+  for($point=191000;$point-lt 250000;$point+=1000){
+    Tick-WidgetAutoQuote $point $true
+    Assert ($script:autoQuoteDisplayCount-eq 0) 'A periodic quote must wait the full interval after task completion'
   }
   $script:window.Opacity=0;$script:window.Show()
   Assert (!$script:window.IsActive) 'Test overlay must not take focus'
-  $script:autoQuoteLastTickAt=60000;$script:autoQuoteWasEligible=$true;$script:autoQuoteNextAt=61000
-  Tick-WidgetAutoQuote 61000 $true
+  # Disabling task bubbles must leave ordinary automatic quotes available.
+  $script:liveTasksEnabled=$false;$script:liveCount=1
+  Tick-WidgetAutoQuote 250000 $true
+  $script:liveTasksEnabled=$true;$script:liveCount=0
   Assert (!$script:collapsed -and $script:bubbleMode-eq 'quote' -and $script:autoQuoteDisplayCount-eq 1) 'Actual automatic tick must directly open one quote'
   Assert (!(Test-Path -LiteralPath $refreshFile)) 'Automatic quote must not trigger a quota refresh'
   Assert ($script:ui.QuotaText.Visibility-eq [Windows.Visibility]::Collapsed -and $script:ui.QuoteText.Visibility-eq [Windows.Visibility]::Visible) 'Automatic quote must use the quote scene immediately'
@@ -130,7 +153,10 @@ try{
   Assert ($script:collapsed -and $script:closeTimer.IsEnabled) 'Deadline must start the existing closing animation'
   Drain-Wpf 550
   Assert ($script:ui.Bubble.Visibility-eq [Windows.Visibility]::Hidden -and !$script:closeTimer.IsEnabled) 'Closing timer must fully hide the quote'
+  $script:liveCount=1
   Show-Quote
+  Assert (!$script:collapsed -and $script:bubbleMode-eq 'quote') 'An active task must still allow explicitly requested quotes'
+  $script:liveCount=0
   Assert ($script:ui.QuoteText.Tag-ne $firstQuote) 'Manual and automatic quote selection must share immediate-repeat avoidance'
   Assert (!(Test-Path -LiteralPath $refreshFile)) 'Direct manual quote also avoids a quota query'
   Show-Quota
