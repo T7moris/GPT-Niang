@@ -15,7 +15,9 @@ test('a live GUI cannot pass installation health before its renderer confirms re
  assert.equal(installationHealthy({...options,runtime:{...runtime,rendererReady:false}}),false);
  assert.equal(installationHealthy({...options,runtime:{...runtime,rendererReady:true}}),true);
 });
-test('the real widget exits cleanly after its loaded renderer crashes',{skip:process.platform!=='win32',timeout:18000},async t=>{
+// This fixture deliberately displays a real widget. Running ordinary tests
+// must never opt the desktop into visible crash/recovery acceptance.
+test('the real widget exits cleanly after its loaded renderer crashes',{skip:process.platform!=='win32'?'Windows only':process.env.GPT_NIANG_VISIBLE_TESTS!=='1'?'Set GPT_NIANG_VISIBLE_TESTS=1 to allow a visible widget':false,timeout:18000},async t=>{
  const root=fileURLToPath(new URL('../',import.meta.url)),data=fs.mkdtempSync(path.join(os.tmpdir(),'gpt-renderer-crash-'));
  t.after(()=>{assert.equal(path.dirname(data),path.resolve(os.tmpdir()));fs.rmSync(data,{recursive:true,force:true});});
  fs.writeFileSync(path.join(data,'settings.json'),JSON.stringify({layoutVersion:2,followHost:false,soundOn:false,desktopTopmost:false}));

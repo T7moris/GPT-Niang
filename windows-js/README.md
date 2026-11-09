@@ -72,6 +72,14 @@ npm test
 npm run package:beta -- --output ../dist/javascript-beta
 ```
 
+普通 `npm test` 不运行会显示真实挂件的渲染崩溃测试；隐藏交互测试仍照常执行。需要在空闲桌面进行可见窗口验收时，可在 PowerShell 中明确开启：
+
+```powershell
+$env:GPT_NIANG_VISIBLE_TESTS = '1'
+try { node --test tests/installation-renderer-health.test.mjs }
+finally { Remove-Item Env:GPT_NIANG_VISIBLE_TESTS }
+```
+
 公开构建只包含程序、内置素材和运行依赖，不读取或打包本机设置、登录信息、运行记录或个人自定义内容。校验文件为 `SHA256SUMS.txt`，源码提交记录在包内 `BUILD-INFO.json`。
 
 软件与随附素材的许可、贡献和角色说明沿用仓库现有记录，请参见仓库 LICENSE 与正式版 README。

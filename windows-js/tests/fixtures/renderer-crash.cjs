@@ -1,5 +1,6 @@
 const {app,BrowserWindow}=require('electron');
 const fs=require('node:fs'),path=require('node:path');
+if(process.env.GPT_NIANG_VISIBLE_TESTS!=='1'){console.error('Visible renderer crash test requires GPT_NIANG_VISIBLE_TESTS=1');app.exit(2);return;}
 const root=path.resolve(__dirname,'../..'),data=process.argv[2];
 app.setAppPath(root);
 process.argv=[process.execPath,__filename,'--candidate','--preview','--data-dir',data];
