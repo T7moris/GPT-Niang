@@ -92,7 +92,7 @@ test('a manual update error is returned to its menu instead of escaping as a rej
   const code=source('src/main.mjs'),start=code.indexOf('  ipcMain.handle("command",'),end=code.indexOf('  native.listen(',start);
   let handler;
   const failure=Promise.reject(Error('injected check failure'));failure.catch(()=>{});
-  const context={ipcMain:{handle:(_name,callback)=>{handler=callback;}},trusted:()=>true,editor:null,bench:null,updater:{check:()=>failure}};
+  const context={ipcMain:{handle:(_name,callback)=>{handler=callback;}},trusted:()=>true,editor:null,bench:null,restarting:false,restartHoldUntil:0,updater:{check:()=>failure}};
   vm.createContext(context);vm.runInContext(code.slice(start,end),context);
   const result=await handler({sender:{id:1}},'update-check');
   assert.equal(result.ok,false);assert.match(result.error,/injected check failure/);

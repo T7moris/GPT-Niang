@@ -2,6 +2,7 @@ import { applyColors } from "./colors.mjs";
 import { MusicMotion, clamp } from "./music-motion.mjs";
 import { drawUnder, drawOver } from "./music-art.mjs";
 import { ClickSequence } from "./click-audio.mjs";
+import { ClipPlayer } from './clip-player.mjs';
 import { ShapePublisher, alphaBounds } from "./shape.mjs";
 import { FrameStats } from "./frame-stats.mjs";
 const $ = (id) => document.getElementById(id),
@@ -29,7 +30,6 @@ let state = null,
   soundKey = "",
   soundBuffers = {},
   audioContext = null,
-  source = null,
   motion = null,
   audio = null,
   audioAt = 0,
@@ -173,7 +173,7 @@ async function preloadAudio(value) {
   const key = JSON.stringify(value);
   if (key === soundKey) return;
   soundKey = key;
-  clickSounds.stop();soundBuffers={};
+  clickSounds.stop({immediate:true});soundBuffers={};
   if (!audioContext) audioContext = new AudioContext();
   const prepared = {},decoded=new Map();
   for (const slot of ["press", "release"])
@@ -189,33 +189,18 @@ async function preloadAudio(value) {
       }
     }
   if (key !== soundKey) return;
-  clickSounds.stop();
+  clickSounds.stop({immediate:true});
   soundBuffers = prepared;
 }
+const clipPlayer=new ClipPlayer({context:()=>audioContext});
 const clickSounds = new ClickSequence({
-  play: (id) => {
-    try {
-      if (audioContext.state === "suspended") void audioContext.resume().catch(()=>{});
-      source = audioContext.createBufferSource();
-      source.buffer = soundBuffers[id];
-      const gain = audioContext.createGain();
-      gain.gain.value = state.settings.soundVolume;
-      source.connect(gain).connect(audioContext.destination);
-      const active=source;
-      active.onended=()=>{active.disconnect?.();gain.disconnect?.();if(source===active)source=null;active.onended=null;};
-      source.start();
-    } catch {}
-  },
-  stop: () => {
-    try {
-      const active=source;active?.stop();active?.onended?.();
-    } catch {}
-    source = null;
-  },
+  play: id=>clipPlayer.play(soundBuffers[id],state.settings.soundVolume),
+  stop: options=>clipPlayer.stop(options),
   available: (id) => !!soundBuffers[id],
   duration: (id) => soundBuffers[id]?.duration ?? 0,
   enabled: () => state?.settings.soundOn && state.settings.soundVolume > 0,
 });
+window.addEventListener('pagehide',()=>{clickSounds.stop({immediate:true});clipPlayer.close();void audioContext?.close().catch(()=>{});});
 function play(slot, preview = false) {
   if (preview) clickSounds.preview(slot);
   else if (slot === "press") clickSounds.press();
@@ -302,7 +287,7 @@ function render(value) {
     quoteLayouts: value.quoteLayouts ?? state?.quoteLayouts,
   };
   if (state && (state.settings.soundOn !== value.settings.soundOn ||
-      state.settings.soundVolume !== value.settings.soundVolume)) clickSounds.stop();
+      state.settings.soundVolume !== value.settings.soundVolume)) clickSounds.stop({immediate:true});
   if(pointer&&(value.temporary||value.blocked||!value.visible||(state&&state.music!==value.music)))cancelPointer();
   state = value;
   const l = value.layout;

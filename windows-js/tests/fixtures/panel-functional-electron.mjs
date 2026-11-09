@@ -44,7 +44,8 @@ async function main(){try{
   const radio=position.querySelector('input[type=radio]');radio.focus();const left=new KeyboardEvent('keydown',{key:'ArrowLeft',bubbles:true,cancelable:true});radio.dispatchEvent(left);
   const radioArrows=position.open&&!left.defaultPrevented;
   const exit=document.querySelector('[data-action=exit]');exit.focus();exit.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowUp',bubbles:true,cancelable:true}));
-  const rootNavigation=document.activeElement.textContent==='版本与更新';
+  const restartFirst=document.activeElement.dataset.action==='restart';document.activeElement.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowUp',bubbles:true,cancelable:true}));
+  const rootNavigation=restartFirst&&document.activeElement.textContent==='版本与更新';
   document.querySelector('[data-action=update-check]').click();await wait(40);
   const updateBusy=document.querySelector('[data-action=update-check]').disabled;
   return {soundDisabled,sliderAccessible,failedSettingReverted,automaticFocus,stableMenuNodes,keyboardKeepsGroup,radioArrows,rootNavigation,updateBusy};

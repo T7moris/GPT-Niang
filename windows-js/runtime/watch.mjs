@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import {readUsage,atomicJson,resolveCodexExecutable} from './usage.mjs';
+import * as usageLifecycle from './usage.mjs';
 import {createRefreshQueue,mergeUsageSnapshot,readRefreshRequest} from './refresh-queue.mjs';
 import {acquireWorkerLock,processAlive,readJson} from './worker-state.mjs';
 import {readPendingRequests,completeRequests,cleanRefreshResults,widgetUpdating,updatingSnapshot} from './refresh-client.mjs';
@@ -16,8 +17,9 @@ if(!Number.isSafeInteger(parentPid) || parentPid<0)throw new Error('Invalid pare
 const inheritStop=process.argv[4]==='--inherit-stop';
 const handoffSupported=process.platform==='darwin' || inheritStop;
 let refresh;
-const ipc=createPipeRefreshHandler(()=>{if(refresh)void refresh.request();});
-const lock=await acquireWorkerLock(config.dataDir,parentPid,{onLost:()=>process.exit(1),onConnection:ipc.onConnection});
+let closing=false;
+const ipc=createPipeRefreshHandler(()=>{if(refresh&&!closing)void refresh.request();});
+const lock=await acquireWorkerLock(config.dataDir,parentPid,{onLost:()=>void shutdown(1),onConnection:ipc.onConnection});
 if(!lock)process.exit(0);
 const statusFile=path.join(config.dataDir,'status.json');
 const healthFile=path.join(config.dataDir,'worker-status.json');
@@ -44,10 +46,16 @@ function exit() {
   try{lock.release();}catch{}
 }
 process.on('exit',exit);
-process.on('SIGTERM',()=>process.exit(0));
-process.on('SIGINT',()=>process.exit(0));
+async function shutdown(code=0){
+  if(closing)return;closing=true;clearInterval(heartbeat);
+  try{await usageLifecycle.stopUsageQueries?.();}finally{process.exit(code);}
+}
+process.on('SIGTERM',()=>void shutdown());
+process.on('SIGINT',()=>void shutdown());
+if(parentPid&&process.argv.includes('--owned-stdin')){process.stdin.resume();process.stdin.once('end',()=>void shutdown());}
 if(parentPid && !processAlive(parentPid))process.exit(0);
 refresh=createRefreshQueue(async()=>{
+  if(closing)return;
   lastActivity=Date.now();
   const batch=readPendingRequests(config.dataDir);
   const pipeBatch=ipc.takeBatch();
@@ -57,6 +65,7 @@ refresh=createRefreshQueue(async()=>{
     const next=await readUsage(resolveCodexExecutable(config.codexPath),{onAccount:accountKey=>{
       if(status?.accountKey!==accountKey || !accountKey)save({ok:false,queryOk:false,accountKey,error:'正在读取当前账户额度…',windows:[],checkedAt:Date.now()});
     }});
+    if(closing)return;
     save(mergeUsageSnapshot(status,next));
     ipc.complete(pipeBatch,status);
     completeRequests(config.dataDir,batch,status);
@@ -76,14 +85,15 @@ save({ok:false,queryOk:false,error:'正在读取当前账户额度…',windows:[
 health();
 if(parentPid)void refresh.request();
 heartbeat=setInterval(()=>{
-  if(widgetUpdating(config.dataDir)){completeRequests(config.dataDir,readPendingRequests(config.dataDir),updatingSnapshot());ipc.complete(ipc.takeBatch(),updatingSnapshot());process.exit(0);}
+  if(closing)return;
+  if(widgetUpdating(config.dataDir)){completeRequests(config.dataDir,readPendingRequests(config.dataDir),updatingSnapshot());ipc.complete(ipc.takeBatch(),updatingSnapshot());void shutdown();return;}
   const handingOff=handoffFile && readRefreshRequest(handoffFile)!==null;
   const stop=readRefreshRequest(path.join(config.dataDir,'stop.flag'));
   const stopApplies=stopForOwner(stop);
   // Mac GUI startup opts in to inheriting old requests; other GUI callers retain their stop behavior.
-  if((parentPid && (!processAlive(parentPid) || (!inheritStop && stopApplies))) || (stopApplies && stop!==initialStop))process.exit(0);
+  if((parentPid && (!processAlive(parentPid) || (!inheritStop && stopApplies))) || (stopApplies && stop!==initialStop)){void shutdown();return;}
   if(handingOff){
-    if(!refresh.busy)process.exit(0);
+    if(!refresh.busy){void shutdown();return;}
     try{health();}catch{}
     return; // Finish the current query; leave new file requests for the next owner.
   }
@@ -97,7 +107,7 @@ heartbeat=setInterval(()=>{
   const pending=readPendingRequests(config.dataDir,now);
   if(requested)void refresh.request();
   else if(pending.some(request=>!activeRequestIds.has(request.id)) || (active && !refresh.busy && now-refresh.lastRefresh>=60000))void refresh.request();
-  if(!parentPid && !active && !refresh.busy && pending.length===0 && ipc.pendingCount===0 && now-lastActivity>=30000)process.exit(0);
+  if(!parentPid && !active && !refresh.busy && pending.length===0 && ipc.pendingCount===0 && now-lastActivity>=30000){void shutdown();return;}
   cleanRefreshResults(config.dataDir,now);
   try{health();}catch{}
 },1000);

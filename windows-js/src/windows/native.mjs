@@ -181,6 +181,7 @@ export class NativeWindows {
       (u.attribute(h, 14, b, 4) !== 0 || b.readUInt32LE(0) === 0)
     );
   }
+  windowShown(h) { return this.valid(h)&&Boolean(u.visible(h)); }
   pid(h) {
     const a = [0];
     u.pid(h, a);

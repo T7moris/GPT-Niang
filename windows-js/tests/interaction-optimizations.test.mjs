@@ -51,7 +51,7 @@ test('character display shares concurrent decodes and invalidates the cache afte
 });
 test('concurrent character and audio actions open one file dialog and release the busy gate',async()=>{
   const code=fs.readFileSync(path.join(app,'src/main.mjs'),'utf8'),start=code.indexOf('  ipcMain.handle("command",'),end=code.indexOf('  native.listen(',start);let handler,resolvePick,dialogs=0,imports=0;
-  const c={ipcMain:{handle:(_name,callback)=>handler=callback},trusted:()=>true,editorBusy:false,editor:null,bench:null,win:{},URL,
+  const c={ipcMain:{handle:(_name,callback)=>handler=callback},trusted:()=>true,restarting:false,restartHoldUntil:0,editorBusy:false,editor:null,bench:null,win:{},URL,
     dialog:{showOpenDialog:()=>{dialogs++;return new Promise(resolve=>resolvePick=resolve);}},runIo:async()=>{imports++;return {id:'custom'};},characters:{display:async()=>({id:'custom',url:'fixture'})},activeImage:{id:'old'},lastImage:'',settings:{},setMusic(){},save(){}};
   c.galleryImages=new Map();
   vm.createContext(c);vm.runInContext(code.slice(start,end),c);const event={sender:{id:1}};
@@ -65,7 +65,7 @@ test('gallery preparation cannot create duplicate editors and failure releases t
   let finish,prepared=0,created=0;
   class Window{constructor(){created++;}on(){}async loadFile(){}show(){}isDestroyed(){return false;}focus(){}}
   const c={candidate:false,args:[],stopping:false,openingEditor:false,editor:null,menu:null,blocked:false,resetSchedule(){},send(){},prepareGallery:()=>{prepared++;return new Promise(resolve=>finish=resolve);},BrowserWindow:Window,path,root:app,verifySuite:false};
-  c.unblock=()=>{c.blocked=!!c.editor;};vm.createContext(c);vm.runInContext(code.slice(start,end),c);
+  c.hiddenTest=false;c.createWindow=options=>new c.BrowserWindow(options);c.unblock=()=>{c.blocked=!!c.editor;};vm.createContext(c);vm.runInContext(code.slice(start,end),c);
   const first=c.openEditor('characters');await c.openEditor('characters');assert.equal(prepared,1);assert.equal(created,0);finish();await first;assert.equal(created,1);assert.equal(c.openingEditor,false);
   c.editor=null;c.prepareGallery=async()=>{throw Error('injected gallery failure');};await assert.rejects(c.openEditor('characters'),/gallery failure/);assert.equal(c.blocked,false);assert.equal(c.openingEditor,false);
 });

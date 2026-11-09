@@ -21,6 +21,7 @@ for(const name of runtimeFiles(dependencies,{platform:'win32',arch:'x64'}))copy(
 compileNative(root,path.join(program,'native'),{inputDll:option('--native-input')});
 for(const name of ['GPTNiang.Native.exe','GPTNiang.Setup.exe','GPTNiang.Start.exe','GPTNiang.Input.dll'])files.add('native/'+name);
 const commands={
+ '重启GPT娘.cmd':'@echo off\r\nchcp 65001 >nul\r\nsetlocal DisableDelayedExpansion\r\nset ELECTRON_RUN_AS_NODE=1\r\n"%~dp0node_modules\\electron\\dist\\electron.exe" "%~dp0src\\setup-entry.mjs" --restart\r\nif errorlevel 1 pause\r\n',
  '安装GPT娘.cmd':'@echo off\r\nchcp 65001 >nul\r\nsetlocal DisableDelayedExpansion\r\nset ELECTRON_RUN_AS_NODE=1\r\n"%~dp0node_modules\\electron\\dist\\electron.exe" "%~dp0src\\setup-entry.mjs" %*\r\nset "result=%errorlevel%"\r\npause\r\nexit /b %result%\r\n',
  '打开GPT娘.cmd':'@echo off\r\nsetlocal DisableDelayedExpansion\r\nset ELECTRON_RUN_AS_NODE=1\r\n"%~dp0node_modules\\electron\\dist\\electron.exe" "%~dp0src\\setup-entry.mjs" --open\r\nif errorlevel 1 pause\r\n',
  '停用GPT娘.cmd':'@echo off\r\nchcp 65001 >nul\r\nsetlocal DisableDelayedExpansion\r\nset ELECTRON_RUN_AS_NODE=1\r\n"%~dp0node_modules\\electron\\dist\\electron.exe" "%~dp0src\\setup-entry.mjs" --disable\r\npause\r\n',

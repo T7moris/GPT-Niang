@@ -11,7 +11,7 @@ function fakeServer(account,limits,error=false) {
   const methods=[];
   const spawnProcess=()=>{
     const proc=new EventEmitter();
-    proc.stdin=new PassThrough();proc.stdout=new PassThrough();proc.stderr=new PassThrough();proc.kill=()=>{};
+    proc.stdin=new PassThrough();proc.stdout=new PassThrough();proc.stderr=new PassThrough();proc.kill=()=>{};proc.stdin.once('finish',()=>queueMicrotask(()=>proc.emit('close',0,null)));
     proc.stdin.on('data',chunk=>{
       for(const line of chunk.toString().trim().split('\n')) {
         const request=JSON.parse(line);methods.push(request.method);

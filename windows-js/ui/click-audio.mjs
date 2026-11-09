@@ -24,11 +24,11 @@ export class ClickSequence {
     this.pressing = false;
     this.at = 0;
   }
-  stop() {
+  stop(options) {
     if (this.timer !== null) this.cancel(this.timer);
     this.timer = null;
     this.pressing = false;
-    this.stopClip();
+    this.stopClip(options);
   }
   press() {
     this.stop();

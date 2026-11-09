@@ -61,7 +61,7 @@ test('personal cap survives the read-only RPC and account snapshot pipeline',asy
   const calls=[];
   const spawnProcess=()=>{
     const proc=new EventEmitter();
-    proc.stdin=new PassThrough();proc.stdout=new PassThrough();proc.stderr=new PassThrough();proc.kill=()=>{};
+    proc.stdin=new PassThrough();proc.stdout=new PassThrough();proc.stderr=new PassThrough();proc.kill=()=>{};proc.stdin.once('finish',()=>queueMicrotask(()=>proc.emit('close',0,null)));
     proc.stdin.on('data',chunk=>{
       for(const line of chunk.toString().trim().split('\n')){
         const request=JSON.parse(line);calls.push(request.method);
@@ -113,7 +113,7 @@ test('account read protocol error clears a snapshot whose account cannot be veri
   const spawnProcess=()=>{
     const proc=new EventEmitter();
     proc.stdin=new PassThrough();proc.stdout=new PassThrough();proc.stderr=new PassThrough();
-    proc.kill=()=>{};
+    proc.kill=()=>{};proc.stdin.once('finish',()=>queueMicrotask(()=>proc.emit('close',0,null)));
     let pending='';
     proc.stdin.on('data',chunk=>{
       pending+=chunk.toString();
@@ -140,7 +140,7 @@ function routingTimeoutServer(quotaResponse) {
   const calls=[];
   const spawnProcess=()=>{
     const proc=new EventEmitter();
-    proc.stdin=new PassThrough();proc.stdout=new PassThrough();proc.stderr=new PassThrough();proc.kill=()=>{};
+    proc.stdin=new PassThrough();proc.stdout=new PassThrough();proc.stderr=new PassThrough();proc.kill=()=>{};proc.stdin.once('finish',()=>queueMicrotask(()=>proc.emit('close',0,null)));
     let pending='';
     proc.stdin.on('data',chunk=>{
       pending+=chunk.toString();let at;
@@ -234,7 +234,7 @@ test('account identity is attached even when the quota read fails',async()=>{
   const seen=[];
   const spawnProcess=()=>{
     const proc=new EventEmitter();
-    proc.stdin=new PassThrough();proc.stdout=new PassThrough();proc.stderr=new PassThrough();proc.kill=()=>{};
+    proc.stdin=new PassThrough();proc.stdout=new PassThrough();proc.stderr=new PassThrough();proc.kill=()=>{};proc.stdin.once('finish',()=>queueMicrotask(()=>proc.emit('close',0,null)));
     proc.stdin.on('data',chunk=>{
       for(const line of chunk.toString().trim().split('\n')) {
         const request=JSON.parse(line);
@@ -253,7 +253,7 @@ test('account identity is attached even when the quota read fails',async()=>{
 test('non-object JSON protocol messages are ignored without crashing the worker',async()=>{
   const spawnProcess=()=>{
     const proc=new EventEmitter();
-    proc.stdin=new PassThrough();proc.stdout=new PassThrough();proc.stderr=new PassThrough();proc.kill=()=>{};
+    proc.stdin=new PassThrough();proc.stdout=new PassThrough();proc.stderr=new PassThrough();proc.kill=()=>{};proc.stdin.once('finish',()=>queueMicrotask(()=>proc.emit('close',0,null)));
     proc.stdin.on('data',()=>queueMicrotask(()=>proc.stdout.write('null\nfalse\n42\n[]\n')));
     return proc;
   };
@@ -265,7 +265,7 @@ test('out-of-order quota responses cannot bypass account verification',async()=>
   const account={type:'chatgpt',email:'verified@example.test',planType:'plus'};
   const spawnProcess=()=>{
     const proc=new EventEmitter();
-    proc.stdin=new PassThrough();proc.stdout=new PassThrough();proc.stderr=new PassThrough();proc.kill=()=>{};
+    proc.stdin=new PassThrough();proc.stdout=new PassThrough();proc.stderr=new PassThrough();proc.kill=()=>{};proc.stdin.once('finish',()=>queueMicrotask(()=>proc.emit('close',0,null)));
     proc.stdin.on('data',chunk=>{
       for(const line of chunk.toString().trim().split('\n')) {
         const request=JSON.parse(line);

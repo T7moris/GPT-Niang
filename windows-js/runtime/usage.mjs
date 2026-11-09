@@ -108,26 +108,52 @@ export function resolveCodexExecutable(configuredPath,{env=process.env,platform=
   return configuredPath;
 }
 
+const pendingUsage=new Set();
+export async function stopUsageQueries() {
+  await Promise.allSettled([...pendingUsage].map(cancel=>cancel()));
+}
 // Only three read-only protocol methods are sent. There is no thread or model call.
-export function readUsage(cli, {timeoutMs=18000,fallbackTimeoutMs=10000,spawnProcess=spawn,onAccount=()=>{}}={}) {
-  return new Promise(resolve=>{
-    let finished=false,proc,lines,accountKey=null,account=null,planInfo=identifyPlan(null,null),expectedId=1,directFallback=false;
+export function readUsage(cli, {timeoutMs=18000,fallbackTimeoutMs=10000,shutdownGraceMs=200,spawnProcess=spawn,onAccount=()=>{}}={}) {
+  let cancelQuery;
+  const promise=new Promise(resolve=>{
+    let finished=false,settled=false,closed=false,result,proc,lines,cleanupTimer,accountKey=null,account=null,planInfo=identifyPlan(null,null),expectedId=1,directFallback=false;
     const failure=(error,errorCode)=>({ok:false,queryOk:false,error,windows:[],...planInfo,accountKey,clearPrevious:!accountKey,...(errorCode?{errorCode}:{})});
-    const stopChild=()=>{try{proc?.stdin.end();proc?.kill();}catch{}};
-    const finish=data=>{
-      if(finished)return; finished=true; clearTimeout(timer);
-      lines?.close();
-      process.removeListener('exit',stopChild);
-      stopChild();
-      resolve(data);
+    const grace=Number.isFinite(shutdownGraceMs)?Math.max(1,Math.min(1000,shutdownGraceMs)):200;
+    const stopChild=()=>{try{proc?.stdin.end();}catch{}try{proc?.kill('SIGKILL');}catch{}};
+    const complete=()=>{
+      if(settled)return;settled=true;clearTimeout(cleanupTimer);clearTimeout(timer);
+      if(closed||!proc)process.removeListener('exit',stopChild);
+      resolve(result);
     };
+    const terminate=stage=>{
+      if(closed)return complete();
+      try{proc.kill(stage===0?'SIGTERM':'SIGKILL');}catch{}
+      cleanupTimer=setTimeout(()=>{
+        if(closed)return complete();
+        if(stage===0)return terminate(1);
+        result=failure('额度服务退出超时，请稍后重试','APP_SERVER_CLEANUP_TIMEOUT');
+        // A descendant holding inherited pipes must not retain this reader.
+        for(const stream of [proc.stdin,proc.stdout,proc.stderr])try{stream.destroy();}catch{}
+        complete();
+      },grace);
+    };
+    const finish=data=>{
+      if(finished)return; finished=true;result=data;clearTimeout(timer);
+      lines?.close();
+      if(!proc||closed)return complete();
+      try{proc.stdin.end();}catch{return terminate(0);}
+      if(!closed)cleanupTimer=setTimeout(()=>terminate(0),grace);
+    };
+    cancelQuery=()=>finish(failure('额度查询已停止','CANCELLED'));
     let timer=setTimeout(()=>finish(failure('查询超时，稍后重试')),timeoutMs);
-    try{proc=spawnProcess(cli,['app-server','--stdio'],{windowsHide:true,stdio:['pipe','pipe','pipe']});}
+    // This short-lived read-only service must not refresh plugin marketplaces.
+    // The override belongs only to this child, never to the user's configuration.
+    try{proc=spawnProcess(cli,['app-server','--stdio','-c','features.plugins=false'],{windowsHide:true,stdio:['pipe','pipe','pipe']});}
     catch{finish(failure('Codex 额度服务暂不可用'));return;}
     process.once('exit',stopChild);
     proc.stderr.on('data',()=>{}).on('error',()=>{});
     proc.on('error',error=>finish(failure(error.code==='ENOENT'?'未找到 Codex 程序，请检查客户端安装':'无法启动 Codex 额度服务',error.code)));
-    proc.on('close',()=>finish(failure('Codex 额度服务已结束')));
+    proc.once('close',()=>{closed=true;process.removeListener('exit',stopChild);if(!finished)finish(failure('Codex 额度服务已结束'));else complete();});
     proc.stdout.on('error',()=>finish(failure('Codex 额度连接已结束')));
     proc.stdin.on('error',()=>finish(failure('Codex 额度连接已结束')));
     const send=data=>{try{proc.stdin.write(JSON.stringify(data)+'\n');}catch{finish(failure('额度连接不可用'));}};
@@ -190,6 +216,9 @@ export function readUsage(cli, {timeoutMs=18000,fallbackTimeoutMs=10000,spawnPro
     });
     send({id:1,method:'initialize',params:{clientInfo:{name:'gpt_niang_usage',title:'GPT 娘额度挂件',version:pluginVersion}}});
   });
+  const cancel=()=>{cancelQuery?.();return promise;};pendingUsage.add(cancel);
+  void promise.then(()=>pendingUsage.delete(cancel),()=>pendingUsage.delete(cancel));
+  return promise;
 }
 
 export function atomicJson(file,data) {

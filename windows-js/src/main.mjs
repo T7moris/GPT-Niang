@@ -33,6 +33,8 @@ import { WorkerStarter } from "./core/worker-starter.mjs";
 import { readRefreshRequest } from "../runtime/refresh-queue.mjs";
 import {UsageService} from './core/usage-service.mjs';
 import {parseAutoQuoteInterval,validAutoQuoteSeconds} from './core/auto-quote-interval.mjs';
+import {restartControl} from './core/restart.mjs';
+import {keepTestWindowHidden} from './core/hidden-surface.mjs';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".."),
   args = process.argv.slice(2),
   option = (name) => {
@@ -50,6 +52,11 @@ const candidate =
   preview = args.includes("--preview"),
   verify = args.includes("--verify") || args.includes("--verify-suite"),
   verifySuite = candidate && args.includes("--verify-suite");
+const hiddenTest=candidate&&args.includes('--hidden-test');
+function createWindow(options){
+  const window=new BrowserWindow(hiddenTest?{...options,show:false}:options);
+  return hiddenTest?keepTestWindowHidden(window):window;
+}
 const candidateRoot = path.resolve(root, "..", "candidate");
 const configuration =
   savedConfiguration ??
@@ -142,6 +149,8 @@ async function run() {
     editorBusy = false,
     openingEditor = false,
     editor = null,
+    restarting=false,
+    restartHoldUntil=0,
     lastImage = "",
     statusStamp = 0,
     status = null,
@@ -158,7 +167,7 @@ async function run() {
   }});
   let bench = null;
   if (candidate && args.includes("--bench")) {
-    bench = new BrowserWindow({
+    bench = createWindow({
       width: 1150,
       height: 800,
       title: "GPT 娘 · JavaScript 交互验证台",
@@ -168,7 +177,7 @@ async function run() {
         contextIsolation: true,
         nodeIntegration: false,
         sandbox: true,
-        offscreen: candidate && args.includes('--hidden-test'),
+        offscreen: hiddenTest,
       },
     });
     host = native.handle(bench);
@@ -188,7 +197,7 @@ async function run() {
     );
   const colorEpoch = Date.now();
   let lastLampImage = "";
-  const win = new BrowserWindow({
+  const win = createWindow({
     width: 378,
     height: 378,
     transparent: true,
@@ -206,7 +215,7 @@ async function run() {
       nodeIntegration: false,
       sandbox: true,
       backgroundThrottling: false,
-      offscreen: candidate && args.includes('--hidden-test'),
+      offscreen: hiddenTest,
       autoplayPolicy: "no-user-gesture-required",
     },
   });
@@ -243,7 +252,7 @@ async function run() {
     shapeDetails = null,
     shapeError = null;
   const recovery = new OcclusionRecovery(native, handle);
-  function updateIdle(){return !stopping&&!blocked&&!dialogBusy&&!editorBusy&&!openingEditor&&!drag&&!music&&!temporary&&ioWorkers.size===0&&scene.collapsed;}
+  function updateIdle(){return !stopping&&!restarting&&Date.now()>=restartHoldUntil&&!blocked&&!dialogBusy&&!editorBusy&&!openingEditor&&!drag&&!music&&!temporary&&ioWorkers.size===0&&scene.collapsed;}
   const updater = new Updater({
     root,
     dataDir,
@@ -261,7 +270,7 @@ async function run() {
       app.quit();
     },
   });
-  const lamp = new BrowserWindow({
+  const lamp = createWindow({
     width: 640,
     height: 480,
     transparent: true,
@@ -529,6 +538,7 @@ async function run() {
     }
     if (!host) host = native.findCodex();
   }
+  function hostVisible(){return hiddenTest&&bench? !bench.isMinimized():native.visible(host);}
   function sync() {
     if (stopping || win.isDestroyed()) return;
     hostSelection();
@@ -538,7 +548,7 @@ async function run() {
       if (
         !temporary &&
         (!host ||
-          !native.visible(host) ||
+          !hostVisible() ||
           !ready ||
           !frame ||
           frame.right - frame.left < 64 * native.dpi(host) ||
@@ -550,7 +560,7 @@ async function run() {
       }
     } else {
       frame = frameForDesktop();
-      if (!host || (ready && native.visible(host))) desktopStarted = true;
+      if (!host || (ready && hostVisible())) desktopStarted = true;
       if (!preview && !desktopStarted) {
         setVisible(false);
         void probe();
@@ -701,7 +711,7 @@ async function run() {
   const configPath = path.join(dataDir, "javascript-installation.json");
   writeJson(configPath, { ...config, appDir: root });
   const workerStarter = new WorkerStarter({ dataDir, launch: () => {
-    quotaWorker = spawnNode("watch.mjs", [configPath, String(process.pid), "--inherit-stop"]);
+    quotaWorker = spawnNode("watch.mjs", [configPath, String(process.pid), "--inherit-stop",'--owned-stdin']);
     quotaWorker.on("error", (e) => {
       status = { ok: false, queryOk: false, error: e.message };
       send();
@@ -932,6 +942,7 @@ async function run() {
       update: { ...updater.state, ...updater.preferences },
       placement: menuPlacement,
       version: app.getVersion(),
+      restarting,
     };
   }
   function unblock() {
@@ -1004,7 +1015,7 @@ async function run() {
       direction,
     };
     let menuClosing=false;
-    menu = new BrowserWindow({
+    menu = createWindow({
       width: Math.round(width),
       height: Math.round(height),
       x: Math.round(x),
@@ -1020,7 +1031,7 @@ async function run() {
         contextIsolation: true,
         nodeIntegration: false,
         sandbox: true,
-        offscreen: candidate && args.includes('--hidden-test'),
+        offscreen: hiddenTest,
       },
     });
     menu.on('close',()=>{menuClosing=true;});
@@ -1090,7 +1101,7 @@ async function run() {
     if (kind === "characters") await prepareGallery();
     if(kind==='usage')usageService.start();
     if(stopping)return;
-    editor = new BrowserWindow({
+    editor = createWindow({
       width: kind === 'usage' ? 820 : kind === "characters" ? 610 : 540,
       height: kind === 'usage' ? 720 : kind === "characters" ? 560 : kind === "audio" ? 620 : 480,
       frame: kind !== "characters",
@@ -1113,7 +1124,7 @@ async function run() {
         contextIsolation: true,
         nodeIntegration: false,
         sandbox: true,
-        offscreen: candidate && args.includes('--hidden-test'),
+        offscreen: hiddenTest,
       },
     });
     opened=editor;
@@ -1283,6 +1294,7 @@ async function run() {
         editor.webContents.send('busy',value);
     };
     try {
+      if((restarting||Date.now()<restartHoldUntil)&&!['restart','exit','close-panel'].includes(name))throw Error('正在准备重启，请稍候。');
       if(fileCommands.includes(name)){
         if(editorBusy)throw Error('正在处理上一个文件，请稍候。');
         guarded=true;editorBusy=true;notifyBusy(true);
@@ -1298,8 +1310,9 @@ async function run() {
           bench.setSize(w === 1150 ? 1050 : 1150, h === 800 ? 740 : 800);
         } else if (name === "bench-minimize") {
           bench.minimize();
+          if(hiddenTest)sync();
           setTimeout(() => {
-            if (bench && !bench.isDestroyed()) bench.restore();
+            if (bench && !bench.isDestroyed()){bench.restore();if(hiddenTest)sync();}
           }, 600);
         } else if (name === "bench-completion") {
           completionPending = true;
@@ -1553,6 +1566,14 @@ async function run() {
         await updater.check("manual");
       } else if (name === "update-automatic") {
         updater.automatic(value === true);
+      } else if(name==='restart'){
+        if(restarting)return {ok:true};
+        const reason=restartBlockReason();if(reason)throw Error(reason);
+        restarting=true;if(menu&&!menu.isDestroyed())menu.webContents.send('state',dialogState('menu'));
+        try{
+          const request=await restartControl.request(root),result=await restartControl.wait(dataDir,request.token);
+          if(!result.ok)throw Error(result.error||'重启未完成');
+        }finally{restarting=false;restartHoldUntil=0;}
       } else if (name === "exit") {
         if (!candidate) {
           const identity = host ? native.identity(host) : null;
@@ -1629,6 +1650,12 @@ async function run() {
   ensureWorker();
   startMonitor();
   void probe();
+  function restartBlockReason(){
+    if(stopping)return '挂件正在退出，请稍后重试。';
+    if(editor||openingEditor||editorBusy||dialogBusy||ioWorkers.size>0)return '请先保存并关闭编辑窗口，再重启 GPT 娘。';
+    if(['checking','downloading','preparing','installing'].includes(updater.state.status))return '更新正在进行，请完成后再重启。';
+    return null;
+  }
   const timer = setInterval(() => {
     try {
       sync();
@@ -1656,7 +1683,11 @@ async function run() {
       if (request?.nonce && request.nonce !== displayToken) {
         displayToken = request.nonce;
         if (Math.abs(Date.now() - Number(request.at)) < 10000) {
-          if (request.mode === "quota") scene.show("quota");
+          if(request.mode==='restart-check'){
+            const error=restartBlockReason();if(!error)restartHoldUntil=Date.now()+10000;
+            writeJson(path.join(dataDir,'restart-check-result.json'),{token:request.nonce,pid:process.pid,at:Date.now(),ok:!error,error},{backup:false});
+          }
+          else if (request.mode === "quota") scene.show("quota");
           else if (request.mode === "quote") scene.show("quote");
           else if (
             request.mode === "completion" &&
@@ -1868,7 +1899,7 @@ async function run() {
     native.close();
     bridge.close();
     if (monitor) monitor.stdin.end();
-    if (quotaWorker) quotaWorker.kill();
+    if (quotaWorker) try{quotaWorker.stdin.end();}catch{}
     if (menu && !menu.isDestroyed()) menu.destroy();
     if (editor && !editor.isDestroyed()) editor.destroy();
     if (!lamp.isDestroyed()) lamp.destroy();

@@ -1,6 +1,6 @@
 const {app,BrowserWindow,dialog}=require('electron'),fs=require('node:fs'),path=require('node:path'),{pathToFileURL}=require('node:url');
 const root=path.resolve(process.argv[2]),data=path.resolve(process.argv[3]),source=path.resolve(__dirname,'../..'),pause=ms=>new Promise(resolve=>setTimeout(resolve,ms));
-let phase='start',widget,bench,reported=false,exitRequested=false;const checks=[],files=[];
+let phase='start',widget,bench,reported=false,exitRequested=false,visibilityTimer,visibilitySamples=0;const checks=[],files=[];
 app.on('before-quit',()=>{if(!reported&&!exitRequested)console.error('premature quit: '+phase+' '+JSON.stringify(checks));});
 const fatal=error=>{console.error(phase+': '+(error?.stack??error));app.exit(1);};process.on('uncaughtException',fatal);process.on('unhandledRejection',fatal);
 const timer=setTimeout(()=>fatal(Error('functional main timeout')),35000);
@@ -23,17 +23,22 @@ async function close(w){if(w&&!w.isDestroyed()){void evaluate(w,'void window.gpt
 async function main(){try{
  const {WindowsBridge}=await import(pathToFileURL(path.join(root,'src/windows/bridge.mjs')));WindowsBridge.prototype.capture=()=>{};
  const {NativeWindows}=await import(pathToFileURL(path.join(root,'src/windows/native.mjs')));NativeWindows.prototype.mouseMask=()=>0;
+ if(!fs.existsSync(path.join(root,'src/core/hidden-surface.mjs'))||typeof NativeWindows.prototype.windowShown!=='function')throw Error('Refusing UI test: target lacks the native hidden-window guard');
+ const visibilityProbe=new NativeWindows();visibilityTimer=setInterval(()=>{for(const window of BrowserWindow.getAllWindows())if(!window.isDestroyed()){visibilitySamples++;if(visibilityProbe.windowShown(visibilityProbe.handle(window)))fatal(Error('A test window became natively visible'));}},10);
  let activationClicks=0;NativeWindows.prototype.activateCodex=function(){activationClicks++;return true;};
+ const {restartControl}=await import(pathToFileURL(path.join(root,'src/core/restart.mjs')));let restartCalls=0,restartFailure=true;
+ restartControl.request=async()=>{restartCalls++;return {token:'fixture-restart'};};restartControl.wait=async()=>({ok:!restartFailure,error:restartFailure?'fixture restart failure':null});
  const visible=NativeWindows.prototype.visible;
  NativeWindows.prototype.visible=function(h){return this.pid(h)===process.pid?this.valid(h):visible.call(this,h);};
  // Exercise the real menu commands without physical focus or pointer events.
- BrowserWindow.prototype.show=function(){};BrowserWindow.prototype.showInactive=function(){};
+ // The app guards every window, including minimize/restore. Observe the real
+ // Win32 visibility bit rather than mocking Electron's show() in this fixture.
  const {Updater}=await import(pathToFileURL(path.join(root,'src/core/updater.mjs')));Updater.prototype.check=async function(){this.state={...this.state,status:'checking',message:'本地验证检查中'};this.changed();await pause(60);this.state={...this.state,status:'current',message:'本地验证：没有新版本'};this.changed();};
  dialog.showOpenDialog=async()=>files.shift()??{canceled:true,filePaths:[]};
  await import(pathToFileURL(path.join(root,'src/main.mjs')));
  widget=await until(()=>BrowserWindow.getAllWindows().find(w=>w.webContents.getURL().endsWith('/ui/index.html')),'widget missing');bench=BrowserWindow.getAllWindows().find(w=>w.webContents.getURL().endsWith('/ui/bench.html'));
  await until(async()=>Boolean((await view())?.ok),'widget not ready');await evaluate(widget,'void(AudioBufferSourceNode.prototype.start=function(){})');
- phase='host';const originalBounds=widget.getBounds();await command(bench,'bench-move');await pause(70);record('独立宿主移动时跟随',widget.getBounds().x!==originalBounds.x);await command(bench,'bench-resize');await pause(70);record('独立宿主缩放后可见',(await command(bench,'bench-status')).data.visible===true);await command(bench,'bench-minimize');await pause(720);record('宿主最小化后恢复',(await command(bench,'bench-status')).data.visible===true);
+ phase='host';const originalBounds=widget.getBounds();await command(bench,'bench-move');await pause(70);record('独立宿主移动时跟随',widget.getBounds().x!==originalBounds.x);await command(bench,'bench-resize');await pause(70);record('独立宿主缩放后可见',(await command(bench,'bench-status')).data.visible===true);await command(bench,'bench-minimize');await pause(220);record('模拟最小化时逻辑隐藏',(await command(bench,'bench-status')).data.visible===false);await pause(500);record('宿主最小化后恢复',(await command(bench,'bench-status')).data.visible===true);
  phase='menu-load-cancel';const loaded=BrowserWindow.prototype.loadFile,known=new Set(BrowserWindow.getAllWindows());let releaseLoad;
  BrowserWindow.prototype.loadFile=function(file,options){if(options?.query?.kind==='menu')return new Promise((resolve,reject)=>{releaseLoad=()=>Promise.resolve().then(()=>loaded.call(this,file,options)).then(resolve,reject);});return loaded.call(this,file,options);};
  try{const opening=command(widget,'menu'),pending=await until(()=>BrowserWindow.getAllWindows().find(w=>!known.has(w)),'pending menu missing');pending.close();releaseLoad();await opening;record('菜单加载中关闭安全',!widget.isDestroyed());}finally{BrowserWindow.prototype.loadFile=loaded;}
@@ -87,11 +92,19 @@ async function main(){try{
   usagePanel.setSize(560,600);await pause(150);record('记账窄窗口没有横向溢出',await evaluate(usagePanel,'document.documentElement.scrollWidth<=innerWidth+1'));fs.writeFileSync(path.join(directory,'usage-narrow.png'),(await usagePanel.webContents.capturePage()).toPNG());
  }
  await close(usagePanel);
+ phase='restart-checks';const quoteEditor=await panel('quotes');await evaluate(quoteEditor,'document.querySelector("textarea").value="unsaved fixture draft";document.querySelector("textarea").dispatchEvent(new Event("input",{bubbles:true}));');
+ const blockedRestart=await evaluate(widget,'window.gpt.command("restart")');record('未保存编辑器阻止重启',blockedRestart.ok===false&&blockedRestart.error.includes('编辑窗口')&&restartCalls===0);
+ fs.writeFileSync(path.join(data,'display-request.json'),JSON.stringify({mode:'restart-check',nonce:'blocked-restart',at:Date.now()}));await until(()=>fs.existsSync(path.join(data,'restart-check-result.json'))&&read('restart-check-result.json').token==='blocked-restart','missing blocked restart reply');record('外部重启请求也检查编辑器',read('restart-check-result.json').ok===false);
+ await close(quoteEditor);fs.writeFileSync(path.join(data,'display-request.json'),JSON.stringify({mode:'restart-check',nonce:'allowed-restart',at:Date.now()}));await until(()=>read('restart-check-result.json').token==='allowed-restart','missing allowed restart reply');record('空闲时允许重启检查',read('restart-check-result.json').ok===true);
+ record('重启检查后阻止新的内容操作',(await evaluate(widget,'window.gpt.command("quote")')).ok===false);
+ const restartResult=await evaluate(widget,'window.gpt.command("restart")');record('重启失败保留窗口并返回错误',restartResult.ok===false&&restartResult.error==='fixture restart failure');
+ const restartMenu=await panel('menu');await click(restartMenu,'[data-action=restart]');await until(async()=>await evaluate(restartMenu,'document.getElementById("feedback").textContent.includes("fixture restart failure")'),'restart failure feedback missing');record('菜单显示重启失败反馈',restartCalls===2);
+ restartFailure=false;await click(restartMenu,'[data-action=restart]');await until(()=>restartCalls===3,'restart retry missing');record('重启失败后可以再试',restartCalls===3);await close(restartMenu);
  phase='rapid-open-close';const baselineWindows=BrowserWindow.getAllWindows().length;
  for(let n=0;n<8;n++){await Promise.all([command(widget,'menu'),command(widget,'menu')]);record('重复打开只保留一个菜单'+n,BrowserWindow.getAllWindows().filter(w=>!w.isDestroyed()&&w.webContents.getURL().includes('kind=menu')).length===1);await close(findPanel('menu'));}
  await Promise.all([command(widget,'characters'),command(widget,'characters')]);record('重复打开只保留一个图库',BrowserWindow.getAllWindows().filter(w=>!w.isDestroyed()&&w.webContents.getURL().includes('kind=characters')).length===1);await close(findPanel('characters'));
  record('快速开关没有残留窗口',BrowserWindow.getAllWindows().length===baselineWindows);record('快速开关后解除交互锁',!(await evaluate(widget,'window.gpt.ready()')).blocked);
- phase='exit';const exitMenu=await panel('menu'),exited=new Promise(resolve=>app.once('before-quit',()=>{record('菜单退出候选程序',true);reported=true;console.log(JSON.stringify({ok:true,checks:checks.length,passed:checks,systemTasksModified:false,networkUpdate:false,nativeAudioCapture:false,fileDialog:'isolated choices',pointer:'page events isolated from physical pointer',source:root}));resolve();}));
+ phase='exit';const exitMenu=await panel('menu'),exited=new Promise(resolve=>app.once('before-quit',()=>{record('原生窗口可见性持续检查',visibilitySamples>0);record('菜单退出候选程序',true);reported=true;console.log(JSON.stringify({ok:true,checks:checks.length,passed:checks,nativeVisibilitySamples:visibilitySamples,visibleTestWindows:0,systemTasksModified:false,networkUpdate:false,nativeAudioCapture:false,fileDialog:'isolated choices',pointer:'page events isolated from physical pointer',source:root}));resolve();}));
  exitRequested=true;void click(exitMenu,'[data-action=exit]').catch(error=>{if(!reported)fatal(error);});await exited;
-}catch(error){console.error(phase+': '+error.stack);process.exitCode=1;}finally{clearTimeout(timer);app.quit();}}
+}catch(error){console.error(phase+': '+error.stack);process.exitCode=1;}finally{clearTimeout(timer);clearInterval(visibilityTimer);app.quit();}}
 void main();

@@ -1,6 +1,6 @@
 {
   "name": "gpt-niang-usage",
-  "version": "1.4.0-beta.3",
+  "version": "1.4.0-beta.4",
   "description": "JavaScript / Electron 架构 Beta 测试版，保留额度、语录和桌面角色交互。",
   "mcpServers": "./.mcp.json",
   "interface": {

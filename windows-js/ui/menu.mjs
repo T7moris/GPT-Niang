@@ -129,6 +129,8 @@ export function buildMenu(
   updateStatus.className='hint update-status';updateStatus.dataset.status=state.update.status??'idle';
   el("hr");
   const footer=el('div');footer.className='menu-footer';
+  const restart=button(state.restarting?'正在重启…':'重启 GPT 娘','restart',undefined,footer);
+  restart.disabled=state.restarting===true||updating;
   const exit = button("退出 GPT 娘", "exit",undefined,footer);
   exit.className = "exit-action";
   const shortcut=el('span',undefined,footer);shortcut.className='shortcut-hint';

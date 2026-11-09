@@ -18,8 +18,9 @@ import {Updater} from '../src/core/updater.mjs';
 import {runUpdateIO} from '../src/core/update-io.mjs';
 import {zipFixture,packageFiles} from './fixtures/zip-fixture.mjs';
 import {ClickSequence} from '../ui/click-audio.mjs';
+import {ClipPlayer} from '../ui/clip-player.mjs';
 const app=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
-function temporary(t){const dir=fs.mkdtempSync(path.join(os.tmpdir(),'gpt-js-audit-fix-'));t.after(()=>{assert.ok(path.resolve(dir).startsWith(path.resolve(os.tmpdir())+path.sep));fs.rmSync(dir,{recursive:true,force:true});});return dir;}
+function temporary(t){const dir=fs.mkdtempSync(path.join(os.tmpdir(),'gpt-js-audit-fix-'));t.after(()=>{assert.ok(path.resolve(dir).startsWith(path.resolve(os.tmpdir())+path.sep));fs.rmSync(dir,{recursive:true,force:true,maxRetries:40,retryDelay:50});});return dir;}
 const write=(file,value)=>{fs.mkdirSync(path.dirname(file),{recursive:true});fs.writeFileSync(file,JSON.stringify(value));};
 const pause=ms=>new Promise(r=>setTimeout(r,ms));
 const read=file=>JSON.parse(fs.readFileSync(file,'utf8'));
@@ -47,6 +48,7 @@ test('changing audio settings stops an active preview',()=>{
   let stops=0,starts=0;const element=()=>({style:{},classList:{toggle(){}},getAnimations:()=>[],animate(){},getContext:()=>({clearRect(){}})}),els=new Map();
   const c={ClickSequence,source:null,audioContext:{state:'running',destination:{},createBufferSource:()=>({connect:()=>({connect(){}}),start(){starts++},stop(){stops++}}),createGain:()=>({gain:{value:0}})},soundBuffers:{'preview-press':{duration:5}},state:{settings:{soundOn:true,soundVolume:1},layout:{girl:{},tail:{},tailNear:{},menu:{},bubble:{scale:1},mirror:1},scene:{collapsed:false,preview:false,revision:0,mode:'quote',text:'fixture'},colors:{paused:false},music:false},performance,setTimeout,clearTimeout,box(){},$:id=>{if(!els.has(id))els.set(id,element());return els.get(id);},girlWrap:element(),menu:element(),bubble:element(),stage:element(),scene:element(),quote:element(),bubbleAnimation:element(),window:{innerWidth:378},document:{body:element()},rootTransform(){},applyColors(){},lastCollapsed:false,lastPreview:false,lastRevision:0,lastMusic:false,motion:null,bounds:null};
   c.pointer=null;
+  c.window.addEventListener=()=>{};c.clipPlayer=new ClipPlayer({context:()=>c.audioContext});
   vm.createContext(c);vm.runInContext(slice('const clickSounds = new ClickSequence({','function play(')+'\nglobalThis.sequence=clickSounds;\n'+slice('function render(value) {','function girlHit('),c);
   c.sequence.preview('press');const before=stops;c.render({settings:{soundOn:false,soundVolume:0}});assert.equal(starts,1);assert.equal(stops-before,1);c.sequence.preview('press');assert.equal(starts,1);
 });

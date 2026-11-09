@@ -69,14 +69,15 @@ public static class GptStart {
    try{return Mcp(root);}catch(Exception error){Console.Error.WriteLine("GPT Niang MCP startup failed: "+error.Message);return 1;}
   }
   bool candidate=Array.IndexOf(args,"--candidate")>=0;
+  Guid restartToken;bool restart=args.Length==2&&args[0]=="--restart-helper"&&Guid.TryParse(args[1],out restartToken);
   try{
    string bindingFile=Path.Combine(directory,"launcher.json");
    if(!candidate&&File.Exists(bindingFile)){
     var json=new JavaScriptSerializer();var binding=json.Deserialize<Dictionary<string,object>>(File.ReadAllText(bindingFile));
     root=Path.GetFullPath(Convert.ToString(binding["appDir"]));string data=Path.GetFullPath(Convert.ToString(binding["dataDir"]));
-    if(RecoverInstall(data,root,args,json))return 0;
+    if(!restart&&RecoverInstall(data,root,args,json))return 0;
     string journalFile=Path.Combine(data,"javascript-update-journal.json");
-    if(File.Exists(journalFile)){
+    if(!restart&&File.Exists(journalFile)){
      var journal=json.Deserialize<Dictionary<string,object>>(File.ReadAllText(journalFile));string phase=Convert.ToString(journal["phase"]);
      if(phase!="committed"&&phase!="rolled-back"){
       string agent=Path.GetFullPath(Convert.ToString(journal["agent"])),job=Path.GetFullPath(Convert.ToString(journal["job"]));
@@ -88,12 +89,13 @@ public static class GptStart {
    }
   }catch(Exception e){try{File.AppendAllText(Path.Combine(directory,"launcher-error.txt"),e.ToString());}catch{}return 1;}
   var start=new ProcessStartInfo(Path.Combine(root,"node_modules","electron","dist","electron.exe"));
-  start.Arguments=Quote(candidate?root:Path.Combine(root,"src","start.mjs"));
+  start.Arguments=Quote(candidate?root:Path.Combine(root,"src",restart?"restart-entry.mjs":"start.mjs"));
   foreach(string arg in args)start.Arguments+=" "+Quote(arg);
   start.WorkingDirectory=root;start.UseShellExecute=false;start.CreateNoWindow=true;
   if(candidate){start.WindowStyle=ProcessWindowStyle.Normal;start.EnvironmentVariables.Remove("ELECTRON_RUN_AS_NODE");}
   else{start.WindowStyle=ProcessWindowStyle.Hidden;start.EnvironmentVariables["ELECTRON_RUN_AS_NODE"]="1";}
   try{
+   if(restart)return Supervise(start,Path.Combine(directory,"restart-launch-error.txt"));
    if(!candidate&&Array.IndexOf(args,"--supervise")>=0)return Supervise(start,Path.Combine(directory,"supervisor-launch-error.txt"));
    Process.Start(start);return 0;
   }catch(Exception e){try{File.AppendAllText(Path.Combine(directory,"launcher-error.txt"),e.ToString());}catch{}return 1;}

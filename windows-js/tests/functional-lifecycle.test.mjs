@@ -13,9 +13,9 @@ test('a usage window creation failure stops accounting and preserves the menu fo
  const start=code.indexOf('  async function openEditor(kind)'),end=code.indexOf('  function trusted(',start);let started=0,closed=0;
  const menu={close(){throw Error('menu must remain available');}};
  const c={stopping:false,menu,editor:null,openingEditor:false,blocked:false,resetSchedule(){},send(){},unblock(){c.blocked=!!c.menu;},
-  usageService:{start(){started++;},close(){closed++;}},path,root,candidate:false,
+  usageService:{start(){started++;},close(){closed++;}},path,root,candidate:false,hiddenTest:false,
   BrowserWindow:class{constructor(){throw Error('window creation failed');}}};
- vm.createContext(c);vm.runInContext(code.slice(start,end),c);
+ c.createWindow=options=>new c.BrowserWindow(options);vm.createContext(c);vm.runInContext(code.slice(start,end),c);
  await assert.rejects(c.openEditor('usage'),/window creation failed/);
  assert.equal(started,1);assert.equal(closed,1);assert.equal(c.editor,null);assert.equal(c.menu,menu);assert.equal(c.openingEditor,false);
 });

@@ -1,11 +1,16 @@
 import {resolveSetupTarget} from './core/setup-target.mjs';
-import path from 'node:path';import {spawn,spawnSync} from 'node:child_process';
+import path from 'node:path';import fs from 'node:fs';import {spawn,spawnSync} from 'node:child_process';
 import {applyCodexHomeArgument} from '../runtime/codex-home.mjs';
 async function main(){
  applyCodexHomeArgument(process.argv.slice(2));
  const explicit=process.argv.includes('--target'),target=explicit?null:resolveSetupTarget();
- if(process.argv.includes('--open')||process.argv.includes('--disable')||process.argv.includes('--uninstall')){
+ if(process.argv.includes('--restart')||process.argv.includes('--open')||process.argv.includes('--disable')||process.argv.includes('--uninstall')){
   if(!target?.existing)throw Error('请先运行安装GPT娘.cmd 完成安装');
+  if(process.argv.includes('--restart')){
+   const entry=path.join(target.target,'src/restart-entry.mjs');if(!fs.existsSync(entry))throw Error('现用版本尚不支持此重启入口，请先安装新版 GPT 娘。');
+   const result=spawnSync(path.join(target.target,'node_modules/electron/dist/electron.exe'),[entry,...(process.argv.includes('--check')?['--check']:[])],{cwd:target.target,windowsHide:true,encoding:'utf8',timeout:60000,env:{...process.env,ELECTRON_RUN_AS_NODE:'1'}});
+   if(result.error||result.status!==0)throw Error(String(result.stderr||result.error?.message||'重启未完成').trim());console.log(result.stdout.trim());return;
+  }
   if(process.argv.includes('--check')){console.log(JSON.stringify({ok:true,checkOnly:true,...target}));return;}
   if(process.argv.includes('--open')){
    const child=spawn(path.join(target.target,'native','GPTNiang.Start.exe'),[],{cwd:target.target,windowsHide:true,detached:true,stdio:'ignore'});
