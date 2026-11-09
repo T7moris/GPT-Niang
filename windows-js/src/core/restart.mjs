@@ -11,6 +11,8 @@ const terminal=new Set(['committed','rolled-back']);
 const uuid=value=>typeof value==='string'&&/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(value);
 const wait=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 const flags=['stop.flag','supervisor-stop.flag','supervisor-disabled.flag','supervisor-pause.json'];
+const readFlags=dataDir=>new Map(flags.map(name=>{const file=path.join(dataDir,name);return [name,fs.existsSync(file)?fs.readFileSync(file):null];}));
+const flagState=values=>Object.fromEntries([...values].map(([name,value])=>[name,value?.toString('base64')??null]));
 const xml=value=>String(value).replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;');
 const ownArguments=token=>'--restart-helper '+token;
 function currentSid(){
@@ -80,9 +82,11 @@ async function prepareRestart(root,{windows=windowsRestartSetup(root),sid=curren
       if(oldTask.state===4)throw Error('上一轮重启正在收尾，请稍后重试');
       windows('task-delete',taskName);
     }
-    const approved=await approve(config,token);
+    // Capture intent before awaiting the GUI or scheduling the helper. A later
+    // exit/disable/resume belongs to the user and must cancel this request.
+    const requestedFlags=flagState(readFlags(config.dataDir)),approved=await approve(config,token);
     validateRestart(root,{windows,sid});
-    const record={schema:1,root:config.appDir,dataDir:config.dataDir,sid,version:config.version,taskName,token,approved,at:Date.now()};
+    const record={schema:1,root:config.appDir,dataDir:config.dataDir,sid,version:config.version,taskName,token,approved,flagState:requestedFlags,at:Date.now()};
     writeJson(requestFile,record,{backup:false});
     fs.writeFileSync(taskFile,Buffer.concat([Buffer.from([255,254]),Buffer.from(helperXml(config,token),'utf16le')]));
     windows('task-register',taskName,taskFile,sid);registered=true;
@@ -125,10 +129,13 @@ async function performRestart(root,token,{windows=windowsRestartSetup(root),sid=
   let release,stopped=false;
   for(let n=0;n<20&&!(release=claimProgramChange(config.dataDir));n++)await wait(25);
   if(!release){saveResult(config,token,{ok:false,error:'安装或更新正在进行，未执行重启'});if(matchesTask(windows('task-info',taskName),config,ownArguments(token)))windows('task-delete',taskName);return;}
-  const original=new Map(flags.map(name=>{const file=path.join(config.dataDir,name);return [name,fs.existsSync(file)?fs.readFileSync(file):null];}));
+  let original;
   const removedFlags=new Set();
   try{
     validateRestart(root,{windows,sid});
+    original=readFlags(config.dataDir);
+    const currentFlags=flagState(original);
+    if(flags.some(name=>currentFlags[name]!==request.flagState?.[name]))throw Error('停止或暂停状态发生变化，已保留外部操作');
     const runtime=readJson(path.join(config.dataDir,'runtime.json'));
     if(runtime&&ownerAlive(runtime.pid,runtime.processStartedTicks)&&(!request.approved||request.approved.pid!==runtime.pid||String(request.approved.ticks)!==String(runtime.processStartedTicks)||Date.now()-request.approved.at>10000))throw Error('挂件状态已改变，请重新发起重启');
     stopped=true;

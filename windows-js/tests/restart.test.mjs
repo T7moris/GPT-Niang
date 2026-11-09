@@ -81,3 +81,29 @@ test('an active program change lock blocks restart and removes its one-shot help
  try{await runRestart(f.root,request.token,{...f.options,stop:async()=>{throw Error('must not stop');}});}finally{release();}
  assert.equal(f.events.some(e=>e[0]==='task-stop'),false);assert.equal(f.tasks.has(request.taskName),false);assert.equal((await waitForRestart(f.dataDir,request.token)).ok,false);
 });
+for(const name of ['stop.flag','supervisor-stop.flag','supervisor-disabled.flag','supervisor-pause.json'])test('a later user stop cancels the pending restart before helper handoff: '+name,async t=>{
+ const f=fixture(t),request=await requestRestart(f.root,f.options),file=path.join(f.dataDir,name);
+ fs.writeFileSync(file,'later-user-stop');
+ await assert.rejects(runRestart(f.root,request.token,{...f.options,stop:f.stop,verify:async()=>{}}),/状态发生变化/);
+ assert.equal(fs.readFileSync(file,'utf8'),'later-user-stop');
+ assert.equal(f.events.some(e=>e[0]==='task-stop'||e[0]==='task-start'&&e[1]===f.config.taskName),false);
+ assert.equal(f.tasks.has(request.taskName),false);assert.equal((await waitForRestart(f.dataDir,request.token)).ok,false);
+});
+test('removing a pause during helper handoff also cancels restart without restoring it',async t=>{
+ const f=fixture(t),file=path.join(f.dataDir,'supervisor-pause.json');fs.writeFileSync(file,'old-pause');
+ const request=await requestRestart(f.root,f.options);fs.unlinkSync(file);
+ await assert.rejects(runRestart(f.root,request.token,{...f.options,stop:f.stop,verify:async()=>{}}),/状态发生变化/);
+ assert.equal(fs.existsSync(file),false);assert.equal(f.events.some(e=>e[0]==='task-stop'),false);
+});
+test('a stop arriving while GUI approval is pending is not adopted as the restart baseline',async t=>{
+ const f=fixture(t),file=path.join(f.dataDir,'supervisor-pause.json');
+ const request=await requestRestart(f.root,{...f.options,approve:async()=>{fs.writeFileSync(file,'exit-during-approval');return null;}});
+ await assert.rejects(runRestart(f.root,request.token,{...f.options,stop:f.stop,verify:async()=>{}}),/状态发生变化/);
+ assert.equal(fs.readFileSync(file,'utf8'),'exit-during-approval');assert.equal(f.events.some(e=>e[0]==='task-stop'),false);
+});
+test('an unreadable flag during helper preflight releases the program-change lock',async t=>{
+ const f=fixture(t),request=await requestRestart(f.root,f.options);fs.mkdirSync(path.join(f.dataDir,'stop.flag'));
+ await assert.rejects(runRestart(f.root,request.token,{...f.options,stop:f.stop,verify:async()=>{}}));
+ assert.equal(f.events.some(e=>e[0]==='task-stop'),false);assert.equal(f.tasks.has(request.taskName),false);
+ const release=claimProgramChange(f.dataDir);assert.ok(release,'a failed preflight must not retain the update/restart lock');release();
+});
