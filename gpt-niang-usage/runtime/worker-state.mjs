@@ -68,3 +68,9 @@ export async function acquireWorkerLock(dataDir,parentPid=0,{pid=process.pid,onL
     return new Promise(resolve=>server.close(resolve));
   }};
 }
+
+// An opt-in from a fresh, live macOS GUI heartbeat. No Windows behavior change.
+export function quotaPresenceActive(presence, now=Date.now(), platform=process.platform, alive=processAlive) {
+  return Boolean((presence?.visible || (platform==='darwin' && presence?.backgroundQuota===true)) &&
+    Number.isFinite(presence.at) && now-presence.at>=0 && now-presence.at<5000 && alive(presence.pid));
+}

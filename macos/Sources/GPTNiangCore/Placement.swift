@@ -2,6 +2,16 @@ import Foundation
 import CoreGraphics
 
 public enum WidgetPlacement {
+    public static func completionFrame(area: CGRect, scale: Double) -> CGRect? {
+        guard area.minX.isFinite, area.minY.isFinite, area.width.isFinite, area.height.isFinite,
+              area.width > 32, area.height > 32, scale.isFinite else { return nil }
+        let fitted = min(min(2.5, max(0.6, scale)), (area.width - 32) / 378, (area.height - 32) / 378)
+        let size = CGSize(width: 378 * fitted, height: 378 * fitted)
+        return desktopFrame(area: area, size: size,
+            origin: CGPoint(x: area.maxX - size.width - 16, y: area.minY + 16))
+    }
+
+
     /// Follow the complete host, never its screen intersection. Cropping is a
     /// presentation concern and must not change the saved position or scale.
     public static func followFrame(host: CGRect, size: CGSize, x: Double, y: Double) -> CGRect? {

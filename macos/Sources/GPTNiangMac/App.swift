@@ -21,7 +21,7 @@ struct GPTNiangEntry {
 final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMenuDelegate {
     private var model: WidgetModel!
     private var updater: NativeUpdater!
-    private var completion: CompletionNotificationController!
+    private let completionPopup = CompletionPopupController()
     private var languageSubscription: AnyCancellable?
     private var trackingMenus = 0
     private var panel: WidgetPanel!
@@ -30,6 +30,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     private let speedStore = ThreadSpeedStore()
     private var statusItem: NSStatusItem?
     private var timer: Timer?
+    private var timerInterval: TimeInterval = 0
+    private var lastSampledHost: CGRect?
+    private var fastFollowUntil: TimeInterval = 0
     private var lockDescriptor: Int32 = -1
     private var hostRect: CGRect?
     private var lastHostNumber: Int?
@@ -91,7 +94,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         panel.animationBehavior = .none
         panel.isReleasedWhenClosed = false
         panel.install(NSHostingView(rootView: WidgetView(model: model, onDrag: { [weak self] in self?.drag($0) }, onSettings: { [weak self] in self?.showSettings() }, onContextMenu: { [weak self] event, view in self?.showContextMenu(event, view: view) })))
-        completion = CompletionNotificationController(model: model, panel: panel)
+        model.alerts.presentCompletionPopup = { [weak self] counts in
+            guard let self else { return false }
+            return self.completionPopup.present(counts: counts, model: self.model)
+        }
+        model.alerts.dismissCompletionPopup = { [weak self] in self?.completionPopup.dismiss() }
         buildMenu()
         languageSubscription = model.$language.dropFirst().sink { [weak self] _ in
             Task { @MainActor in self?.buildMenu(); self?.localizeWindowTitles() }
@@ -99,23 +106,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         model.start()
         observeWorkspace()
         updateWindow()
-        let followTimer = Timer(timeInterval: 1.0 / 60, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.updateWindow() }
-        }
-        // Keep following while AppKit is tracking a pointer or menu.
-        RunLoop.main.add(followTimer, forMode: .common)
-        timer = followTimer
+        scheduleWindowTimer()
         if args.contains("--speed") { showSpeed() }
         updater.start()
         logger.info("macOS widget launched")
+        // Only the installed application's normal data directory may register
+        // background activity; disposable QA instances must remain isolated.
+        if argument("--data-dir") == nil && (model.hostLinkPreferences.enabled || args.contains("--enable-host-link")) {
+            do { try HostLinkRegistration.setEnabled(true, model: model) }
+            catch {
+                model.settingsError = model.text("应用联动设置失败：%@", error.localizedDescription)
+                showSettings()
+            }
+        }
     }
     func applicationWillTerminate(_ notification: Notification) {
         if let focusMouseMonitor { NSEvent.removeMonitor(focusMouseMonitor) }
         NSWorkspace.shared.notificationCenter.removeObserver(self)
         NotificationCenter.default.removeObserver(self)
-        timer?.invalidate(); completion?.stop(); updater?.stop(); model?.stop(); speedStore.stop()
+        timer?.invalidate(); completionPopup.dismiss(); updater?.stop(); model?.stop(); speedStore.stop()
         if lockDescriptor >= 0 { Darwin.close(lockDescriptor) }
     }
+    func applicationDidBecomeActive(_ notification: Notification) { model?.alerts.refreshPermission() }
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
     func menuWillOpen(_ menu: NSMenu) {
         trackingMenus += 1
@@ -178,7 +190,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         guard let command = item.representedObject as? [String], command.count == 2 else { return }
         model.audio.perform(command[0], slot: AudioSlot(rawValue: command[1]))
     }
-    @objc private func toggleCompletion() { model.completionEnabled.toggle(); model.savePreferences() }
+    @objc private func toggleCompletion() { model.completionEnabled.toggle(); model.savePreferences(); model.alerts.configure() }
     @objc private func showQuota() { model.toggleQuota(); updateWindow() }
     @objc private func refresh() { model.refresh() }
     @objc private func quote() { model.showQuote() }
@@ -231,10 +243,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     }
     private func hideFollowingPanel() {
         needsHostOrder = true; forceHostDiscovery = true
-        // A host hide/quit event must not cut short an active background notice.
-        // Its controller retains the existing deadline and restores the layer;
-        // the ordinary follow tick can then hide the unavailable host's panel.
-        guard !completion.temporaryTopmost else { return }
+        // Background reminders use a separate panel, so host hiding is immediate.
         if panel.isVisible { panel.orderOut(nil) }
         selectedHostNumber = nil; lastHostNumber = nil; hostRect = nil
         let now = ProcessInfo.processInfo.systemUptime
@@ -311,6 +320,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
             guard followPolicy.mayFollow(stageManager: stageManagerEnabled, hostActive: frontmost,
                 companionActive: companionActive, frontmostOnAnotherScreen: otherScreenActive) else { continue }
             selectedHostNumber = number
+            if let lastSampledHost, lastSampledHost != frame { fastFollowUntil = now + 0.5 }
+            lastSampledHost = frame
             guard hostGeometry.accept(number: number, frame: frame, screens: screens, now: now,
                 mouseDraggingHost: mouseDraggingHost) else { return nil }
             if discover {
@@ -327,19 +338,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         selectedHostNumber = nil
         return nil
     }
+    private func scheduleWindowTimer() {
+        let front = NSWorkspace.shared.frontmostApplication?.bundleIdentifier == "com.openai.codex"
+        let now = ProcessInfo.processInfo.systemUptime
+        let interval = WidgetRefreshPolicy.windowInterval(follow: model.followCodex, foreground: front,
+            moving: dragOrigin != nil || now < fastFollowUntil)
+        guard timer == nil || abs(timerInterval - interval) > 0.0001 else { return }
+        timer?.invalidate(); timerInterval = interval
+        let next = Timer(timeInterval: interval, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.updateWindow() }
+        }
+        next.tolerance = interval >= 0.1 ? interval * 0.15 : 0.001
+        RunLoop.main.add(next, forMode: .common); timer = next
+    }
     private func updateWindow() {
         guard model != nil, panel != nil else { return }
-        if completion.temporaryTopmost {
-            let front = NSWorkspace.shared.frontmostApplication?.bundleIdentifier == "com.openai.codex"
-            let busy = trackingMenus > 0 || dragOrigin != nil || model.interactionActive || model.audio.busy || settingsWindow?.isVisible == true || speedWindow?.isVisible == true || (model.bubble && !model.isCompletionMessage)
-            completion.tick(codexFrontmost: front, busy: busy)
-            if completion.temporaryTopmost {
-                // Show the whole existing canvas for the temporary reminder.
-                _ = panel.place(panel.placementFrame, clippedTo: nil)
-                if cadence.presence(now: ProcessInfo.processInfo.systemUptime, visible: true) { model.writePresence(visible: true) }
-                return
-            }
-        }
+        defer { scheduleWindowTimer() }
         if let previousFollow, previousFollow != model.followCodex {
             if !model.followCodex && model.desktopLeft == nil {
                 model.desktopLeft = panel.placementFrame.minX; model.desktopBottom = panel.placementFrame.minY
@@ -406,19 +420,41 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
             let left = panel.placementFrame.midX < area.midX
             if model.facingLeft != left { model.facingLeft = left }
         }
-        let completionBusy = trackingMenus > 0 || dragOrigin != nil || model.interactionActive || model.audio.busy || settingsWindow?.isVisible == true || speedWindow?.isVisible == true || (model.bubble && !model.isCompletionMessage)
-        completion.tick(codexFrontmost: codexFrontmost, busy: completionBusy)
-        if completion.temporaryTopmost { _ = panel.place(panel.placementFrame, clippedTo: nil) }
+        model.alerts.hostFrontmost = codexFrontmost
+        if completionPopup.isVisible && (!model.followCodex || !model.alertPreferences.anyTaskPopup || (codexFrontmost && panel.isVisible)) {
+            completionPopup.dismiss()
+        }
+        model.alerts.windowVisible = panel.isVisible
+        model.alerts.windowBusy = dragOrigin != nil || trackingMenus > 0 || model.audio.busy || settingsWindow?.isVisible == true || speedWindow?.isVisible == true
+        let rendered = panel.isVisible && panel.isOnActiveSpace && panel.occlusionState.contains(.visible)
+        if model.widgetVisible != rendered { model.widgetVisible = rendered }
         wasCodexFrontmost = codexFrontmost
         if cadence.presence(now: now, visible: visible) { model.writePresence(visible: visible) }
         if let diagnosticsURL, cadence.diagnostics(now: now) {
             let values: [String: Any] = ["visible": panel.isVisible, "followCodex": model.followCodex, "hostFound": host != nil,
+                "windowTimerInterval": timerInterval, "widgetDrawing": model.widgetVisible,
                 "panelWindow": panel.windowNumber, "onActiveSpace": panel.isOnActiveSpace, "stageManager": stageManagerEnabled,
                 "geometryTransition": hostGeometry.transitioning, "windowLevel": panel.level.rawValue,
                 "focusScreen": frontmostScreen.map { NSStringFromRect($0) } ?? "",
                 "hostFrontmost": codexFrontmost, "collectionBehavior": panel.collectionBehavior.rawValue,
                 "hostWindow": host?.1 ?? 0, "frame": NSStringFromRect(panel.frame), "placementFrame": NSStringFromRect(panel.placementFrame), "quotaOK": model.snapshot.ok,
                 "queryOK": model.snapshot.queryOk ?? false, "quotaWindowCount": model.snapshot.windows.count,
+                "alertShortEnabled": model.alertPreferences.shortEnabled, "alertWeekEnabled": model.alertPreferences.weekEnabled,
+                "alertShortResetEnabled": model.alertPreferences.shortResetEnabled,
+                "alertWeekResetEnabled": model.alertPreferences.weekResetEnabled,
+                "hostLinkEnabled": model.hostLinkPreferences.enabled,
+                "hostLinkServiceStatus": HostLinkRegistration.service.status.rawValue,
+                "alertCommandEnabled": model.alertPreferences.commandEnabled,
+                "alertQuestionEnabled": model.alertPreferences.questionEnabled,
+                "alertRequestEvents": model.alerts.requestEvents,
+                "alertNotificationLogAvailable": model.alerts.notificationLogAvailable,
+                "alertCompletionEnabled": model.alertPreferences.completionEnabled,
+                "alertCompletionPopupEnabled": model.alertPreferences.completionPopupEnabled,
+                "alertPopupVisible": completionPopup.isVisible, "alertPopupCount": completionPopup.count,
+                "alertPopupPresentations": model.alerts.popupPresentations, "alertMonitorRunning": model.alerts.monitorRunning,
+                "alertSoundSignals": model.alerts.soundSignals, "alertPermissionDenied": model.alertPermissionDenied, "alertMonitorError": model.alertMonitorError != nil,
+                "alertCompletionSessions": model.alerts.completionSessions, "alertCompletionFrames": model.alerts.completionFrames, "alertCompletionEvents": model.alerts.completionEvents,
+                "alertWindowBusy": model.alerts.windowBusy, "alertInteractionBusy": model.interactionActive,
                 "hasMessage": model.message != nil, "bubbleVisible": model.bubble, "scale": model.scale,
                 "settingsVisible": settingsWindow?.isVisible ?? false, "speedVisible": speedWindow?.isVisible ?? false, "speedRows": speedStore.rows.count, "dragEvents": dragEvents, "displayScale": model.displayScale, "at": Date().timeIntervalSince1970]
             if let data = try? JSONSerialization.data(withJSONObject: values, options: [.prettyPrinted, .sortedKeys]) { try? data.write(to: diagnosticsURL, options: .atomic) }

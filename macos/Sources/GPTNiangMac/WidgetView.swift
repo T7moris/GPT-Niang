@@ -24,7 +24,9 @@ struct WidgetView: View {
     private let rebound = Animation.timingCurve(0.34, 1.56, 0.64, 1, duration: 0.22)
 
     var body: some View {
-        TimelineView(.periodic(from: .now, by: model.colorScope == .none || model.colorPaused || reduceMotion ? 1 : 1 / 30)) { context in
+        TimelineView(.animation(minimumInterval: WidgetRefreshPolicy.animates(visible: model.widgetVisible, bubble: model.bubble, fullColor: model.colorScope == .full, textColor: model.colorScope == .text) && !model.colorPaused && !reduceMotion ? 1 / 30 : 1,
+                                paused: !model.widgetVisible || (!model.bubble && model.colorScope != .full) ||
+                                    (!model.bubble && (model.colorPaused || reduceMotion)))) { context in
             let phase = model.colorPaused || reduceMotion ? frozenPhase : context.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 2.6) / 2.6
             stage(date: context.date, phase: phase)
         }
@@ -54,7 +56,7 @@ struct WidgetView: View {
             Button(model.text("刷新額度")) { model.refresh() }
             Button(model.text("來一句語錄")) { model.showQuote() }
             Divider()
-            Toggle(model.text("回答结束提醒"), isOn: Binding(get: { model.completionEnabled }, set: { model.completionEnabled = $0; model.savePreferences() }))
+            Toggle(model.text("回答结束提醒"), isOn: Binding(get: { model.completionEnabled }, set: { model.completionEnabled = $0; model.savePreferences(); model.alerts.configure() }))
             WidgetAudioMenu(audio: model.audio)
             Button(model.text("設定…"), action: onSettings)
             Button(model.text("退出 GPT 娘")) { NSApp.terminate(nil) }
@@ -75,11 +77,13 @@ struct WidgetView: View {
             Ellipse().fill(style("surface", phase: phase)).overlay(Ellipse().stroke(style("accent", phase: phase), lineWidth: 4))
                 .frame(width: 17, height: 12).scaleEffect(0.7 + 0.3 * near).opacity(near)
                 .offset(x: 142, y: 214).onTapGesture { model.clickBubble() }.allowsHitTesting(model.bubble)
+            if model.bubble || text > 0 {
             scene(now: date, phase: phase)
                 .frame(width: displayedMessage == nil ? 184 : 218, height: displayedMessage == nil ? 115 : 126)
                 .scaleEffect(x: mirrored ? -1 : 1, y: 1)
                 .opacity(text).offset(x: displayedMessage == nil ? 63 : 46, y: displayedMessage == nil ? 22 : 22)
                 .allowsHitTesting(model.bubble).contentShape(Rectangle()).onTapGesture { model.clickBubble() }
+            }
             if model.bubble && displayedMessage == nil {
                 Button { model.refresh(renewBubble: true) } label: { Image(systemName: model.refreshing ? "hourglass" : "arrow.clockwise").font(.system(size: 12)).foregroundStyle(style("ink", phase: phase)) }
                     .buttonStyle(.plain).disabled(model.refreshing).frame(width: 20, height: 20)

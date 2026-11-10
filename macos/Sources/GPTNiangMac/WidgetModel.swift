@@ -24,7 +24,14 @@ private struct WorkerStopRequest: Equatable {
 
 @MainActor
 final class WidgetModel: ObservableObject {
+    @Published var hostLinkPreferences = HostLinkPreferences()
+    @Published var alertPreferences = AlertPreferences()
+    @Published var alertPermissionDenied = false
+    @Published var alertMonitorError: String?
+    @Published var alertStorageError: String?
+    lazy var alerts = AlertCoordinator(model: self)
     @Published var snapshot = UsageSnapshot()
+    @Published var widgetVisible = false
     @Published var message: String?
     @Published var bubble = false
     @Published var sceneStarted = Date()
@@ -46,7 +53,10 @@ final class WidgetModel: ObservableObject {
     @Published var desktopBottom: Double?
     @Published var soundOn: Bool
     @Published var hideMenu: Bool
-    @Published var completionEnabled = false
+    var completionEnabled: Bool {
+        get { alertPreferences.completionEnabled }
+        set { alertPreferences.completionEnabled = newValue }
+    }
     @Published var isCompletionMessage = false
     var onManualBubble: (() -> Void)?
     @Published var facingLeft = false
@@ -98,6 +108,7 @@ final class WidgetModel: ObservableObject {
     private var stderr: FileHandle?
     private var timer: Timer?
     private var quotes: [Quote] = []
+    private var alertSound: NSSound?
     lazy var audio = WidgetAudio(data: dataDirectory, resources: resources,
         node: { [weak self] in self?.findNode() }, enabled: { [weak self] in self?.soundOn == true },
         volume: { [weak self] in self?.volume ?? 0 }, text: { [weak self] in self?.text($0) ?? $0 })
@@ -117,6 +128,14 @@ final class WidgetModel: ObservableObject {
         // Keep preferences together with quota state; no shared Codex config edits.
         let prefs = dataDirectory.appendingPathComponent("preferences.json")
         let values = (try? Data(contentsOf: prefs)).flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] } ?? [:]
+        if let raw = values["hostLink"], let encoded = try? JSONSerialization.data(withJSONObject: raw),
+           let decoded = try? JSONDecoder().decode(HostLinkPreferences.self, from: encoded) {
+            hostLinkPreferences = decoded
+        }
+        if let raw = values["alerts"], let data = try? JSONSerialization.data(withJSONObject: raw),
+           var decoded = try? JSONDecoder().decode(AlertPreferences.self, from: data) {
+            decoded.validate(); alertPreferences = decoded
+        }
         language = InterfaceLanguage(rawValue: values["language"] as? String ?? "system") ?? .system
         defaults = .standard
         colorMode = ColorMode(rawValue: values["colorMode"] as? String ?? "mixed") ?? .mixed
@@ -134,7 +153,6 @@ final class WidgetModel: ObservableObject {
         desktopBottom = values["desktopBottom"] as? Double
         soundOn = values["soundOn"] as? Bool ?? true
         hideMenu = values["hideMenu"] as? Bool ?? false
-        completionEnabled = values["taskCompletionBubble"] as? Bool ?? false
         x = min(1, max(0, values["x"] as? Double ?? 1))
         y = min(1, max(0, values["y"] as? Double ?? 0))
         desktopNeedsMigration = !followCodex && desktopLeft == nil && values["layoutVersion"] == nil && !values.isEmpty
@@ -143,6 +161,9 @@ final class WidgetModel: ObservableObject {
             try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: dataDirectory.path)
         } catch { settingsError = text("無法建立本機資料目錄：%@", String(describing: error.localizedDescription)) }
         initialStopRequest = readStopRequest()
+        if values["alerts"] == nil, let legacyCompletion = values["taskCompletionBubble"] as? Bool {
+            alertPreferences.completionEnabled = legacyCompletion
+        }
         loadQuotes()
         snapshot = UsageSnapshot(error: text("正在讀取目前帳戶的額度…"))
     }
@@ -151,11 +172,13 @@ final class WidgetModel: ObservableObject {
 
     func start() {
         startWorker()
+        alerts.configure()
         timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.tick() }
         }
     }
     func stop() {
+        alerts.stop()
         timer?.invalidate(); timer = nil; audio.stop()
         writePresence(visible: false)
         if let worker, worker.isRunning { worker.terminate() }; worker = nil
@@ -168,7 +191,7 @@ final class WidgetModel: ObservableObject {
         } else if lastStatusData != nil {
             lastStatusData = nil; snapshot = UsageSnapshot(error: text("正在讀取目前帳戶的額度…"))
         }
-        if Date() > refreshUntil { refreshing = false }
+        if refreshing && Date() > refreshUntil { refreshing = false }
         guard settleWorkerHandoff() else { return }
         if let request = readStopRequest(), request != initialStopRequest {
             if let worker, worker.isRunning { worker.terminate() }
@@ -176,6 +199,7 @@ final class WidgetModel: ObservableObject {
         }
         if worker?.isRunning == true { checkOwnedWorker(now: now) }
         else { startWorker(now: now) }
+        alerts.tick()
     }
     func readSnapshot(_ data: Data) {
             if data != lastStatusData {
@@ -382,19 +406,24 @@ final class WidgetModel: ObservableObject {
         hideBubble(); savePreferences()
     }
     func writePresence(visible: Bool) {
-        try? writeJSON(["visible": visible, "at": Date().timeIntervalSince1970 * 1000,
+        try? writeJSON(["visible": visible, "backgroundQuota": alertPreferences.quotaEnabled, "at": Date().timeIntervalSince1970 * 1000,
                         "pid": ProcessInfo.processInfo.processIdentifier], to: dataDirectory.appendingPathComponent("presence.json"))
     }
-    func savePreferences() {
+    @discardableResult func savePreferences() -> Bool {
         let file = dataDirectory.appendingPathComponent("preferences.json")
         var values = (try? Data(contentsOf: file)).flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] } ?? [:]
         let current: [String: Any] = ["layoutVersion": 2, "scale": scale, "volume": volume, "followCodex": followCodex, "loginRequested": loginRequested, "x": x, "y": y,
             "colorMode": colorMode.rawValue, "fullChance": fullChance, "textChance": textChance, "colorPaused": colorPaused,
             "specialQuotes": specialQuotes, "bubbleTapAdvance": bubbleTapAdvance, "language": language.rawValue,
-            "desktopTopmost": desktopTopmost, "soundOn": soundOn, "hideMenu": hideMenu, "taskCompletionBubble": completionEnabled]
+            "desktopTopmost": desktopTopmost, "soundOn": soundOn, "hideMenu": hideMenu]
+        if let data = try? JSONEncoder().encode(alertPreferences),
+           let raw = try? JSONSerialization.jsonObject(with: data) { values["alerts"] = raw }
+        if let data = try? JSONEncoder().encode(hostLinkPreferences),
+           let raw = try? JSONSerialization.jsonObject(with: data) { values["hostLink"] = raw }
         values.merge(current) { _, new in new }
         values["desktopLeft"] = desktopLeft; values["desktopBottom"] = desktopBottom
-        try? writeJSON(values, to: file)
+        do { try writeJSON(values, to: file); return true }
+        catch { return false }
     }
     func migrateDesktopPosition(area: CGRect, size: CGSize) {
         guard desktopNeedsMigration else { return }
@@ -416,6 +445,26 @@ final class WidgetModel: ObservableObject {
     }
     private func requestRefreshFlag() {
         try? Data(UUID().uuidString.utf8).write(to: dataDirectory.appendingPathComponent("refresh.flag"), options: .atomic)
+    }
+    func showAlert(_ text: String) {
+        message = text; bubble = true
+        updateAppearance(); restartTTL(delay: 0.52)
+    }
+    func taskAlertText(_ counts: [TaskAlertKind: Int]) -> String {
+        TaskAlertKind.allCases.compactMap { kind -> String? in
+            guard let count = counts[kind], count > 0 else { return nil }
+            return text(kind.messageKey) + (count > 1 ? text("（%@ 项）", String(count)) : "")
+        }.joined(separator: "\n")
+    }
+    func playAlertSound(_ tone: AlertSound = .original) {
+        alertSound?.stop()
+        guard volume > 0 else { return }
+        let fallback = resources.appendingPathComponent("release.wav")
+        let selected = tone.systemName.map { URL(fileURLWithPath: "/System/Library/Sounds/\($0).aiff") } ?? fallback
+        guard let sound = NSSound(contentsOf: selected, byReference: false)
+                ?? NSSound(contentsOf: fallback, byReference: false) else { return }
+        alertSound = sound
+        sound.volume = Float(volume); sound.play()
     }
     func showQuote() {
         onManualBubble?(); isCompletionMessage = false

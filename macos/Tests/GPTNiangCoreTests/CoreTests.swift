@@ -35,6 +35,15 @@ final class CoreTests: XCTestCase {
         let legacy = try JSONDecoder().decode(UsageSnapshot.self, from: Data(#"{"ok":true,"windows":[]}"#.utf8))
         XCTAssertNil(legacy.plan)
     }
+    func testAccountFingerprintAndVerificationMetadataCoexist() throws {
+        let data = Data(#"{"ok":true,"queryOk":true,"windows":[],"accountKey":"fingerprint","accountVerified":true}"#.utf8)
+        let decoded = try JSONDecoder().decode(UsageSnapshot.self, from: data)
+        XCTAssertEqual(decoded.accountKey, "fingerprint")
+        XCTAssertEqual(decoded.accountVerified, true)
+        let constructed = UsageSnapshot(accountKey: "fingerprint", accountVerified: true)
+        XCTAssertEqual(constructed.accountKey, decoded.accountKey)
+        XCTAssertEqual(constructed.accountVerified, decoded.accountVerified)
+    }
     // PR #9 cases retain the current exact-duration titles, including Go's 30 days.
     func testCalendarLikeAndFutureWindowTitlesKeepTheirActualDuration() {
         for (minutes, title) in [(40320, "28 天"), (43200, "30 天"), (43800, "730 小時"), (44640, "31 天"), (21600, "15 天"), (90, "90 分鐘")] {

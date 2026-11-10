@@ -83,7 +83,7 @@ struct ThreadSpeedView: View {
                 HStack(alignment: .top) {
                     VStack(alignment: .leading, spacing: 5) {
                         HStack {
-                            Text(row.state == "running" ? model.text("進行中") : row.state == "idle" ? model.text("已完成") : model.text("本機記錄"))
+                            Text(row.state == "running" ? model.text("進行中") : row.state == "idle" ? model.text("已完成") : row.state == "cancelled" ? model.text("已取消") : model.text("本機記錄"))
                                 .font(.caption).foregroundStyle(.secondary)
                             Spacer()
                         }
