@@ -1,6 +1,6 @@
 # GPT 娘 · JavaScript 架构 Beta 测试版
 
-版本：1.4.0-beta.4（开发候选，尚未发布或安装）。本包仅适用于 Windows 10 / 11 x64，采用 JavaScript / Electron 界面与 Node.js 后台，并保留用于窗口识别、音频和安装的本地辅助程序。macOS 正式版仍使用原来的下载包。
+版本：1.4.0-beta.4（JavaScript 架构 Beta 测试版）。本包仅适用于 Windows 10 / 11 x64，采用 JavaScript / Electron 界面与 Node.js 后台，并保留用于窗口识别、音频和安装的本地辅助程序。macOS 正式版仍使用原来的下载包。
 
 这是 Beta 测试版，不是正式稳定版或 RC。正式版 1.3.6 用户不会被自动升级到这个测试版。
 
@@ -45,14 +45,15 @@
 
 参考贡献：[Camille1534 #74](https://github.com/T7moris/GPT-Niang/pull/74)、[Dream-Rainy #71](https://github.com/T7moris/GPT-Niang/pull/71)、[ytzha #69](https://github.com/T7moris/GPT-Niang/pull/69)、[chocotacco150 #52](https://github.com/T7moris/GPT-Niang/pull/52)、[T7moris #57](https://github.com/T7moris/GPT-Niang/pull/57)、[nldg1001 #56](https://github.com/T7moris/GPT-Niang/pull/56)、[Mghencious #30](https://github.com/T7moris/GPT-Niang/pull/30)，以及 [#26 的会话头审查](https://github.com/T7moris/GPT-Niang/pull/26)。实现已适配本 JS 架构，未整包合并上述 PR。
 
-## Beta.4 开发候选：后台收尾、音效与重启
+## Beta.4：后台收尾、音效与重启
 
 - 额度查询专用 App Server 通过子进程参数关闭插件初始化，不改用户全局配置。结果返回后等待正常退出，超时才逐级结束；关闭挂件时通知额度 worker 清理其正在进行的查询。原刷新频率保持不变。
 - 连点新音立即播放，旧音以约 8 毫秒淡出，收尾音源数量有界；静音、换音和退出时完整释放。离线波形检查不能替代实际设备试听。
 - 菜单增加「重启 GPT 娘」，安装包增加 `重启GPT娘.cmd`。重启前核对当前用户、安装绑定、任务及编辑状态；由独立的临时后台任务停止并启动本安装，结束后清理临时入口。安装/更新期间拒绝重启，个人数据保留。
+- 等待重启助手期间发生退出、停用或暂停状态变更时取消重启；状态读取异常时释放操作锁。重启任务显式允许电池供电，避免笔记本默认任务规则阻止它运行。
 - 修复隐藏候选测试中的最小化/恢复使离屏占位窗口可见的问题。候选窗口统一拦截显示及恢复调用，自动交互验证持续采样真实 Win32 可见性。该防护只用于显式隐藏验证，正常挂件行为保持原样。
 
-参考 #67、#39/#42、#43 的问题与实现思路，按 JS 架构重写。本候选不代表已发布或已经替换本机 Beta.3。
+参考 #67、#39/#42、#43 的问题与实现思路，按 JS 架构重写。已在一台 Windows 设备从 Beta.3 更新并验证实际启动、额度读取和重启，用户确认显示正常且无白窗；短时额度接口失败后自动恢复。不同设备的长期表现仍需继续观察。
 
 ## 测试范围与剩余边界
 

@@ -52,6 +52,7 @@ jobs:
         working-directory: windows-js
         env:
           GPT_NIANG_LEGACY_ROOT: ../gpt-niang-usage
+          GPT_NIANG_VISIBLE_TESTS: '1'
         run: npm test
       - name: Build clean Beta package
         working-directory: windows-js
