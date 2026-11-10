@@ -20,7 +20,7 @@ import {zipFixture,packageFiles} from './fixtures/zip-fixture.mjs';
 import {ClickSequence} from '../ui/click-audio.mjs';
 import {ClipPlayer} from '../ui/clip-player.mjs';
 const app=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
-function temporary(t){const dir=fs.mkdtempSync(path.join(os.tmpdir(),'gpt-js-audit-fix-'));t.after(()=>{assert.ok(path.resolve(dir).startsWith(path.resolve(os.tmpdir())+path.sep));fs.rmSync(dir,{recursive:true,force:true,maxRetries:40,retryDelay:50});});return dir;}
+function temporary(t){const dir=fs.mkdtempSync(path.join(os.tmpdir(),'gpt-js-audit-fix-'));t.after(async()=>{assert.ok(path.resolve(dir).startsWith(path.resolve(os.tmpdir())+path.sep));await fs.promises.rm(dir,{recursive:true,force:true,maxRetries:10,retryDelay:50});});return dir;}
 const write=(file,value)=>{fs.mkdirSync(path.dirname(file),{recursive:true});fs.writeFileSync(file,JSON.stringify(value));};
 const pause=ms=>new Promise(r=>setTimeout(r,ms));
 const read=file=>JSON.parse(fs.readFileSync(file,'utf8'));
@@ -153,7 +153,7 @@ for(const interruptedPhase of ['moving-new','starting','stopping-supervisor'])te
   fs.cpSync(path.join(app,'node_modules','koffi'),path.join(agent,'node_modules','koffi'),{recursive:true});
   fs.cpSync(path.join(app,'node_modules','@koromix',`koffi-${process.platform}-${process.arch}`),path.join(agent,'node_modules','@koromix',`koffi-${process.platform}-${process.arch}`),{recursive:true});
   const fakeExe=path.join(root,'node_modules','electron','dist','electron.exe');fs.mkdirSync(path.dirname(fakeExe),{recursive:true});fs.copyFileSync(process.execPath,fakeExe);
-  fs.mkdirSync(path.join(root,'src'));fs.writeFileSync(path.join(root,'src','start.mjs'),`import fs from 'node:fs';fs.writeFileSync(${JSON.stringify(marker)},JSON.stringify(process.argv));`);
+  fs.mkdirSync(path.join(root,'src'));fs.writeFileSync(path.join(root,'src','start.mjs'),`import fs from 'node:fs';fs.writeFileSync(${JSON.stringify(marker)},JSON.stringify({pid:process.pid,args:process.argv}));`);
   write(path.join(root,'package.json'),{name:'gpt-niang-usage',version:'1.3.5',architecture:'javascript-electron'});
   write(path.join(root,'installation.json'),{appDir:root,dataDir,electronPath:fakeExe,nodePath:process.execPath,launcherPath:launcher});
   fs.copyFileSync(path.join(app,'native','GPTNiang.Start.exe'),launcher);write(path.join(path.dirname(launcher),'launcher.json'),{appDir:root,dataDir,sid:'fixture'});
@@ -175,4 +175,10 @@ for(const interruptedPhase of ['moving-new','starting','stopping-supervisor'])te
   assert.ok(fs.existsSync(marker),'restored supervisor entry was not restarted: '+JSON.stringify(diagnostics));assert.equal(read(path.join(root,'package.json')).version,'1.3.5');
   assert.equal(read(path.join(dataDir,'javascript-update-journal.json')).phase,'rolled-back');assert.equal(read(path.join(dataDir,'javascript-update-result.json')).ok,false);
   assert.equal(fs.existsSync(path.join(dataDir,'supervisor-stop.flag')),false);
+  // The marker is written before process exit. Wait for both the recovery
+  // agent and resumed fixture before removing their Windows working folders.
+  for(const pid of new Set([read(marker).pid,read(path.join(dataDir,'javascript-update-journal.json')).ownerPid])){
+    for(let n=0;n<200;n++){try{process.kill(pid,0);await pause(20);}catch{break;}}
+    assert.throws(()=>process.kill(pid,0),'fixture process must exit before directory cleanup');
+  }
 });

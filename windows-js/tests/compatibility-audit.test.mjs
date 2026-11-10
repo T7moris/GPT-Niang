@@ -10,7 +10,7 @@ import {normalizeSettings} from '../src/core/settings.mjs';
 import * as storage from '../src/core/storage.mjs';
 import {requestRefresh} from '../runtime/refresh-client.mjs';
 const app=fileURLToPath(new URL('../',import.meta.url)),pause=ms=>new Promise(resolve=>setTimeout(resolve,ms));
-function temporary(t){const directory=fs.mkdtempSync(path.join(os.tmpdir(),'gpt-compat-'));t.after(()=>{assert.equal(path.dirname(directory),path.resolve(os.tmpdir()));fs.rmSync(directory,{recursive:true,force:true});});return directory;}
+function temporary(t){const directory=fs.mkdtempSync(path.join(os.tmpdir(),'gpt-compat-'));t.after(async()=>{assert.equal(path.dirname(directory),path.resolve(os.tmpdir()));await fs.promises.rm(directory,{recursive:true,force:true,maxRetries:10,retryDelay:50});});return directory;}
 for(const invalid of ['missing','directory'])test('headless refresh recovers from a '+invalid+' configured Node host',{timeout:5000},async t=>{
  const base=temporary(t),root=path.join(base,'program'),dataDir=path.join(base,'data'),configPath=path.join(root,'installation.json');fs.mkdirSync(path.join(root,'runtime'),{recursive:true});fs.mkdirSync(dataDir);
  const snapshot={ok:true,queryOk:true,windows:[],observedAt:123,hostFallback:true};
