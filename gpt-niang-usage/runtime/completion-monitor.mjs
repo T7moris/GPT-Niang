@@ -84,7 +84,7 @@ export class CompletionRolloutTail {
 }
 
 function isWithin(root,file){const relative=path.relative(root,file);return relative!=='' && relative!=='..' && !relative.startsWith('..'+path.sep) && !path.isAbsolute(relative);}
-function readSessionHeader(file,{withBoundary=false}={}) {
+export function readSessionHeader(file,{withBoundary=false}={}) {
   let fd;
   try{
     fd=fs.openSync(file,'r');const buffer=Buffer.alloc(64*1024),count=fs.readSync(fd,buffer,0,buffer.length,0);
@@ -101,13 +101,13 @@ function readSessionHeader(file,{withBoundary=false}={}) {
         if(size<=count || fs.readSync(fd,bytes,0,length,size-length)===length)baselineBoundary={offset:size,bytes,proof:{length,sha256:createHash('sha256').update(bytes).digest('hex')}};
       }catch{}
     }
-    return {subagent:source==='subagent' || Boolean(source && typeof source==='object' && Object.hasOwn(source,'subagent')),baselineBoundary};
+    return {subagent:source==='subagent' || Boolean(source && typeof source==='object' && Object.hasOwn(source,'subagent')),threadSource:record.payload?.thread_source,baselineBoundary};
   }catch{return null;}finally{if(fd!==undefined)fs.closeSync(fd);}
 }
 
-export function listRolloutFiles(codexHome) {
+export function listRolloutFiles(codexHome,{includeArchived=true,modifiedSince=0}={}) {
   const files=[];
-  for(const name of ['sessions','archived_sessions']){
+  for(const name of includeArchived ? ['sessions','archived_sessions'] : ['sessions']){
     let root;try{root=fs.realpathSync(path.join(codexHome,name));}catch{continue;}
     const pending=[root];
     while(pending.length){
@@ -116,7 +116,10 @@ export function listRolloutFiles(codexHome) {
         const candidate=path.join(current,entry.name);
         if(entry.isDirectory()){pending.push(candidate);continue;}
         if(!entry.isFile() || !entry.name.endsWith('.jsonl'))continue;
-        try{const real=fs.realpathSync(candidate);if(isWithin(root,real))files.push(real);}catch{}
+        try{
+          if(modifiedSince && fs.statSync(candidate).mtimeMs<modifiedSince)continue;
+          const real=fs.realpathSync(candidate);if(isWithin(root,real))files.push(real);
+        }catch{}
       }
     }
   }

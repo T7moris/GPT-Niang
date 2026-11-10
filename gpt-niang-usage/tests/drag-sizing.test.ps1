@@ -20,6 +20,7 @@ $presence=$ast.Find({param($n)$n-is [Management.Automation.Language.FunctionDefi
 $layoutScale=$ast.Find({param($node)$node-is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name-eq 'Get-WidgetLayoutScale'},$true)
 . ([ScriptBlock]::Create($layoutScale.Extent.Text))
 # Actual character limits are covered by drag-vertical and drag-horizontal.
+function Update-LiveTaskBadge([bool]$Visible){} # This geometry fixture has no task monitor or visual tree.
 function Limit-WidgetHorizontalPosition {param($Frame,$Dpi,$Left)return [int]$Left}
 function Limit-WidgetVerticalPosition {param($Frame,$Dpi,$Top)return [int]$Top}
 # Real resting character bounds are covered by host-resize-placement.

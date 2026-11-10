@@ -33,6 +33,7 @@ function Stop-WidgetAudio {}
 . ([ScriptBlock]::Create([IO.File]::ReadAllText((Join-Path $appDir 'runtime\update-ui.ps1'),[Text.Encoding]::UTF8)))
 $script:dataDir=Join-Path ([IO.Path]::GetTempPath()) ('gpt-niang-menu-'+[Guid]::NewGuid().ToString('N'))
 $null=New-Item -ItemType Directory -Path $script:dataDir
+. (Join-Path $appDir 'runtime\live-tasks.ps1')
 $script:config=@{version='1.3.2'}
 Initialize-WidgetUpdater
 $script:window=New-Object Windows.Window
@@ -68,13 +69,18 @@ try{
   Assert-Equal (Test-WidgetUpdateEditor) $true 'Open character gallery defers updater installation'
   $script:characterGallery=$null
   Assert-Equal (Test-WidgetUpdateEditor) $false 'Closed gallery returns to updater idle'
-  $expected=@('查看额度','刷新额度','换一句台词','更换形象','外观设置','声音与点击','编辑我的语录','音乐律动','自动语录','回答结束提醒','显示与位置','更新','退出 GPT 娘')
+  $expected=@('查看额度','刷新额度','换一句台词','更换形象','外观设置','声音与点击','编辑我的语录','音乐律动','自动语录','编辑任务台词','任务进度与完成气泡','回答结束提醒','显示与位置','更新','退出 GPT 娘')
   Assert-Equal $script:settingsMenuUi.MusicEnabled.IsChecked $false 'Music capture starts only after an explicit enable'
   Assert-Equal $script:settingsMenuUi.MusicEnabled.Items.Count 0 'Music is one direct toggle without a second mode'
   Assert-Equal ($null-eq $script:settingsMenuUi.MusicColor) $true 'Music color has no separate toggle'
   $actual=@($script:context.Items|Where-Object{$_.Header-is [string]}|ForEach-Object{$_.Header})
   Assert-Equal ($actual-join '|') ($expected-join '|') 'Menu entries and removed title block'
   Assert-Equal $script:settingsMenuUi.Completion.IsChecked $false 'Reply reminders default off'
+  Assert-Equal $script:settingsMenuUi.LiveTasks.IsChecked $true 'Task progress enabled for this fixture'
+  Set-LiveTasksEnabled $false
+  Update-WidgetSettingsMenu
+  Assert-Equal $script:settingsMenuUi.LiveTasks.IsChecked $false 'Task progress can be disabled independently'
+  Assert-Equal (Test-Path (Join-Path $script:dataDir 'live-tasks-off.flag')) $true 'Task progress preference persisted'
   Assert-Equal $script:settingsMenuUi.Completion.StaysOpenOnClick $true 'Reply reminder toggle retains menu interaction'
   Assert-Equal $script:settingsMenuUi.AutoQuoteEnabled.IsChecked $false 'Automatic quotes default off'
   Assert-Equal (@($script:settingsMenuUi.AutoQuoteIntervals|Where-Object{$_.IsChecked}).Count) 1 'One interval is selected'
