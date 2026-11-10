@@ -39,6 +39,9 @@ function Get-WidgetAgentPowerShellArguments([string]$AgentDir){
   $scriptFile=Join-Path ([IO.Path]::GetFullPath($AgentDir)) 'update-agent.ps1'
   return ('-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -File "'+$scriptFile+'" -Supervisor')
 }
+function Get-WidgetSupervisorHostPath([string]$AgentDir){
+  return (Join-Path ([IO.Path]::GetFullPath($AgentDir)) 'supervisor-host.exe')
+}
 function Get-WidgetAgentLegacyEncodedArguments([string]$AgentDir){
   $scriptFile=Join-Path ([IO.Path]::GetFullPath($AgentDir)) 'update-agent.ps1'
   $command="& '"+$scriptFile.Replace("'","''")+"' -Supervisor"
@@ -60,7 +63,9 @@ function Test-WidgetStartupShortcutIdentity {
   $old=[bool]($Shortcut.TargetPath -and [IO.Path]::GetFullPath([string]$Shortcut.TargetPath)-ieq $expectedExecute -and $argumentsMatch)
   if($old){return $true}
   $powerShell=Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\powershell.exe'
-  if($Shortcut.TargetPath-and [IO.Path]::GetFullPath([string]$Shortcut.TargetPath)-ieq $powerShell-and ([string]$Shortcut.Arguments-ceq (Get-WidgetAgentPowerShellArguments $stable)-or [string]$Shortcut.Arguments-ceq (Get-WidgetAgentLegacyEncodedArguments $stable))){
+  $native=$Shortcut.TargetPath -and [IO.Path]::GetFullPath([string]$Shortcut.TargetPath)-ieq (Get-WidgetSupervisorHostPath $stable) -and [string]$Shortcut.Arguments-ceq '-Supervisor'
+  $direct=$Shortcut.TargetPath -and [IO.Path]::GetFullPath([string]$Shortcut.TargetPath)-ieq $powerShell -and ([string]$Shortcut.Arguments-ceq (Get-WidgetAgentPowerShellArguments $stable)-or [string]$Shortcut.Arguments-ceq (Get-WidgetAgentLegacyEncodedArguments $stable))
+  if($native -or $direct){
     try{
       $binding=Read-WidgetSupervisorBinding -AppDir $AppDir -AgentDir $stable
       return [bool]($binding.sid-eq [Security.Principal.WindowsIdentity]::GetCurrent().User.Value-and [IO.Path]::GetFullPath($binding.appDir)-ieq [IO.Path]::GetFullPath($AppDir))
@@ -126,7 +131,7 @@ function Get-WidgetSupervisorInfo {
   $agent=if(Get-Command Get-WidgetUpdateAgentDir -ErrorAction SilentlyContinue){Get-WidgetUpdateAgentDir}else{Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'GPTNiangUsage\update-agent'}
   if($config.updateAgent -and [IO.Path]::GetFullPath($config.updateAgent)-ine $agent){throw 'Stable launcher path mismatch.'}
   $stable=[bool]$config.updateAgent
-  [pscustomobject]@{AppDir=$root;DataDir=$data;Sid=$sid;TaskName=('GPT Niang Usage - '+$sid);TaskPath='\';Execute=$(if($stable){Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\powershell.exe'}else{Join-Path $env:WINDIR 'System32\wscript.exe'});Arguments=$(if($stable){Get-WidgetAgentPowerShellArguments $agent}else{'"'+(Join-Path $root 'supervisor.vbs')+'"'});WorkingDirectory=$(if($stable){Join-Path $env:WINDIR 'System32'}else{$root});AgentDir=$agent}
+  [pscustomobject]@{AppDir=$root;DataDir=$data;Sid=$sid;TaskName=('GPT Niang Usage - '+$sid);TaskPath='\';Execute=$(if($stable){Get-WidgetSupervisorHostPath $agent}else{Join-Path $env:WINDIR 'System32\wscript.exe'});Arguments=$(if($stable){'-Supervisor'}else{'"'+(Join-Path $root 'supervisor.vbs')+'"'});WorkingDirectory=$(if($stable){Join-Path $env:WINDIR 'System32'}else{$root});AgentDir=$agent}
 }
 
 function Resolve-WidgetSupervisorSid([string]$Identity){
@@ -146,13 +151,15 @@ function Assert-WidgetSupervisorTaskIdentity {
   $wscript=Join-Path $env:WINDIR 'System32\wscript.exe'
   $legacy=[IO.Path]::GetFullPath([string]$action.Execute)-ieq $wscript -and [string]$action.Arguments-ieq $legacyArguments -and [IO.Path]::GetFullPath([string]$action.WorkingDirectory).TrimEnd('\')-ieq $Info.AppDir
   $stableVbs=[IO.Path]::GetFullPath([string]$action.Execute)-ieq $wscript -and [string]$action.Arguments-ieq ('"'+(Join-Path $Info.AgentDir 'agent-supervisor.vbs')+'"') -and [IO.Path]::GetFullPath([string]$action.WorkingDirectory).TrimEnd('\')-ieq $Info.AgentDir
-  $legacyEncoded=[IO.Path]::GetFullPath([string]$action.Execute)-ieq $Info.Execute -and [string]$action.Arguments-ceq (Get-WidgetAgentLegacyEncodedArguments $Info.AgentDir) -and [IO.Path]::GetFullPath([string]$action.WorkingDirectory).TrimEnd('\')-in @($Info.WorkingDirectory,$Info.AgentDir)
+  $powerShell=Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\powershell.exe'
+  $legacyEncoded=[IO.Path]::GetFullPath([string]$action.Execute)-ieq $powerShell -and [string]$action.Arguments-ceq (Get-WidgetAgentLegacyEncodedArguments $Info.AgentDir) -and [IO.Path]::GetFullPath([string]$action.WorkingDirectory).TrimEnd('\')-in @($Info.WorkingDirectory,$Info.AgentDir)
+  $legacyDirect=[IO.Path]::GetFullPath([string]$action.Execute)-ieq $powerShell -and [string]$action.Arguments-ceq (Get-WidgetAgentPowerShellArguments $Info.AgentDir) -and [IO.Path]::GetFullPath([string]$action.WorkingDirectory).TrimEnd('\')-ieq $Info.WorkingDirectory
   $current=[IO.Path]::GetFullPath([string]$action.Execute)-ieq $Info.Execute -and [string]$action.Arguments-ceq $Info.Arguments -and [IO.Path]::GetFullPath([string]$action.WorkingDirectory).TrimEnd('\')-ieq $Info.WorkingDirectory
-  if(($current-or $stableVbs-or $legacyEncoded) -and $Info.WorkingDirectory-ine $Info.AppDir){
+  if(($current-or $stableVbs-or $legacyEncoded-or $legacyDirect) -and $Info.WorkingDirectory-ine $Info.AppDir){
     $binding=Read-WidgetSupervisorBinding -AppDir $Info.AppDir -AgentDir $Info.AgentDir
     if($binding.sid-ne $Info.Sid -or [IO.Path]::GetFullPath($binding.appDir)-ine $Info.AppDir -or [IO.Path]::GetFullPath($binding.dataDir)-ine $Info.DataDir){throw 'Stable task binding mismatch.'}
   }
-  if(!($legacy -or $stableVbs -or $legacyEncoded -or $current)){throw 'Supervisor task action path mismatch.'}
+  if(!($legacy -or $stableVbs -or $legacyEncoded -or $legacyDirect -or $current)){throw 'Supervisor task action path mismatch.'}
 }
 
 function Get-WidgetSupervisorTask {
@@ -258,9 +265,9 @@ function Stop-WidgetSupervisorTask {
   if($info.WorkingDirectory-ine $info.AppDir){$self=Get-CimInstance Win32_Process -Filter ('ProcessId='+$PID) -ErrorAction Stop}
   # Logon recovery runs inside the scheduled entry before its supervisor loop.
   # It must not terminate its own task while re-registering the recovered plugin.
-  $recoveringEntry=$self -and [string]$self.CommandLine -and (($self.CommandLine.IndexOf($stableScript,[StringComparison]::OrdinalIgnoreCase)-ge 0 -and $self.CommandLine-match '\s-Supervisor(?:\s|$)') -or $self.CommandLine.IndexOf($info.Arguments,[StringComparison]::Ordinal)-ge 0-or $self.CommandLine.IndexOf($legacyEncodedArguments,[StringComparison]::Ordinal)-ge 0)
+  $recoveringEntry=$self -and [string]$self.CommandLine -and (($self.CommandLine.IndexOf($stableScript,[StringComparison]::OrdinalIgnoreCase)-ge 0 -and $self.CommandLine-match '\s-Supervisor(?:\s|$)') -or $self.CommandLine.IndexOf($legacyEncodedArguments,[StringComparison]::Ordinal)-ge 0)
   $processes=@(Get-CimInstance Win32_Process -Filter "Name='powershell.exe' OR Name='pwsh.exe'" -ErrorAction Stop|Where-Object{
-    $_.ProcessId-ne $PID -and [string]$_.CommandLine -and ($_.CommandLine.IndexOf($expectedScript,[StringComparison]::OrdinalIgnoreCase)-ge 0 -or ($info.WorkingDirectory-ine $info.AppDir -and ($_.CommandLine.IndexOf($stableScript,[StringComparison]::OrdinalIgnoreCase)-ge 0 -or $_.CommandLine.IndexOf($info.Arguments,[StringComparison]::Ordinal)-ge 0-or $_.CommandLine.IndexOf($legacyEncodedArguments,[StringComparison]::Ordinal)-ge 0)))
+    $_.ProcessId-ne $PID -and [string]$_.CommandLine -and ($_.CommandLine.IndexOf($expectedScript,[StringComparison]::OrdinalIgnoreCase)-ge 0 -or ($info.WorkingDirectory-ine $info.AppDir -and ($_.CommandLine.IndexOf($stableScript,[StringComparison]::OrdinalIgnoreCase)-ge 0 -or $_.CommandLine.IndexOf($legacyEncodedArguments,[StringComparison]::Ordinal)-ge 0)))
   })
   $null=New-Item -ItemType Directory -Path $info.DataDir -Force
   [IO.File]::WriteAllText((Join-Path $info.DataDir 'supervisor-stop.flag'),'stop')

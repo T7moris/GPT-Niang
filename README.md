@@ -36,6 +36,7 @@
 - **拖动与缩放**：靠近左右边缘吸附，角色面向窗口内侧，文字保持正向。
 - **跟随主窗口**：失去焦点时保留；其他窗口覆盖主窗口时，也会覆盖挂件。最小化或隐藏主窗口后挂件隐藏。Windows 和 Mac 均可在设置中关闭跟随，让挂件留在桌面。
 - **登录启动**：Windows 安装器默认配置自动启动和主窗口重开后的恢复；Mac 需要自行开启设置中的「登入 Mac 時自動開啟」。
+- **Windows 后台守护**：安装器从源码编译无控制台启动器，登录任务和开机备援均在当前用户会话内无窗口运行；异常退出仍由计划任务重启。
 - **Mac 聊天速度面板**：从菜单栏打开，显示本地统计区间内的输出平均速度，包含推理、网络和工具等待，**不代表模型实时生成速度**。
 
 这是独立的桌面挂件；Windows 同时提供额度查询插件，Mac 为原生应用，不注册 MCP 插件。它读取当前 Codex 登录账户的额度，**不会为读取额度创建聊天或调用模型**。它不是 OpenAI 或 DeepSeek 的官方项目。
@@ -258,7 +259,7 @@ Windows 启动时先检查 Codex 的输入或导航控件是否可用，连续�
 
 **使用挂件会有封号风险吗？** 查询使用 [Codex 官方 App Server 文档](https://learn.chatgpt.com/docs/app-server) 中的 `account/read` 与 `account/rateLimits/read`，由本机 Codex 复用现有登录；这条查询链不创建聊天、不发起模型生成、不共享登录凭据，也不绕过额度限制。默认可见时每 60 秒查询一次，隐藏时暂停。但官方未对第三方额度挂件给出免封承诺；[使用条款](https://openai.com/policies/terms-of-use/) 对自动化提取数据、账号共享及绕过限制均有约束，成功读取不能证明永久合规或零风险。请保留默认查询频率，接口拒绝访问时不要改为绕过认证或限制。
 
-**Windows 杀毒软件或 SmartScreen 报警？** Windows 包里没有 exe / dll，使用 PowerShell、VBS 与 Node 脚本。由于安装链使用 `-ExecutionPolicy Bypass`、隐藏窗口常驻并注册登录任务，未签名脚本包可能被启发式规则误报。请先核对 Release 的 SHA256 和来源，再决定是否放行；设备策略不允许运行脚本时请不要绕过策略。
+**Windows 杀毒软件或 SmartScreen 报警？** Windows 包里没有预编译的 exe / dll，使用 PowerShell、VBS 与 Node 脚本；安装时使用系统 .NET Framework 从 `runtime/supervisor-host.cs` 编译无控制台启动器。由于安装链使用 `-ExecutionPolicy Bypass`、后台常驻并注册登录任务，未签名脚本包可能被启发式规则误报。请先核对 Release 的 SHA256 和来源，再决定是否放行；设备策略不允许运行脚本时请不要绕过策略。
 
 **Windows 系统或企业策略阻止脚本？** Windows 版依赖 PowerShell / WPF、Windows Script Host 和当前用户计划任务。请遵循设备管理策略；项目不会修改系统安全策略。
 

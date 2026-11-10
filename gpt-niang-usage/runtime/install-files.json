@@ -29,6 +29,7 @@
   "runtime/host-occlusion.ps1",
   "runtime/supervisor.ps1",
   "runtime/supervisor-task.ps1",
+  "runtime/supervisor-host.cs",
   "runtime/start-supervisor.ps1",
   "runtime/start-widget.ps1",
   "runtime/metadata.mjs",
