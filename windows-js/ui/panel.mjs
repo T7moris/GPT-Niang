@@ -221,7 +221,8 @@ function render() {
     galleryIndex=Array.from(panel.querySelectorAll('.card[role=button]')).indexOf(document.activeElement?.closest?.('.card')),
     scroll=panel.scrollTop,
     flyoutScroll=new Map(Array.from(panel.querySelectorAll('details')).map(d=>[d.dataset.key,d.querySelector('.flyout')?.scrollTop??0]));
-  const menuDraft=kind==='menu'?document.createElement('div'):null;
+  const activeUsageFilters=kind==='usage'?document.activeElement?.closest('.usage-filters'):null;
+  const menuDraft=kind==='menu'||activeUsageFilters?document.createElement('div'):null;
   if(menuDraft)mount=menuDraft;else panel.replaceChildren();
   busyDisabled.clear();
   busyCards.clear();
@@ -232,7 +233,10 @@ function render() {
   else if(kind==='usage')buildUsage({el,button,command},state);
   else renderEditor();
   mount=panel;
-  if(menuDraft)patchMenu(panel,menuDraft);
+  if(menuDraft){
+    if(kind==='menu')patchMenu(panel,menuDraft);
+    else patchUsageAroundFilters(panel,menuDraft,activeUsageFilters);
+  }
   // Keep feedback inside the menu's native region so Windows cannot clip it.
   if(kind==='menu')panel.append(feedback);
   for (const d of panel.querySelectorAll("details"))
@@ -255,6 +259,25 @@ function render() {
     document.body.dataset.direction = p?.direction ?? "left";
     positionFlyouts();
   }
+}
+function patchUsageAroundFilters(target,draft,filters){
+  const incoming=Array.from(draft.childNodes),nextFilters=draft.querySelector('.usage-filters'),index=incoming.indexOf(nextFilters);
+  if(filters?.parentNode!==target||index<0){target.replaceChildren(...incoming);return;}
+  // A native select popup closes if its control (or parent) is detached.
+  // Keep the active filters in place while the surrounding totals refresh.
+  for(const current of filters.querySelectorAll('select')){
+    if(current===document.activeElement)continue;
+    const next=Array.from(nextFilters.querySelectorAll('select')).find(node=>node.dataset.focusKey===current.dataset.focusKey);
+    if(!next)continue;
+    // A provider change also resets/replaces the inactive conversation filter.
+    const value=next.value;
+    current.replaceChildren(...Array.from(next.options));
+    current.value=value;
+  }
+  while(target.firstChild!==filters)target.firstChild.remove();
+  while(filters.nextSibling)filters.nextSibling.remove();
+  for(const node of incoming.slice(0,index))target.insertBefore(node,filters);
+  for(const node of incoming.slice(index+1))target.append(node);
 }
 function patchMenu(target,draft){
   const key=node=>node.nodeType===1?(node.dataset.focusKey??node.dataset.key??node.dataset.setting??''):'';
@@ -420,7 +443,7 @@ window.gpt.onState((value) => {
   if(typeof value.busy==='boolean')busy=value.busy;
   if (!sliding&&!(kind==='usage'&&document.activeElement?.closest('.usage-prices'))) render();
 });
-panel.addEventListener('focusout',event=>{if(kind==='usage'&&event.target.closest('.usage-prices'))setTimeout(()=>{if(!document.activeElement?.closest('.usage-prices'))render();},0);});
+panel.addEventListener('focusout',event=>{if(kind==='usage'&&event.target.closest('.usage-prices,.usage-filters'))setTimeout(()=>{if(!document.activeElement?.closest('.usage-prices,.usage-filters'))render();},0);});
 window.gpt.onBusy?.(value=>{busy=value===true;applyBusy();});
 panel.addEventListener('scroll',()=>{if(kind==='menu')positionFlyouts();});
 window.addEventListener('resize',()=>{if(kind==='menu')positionFlyouts();});
