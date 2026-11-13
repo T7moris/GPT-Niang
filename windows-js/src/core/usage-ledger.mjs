@@ -46,13 +46,19 @@ export class UsageLedger {
       .exec(`PRAGMA busy_timeout=1500;PRAGMA journal_mode=DELETE;PRAGMA synchronous=NORMAL;
    CREATE TABLE IF NOT EXISTS files(home TEXT NOT NULL,id TEXT NOT NULL,path TEXT NOT NULL,identity TEXT NOT NULL,offset INTEGER NOT NULL,boundary TEXT NOT NULL,state TEXT NOT NULL,updated INTEGER NOT NULL,PRIMARY KEY(home,id));
    CREATE INDEX IF NOT EXISTS files_path ON files(home,path);
+   CREATE INDEX IF NOT EXISTS files_identity ON files(home,identity);
    CREATE TABLE IF NOT EXISTS events(home TEXT NOT NULL,id TEXT NOT NULL,thread TEXT NOT NULL,provider TEXT NOT NULL,model TEXT NOT NULL,day TEXT NOT NULL,input INTEGER NOT NULL,cached INTEGER NOT NULL,cache_write INTEGER NOT NULL,output INTEGER NOT NULL,reasoning INTEGER NOT NULL,PRIMARY KEY(home,id));
    CREATE INDEX IF NOT EXISTS events_thread ON events(home,thread);
    CREATE INDEX IF NOT EXISTS events_day ON events(home,day);`);
     this.byPath = this.db.prepare(
       "SELECT * FROM files WHERE home=? AND path=?",
     );
-    this.byId = this.db.prepare("SELECT * FROM files WHERE home=? AND id=?");
+    this.byIdentity = this.db.prepare(
+      "SELECT * FROM files WHERE home=? AND identity=? AND json_extract(state,'$.id')=?",
+    );
+    this.removeSource = this.db.prepare(
+      "DELETE FROM files WHERE home=? AND id=?",
+    );
     this.save = this.db.prepare(
       "INSERT INTO files VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(home,id) DO UPDATE SET path=excluded.path,identity=excluded.identity,offset=excluded.offset,boundary=excluded.boundary,state=excluded.state,updated=excluded.updated",
     );
@@ -67,6 +73,22 @@ export class UsageLedger {
     this.closed = false;
     this.titles = new Map();
     this.titlesAt = 0;
+  }
+  saveSource(file, stat, previous, state, offset, proof) {
+    // Session IDs can be shared by resumed/copied logs; a cursor belongs to a file.
+    const resolved = path.resolve(file),
+      sourceId = "file:" + hash(Buffer.from(
+        process.platform === "win32" ? resolved.toLowerCase() : resolved,
+      ));
+    if (
+      previous && previous.id !== sourceId &&
+      (previous.path === file || !fs.existsSync(previous.path))
+    )
+      this.removeSource.run(this.scope, previous.id);
+    this.save.run(
+      this.scope, sourceId, file, identity(stat), offset, proof,
+      JSON.stringify(state), Math.max(state.at || 0, stat.mtimeMs),
+    );
   }
   scan({ budget = 4 * 1024 * 1024, now = Date.now() } = {}) {
     if (this.closed) return;
@@ -107,7 +129,7 @@ export class UsageLedger {
       if (!row) {
         initial = header(file);
         if (!initial) continue;
-        row = this.byId.get(this.scope, initial.id);
+        row = this.byIdentity.get(this.scope, identity(stat), initial.id);
       }
       let state,
         offset = 0;
@@ -130,7 +152,19 @@ export class UsageLedger {
         if (!initial) continue;
         state = newUsageState(initial.id, initial.metadata);
       }
-      if (stat.size <= offset) continue;
+      if (stat.size <= offset) {
+        if (row && row.path !== file) {
+          this.db.exec("BEGIN IMMEDIATE");
+          try {
+            this.saveSource(file, stat, row, state, offset, row.boundary);
+            this.db.exec("COMMIT");
+          } catch (error) {
+            this.db.exec("ROLLBACK");
+            throw error;
+          }
+        }
+        continue;
+      }
       if (remaining <= 0 || Date.now() > deadline) {
         pending += stat.size - offset;
         continue;
@@ -200,16 +234,7 @@ export class UsageLedger {
             e.output,
             e.reasoning,
           );
-        this.save.run(
-          this.scope,
-          state.id,
-          file,
-          identity(stat),
-          offset,
-          proof,
-          JSON.stringify(state),
-          Math.max(state.at || 0, stat.mtimeMs),
-        );
+        this.saveSource(file, stat, row, state, offset, proof);
         this.db.exec("COMMIT");
       } catch (error) {
         this.db.exec("ROLLBACK");
@@ -257,7 +282,13 @@ export class UsageLedger {
     }
     const rows = this.db
       .prepare(
-        `SELECT state FROM files WHERE home=? AND json_extract(state,'$.subagent')!=1 ${provider === "*" ? "" : "AND json_extract(state,'$.provider')=?"} ORDER BY updated DESC LIMIT 200`,
+        `WITH ranked AS (
+          SELECT state,updated,ROW_NUMBER() OVER (
+            PARTITION BY json_extract(state,'$.id')
+            ORDER BY json_extract(state,'$.at') DESC,updated DESC,offset DESC
+          ) AS choice FROM files WHERE home=? AND json_extract(state,'$.subagent')!=1
+          ${provider === "*" ? "" : "AND json_extract(state,'$.provider')=?"}
+        ) SELECT state FROM ranked WHERE choice=1 ORDER BY updated DESC LIMIT 200`,
       )
       .all(this.scope, ...(provider === "*" ? [] : [provider]))
       .map((row) => {
