@@ -104,7 +104,17 @@ async function main(){try{
     window.gpt.fixture.state({...initial,image:null,audio:null});
     const colorReset=!document.querySelector('.bar').style.backgroundImage&&!document.querySelector('.bar').classList.contains('flow-fill');
     const quoteLayout={cases:texts.length,matching,referenceCalls,actualCalls,quotaTooltip:document.getElementById('bubble').title==='fixture',colorReset};
-    return {geometry,quota,audio,audioSwitch:{whileLoading,afterLoading},pointer:{foreign,cancel,blur,outside,pose},music,replacement,quoteLayout,holdDiagnostics:{beforeHold,afterHold,rect:{x:pr.x,y:pr.y,width:pr.width,height:pr.height}}};
+    const bubble=document.getElementById('bubble-animation');
+    await Promise.all(bubble.getAnimations().map(item=>item.finished.catch(()=>{})));
+    await wait(35);
+    const restingOpeningEffects=bubble.getAnimations().length;
+    window.gpt.fixture.state({...initial,image:null,audio:null,scene:{...initial.scene,mode:'quote',text:'transition',revision:revision++}});
+    const currentQuote=document.getElementById('quote');
+    const transition=currentQuote.getAnimations().find(item=>item.effect.getTiming().duration===180);
+    if(transition)transition.currentTime=90;
+    const bubbleMotion={restingOpeningEffects,hasTransition:!!transition,
+      opacity:Number(getComputedStyle(currentQuote).opacity)};
+    return {bubbleMotion,geometry,quota,audio,audioSwitch:{whileLoading,afterLoading},pointer:{foreign,cancel,blur,outside,pose},music,replacement,quoteLayout,holdDiagnostics:{beforeHold,afterHold,rect:{x:pr.x,y:pr.y,width:pr.width,height:pr.height}}};
   })()`);
   console.log(JSON.stringify(report));
 }catch(error){console.error(error.stack);process.exitCode=1;}finally{clearTimeout(timer);window?.destroy();app.quit();}}

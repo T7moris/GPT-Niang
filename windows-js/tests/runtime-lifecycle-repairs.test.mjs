@@ -60,3 +60,20 @@ test('suspended contexts and missing ended events still release old sounds',()=>
  for(const fn of [...timers.values()])fn();assert.equal(nodes[0].disconnected,1);assert.equal(timers.size,0);
  player.play({},1);context.state='suspended';player.stop();assert.equal(nodes[1].disconnected,1);assert.equal(player.tails.size,0);
 });
+
+test('built-in clicks finish naturally and keep simultaneous playback bounded', () => {
+  const {player,nodes,timers}=audioFixture();
+  for(let click=0;click<8;click++)player.play({},0.9,{finishNaturally:true});
+  assert.equal(nodes.length,5);
+  assert.ok(nodes.every(node=>node.started&&node.stopped.length===0));
+  assert.equal(timers.size,0);
+
+  nodes[0].onended();
+  player.play({},0.9,{finishNaturally:true});
+  assert.equal(nodes.length,6);
+  assert.equal(nodes[0].disconnected,1);
+
+  player.stop({immediate:true});
+  assert.equal(player.naturalVoices.size,0);
+  assert.ok(nodes.slice(1).every(node=>node.stopped.length===1&&node.disconnected===1));
+});

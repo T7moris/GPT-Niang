@@ -20,7 +20,6 @@ let state = null,
   lastCollapsed = true,
   lastPreview = false,
   lastRevision = -1,
-  press = false,
   pointer = null,
   dragging = false,
   ignore = false,
@@ -40,8 +39,10 @@ let state = null,
   holdCursor = null,
   lastMusic = false,
   frameStats = { frames: 0, maxGap: 0 },
-  currentPose = { x: 1, y: 1 },
+  pressProgress = 0,
+  pressRegionActive = false,
   pressAnimation = null,
+  contentAnimation = null,
   bubbleHideTimer = null,
   quotaKey = '',
   quotaRows = [];
@@ -58,14 +59,31 @@ function box(element, value) {
   for (const k of ["left", "top", "width", "height"])
     if (value[k] !== undefined) element.style[k] = value[k] + "px";
 }
-function rootTransform() {
-  root.style.transform = `scale(${(state?.layout.mirror ?? 1) * currentPose.x},${currentPose.y})`;
+// The press easing can overshoot. Use the same limits for the visual pose and its window region.
+const pressLimits = [-0.25, 1.25];
+const pressScale = progress => [1 + 0.05 * progress, 1 - 0.12 * progress];
+function applyPressPose() {
+  const [x, y] = pressScale(pressProgress);
+  const mirror = state?.layout.mirror ?? 1;
+  root.style.transform = x === 1 && y === 1
+    ? (mirror === 1 ? "" : "scaleX(-1)") : `scale(${mirror * x}, ${y})`;
+}
+function updateWindowShape() {
+  const press = pressRegionActive ? {
+    origin: [189 * innerWidth / 378 * devicePixelRatio, 364 * innerWidth / 378 * devicePixelRatio],
+    current: pressScale(pressProgress),
+    limits: pressLimits.map(pressScale),
+  } : null;
+  shapePublisher.update(state, girl, press);
 }
 function animatePress(down) {
-  press = down;
   pressAnimation?.cancel();
-  const from = { ...currentPose },
-    to = down ? { x: 1.05, y: 0.88 } : { x: 1, y: 1 },
+  if (!pressRegionActive) {
+    pressRegionActive = true;
+    updateWindowShape();
+  }
+  const from = pressProgress,
+    to = down ? 1 : 0,
     started = performance.now();
   let cancelled = false;
   pressAnimation = {
@@ -77,12 +95,17 @@ function animatePress(down) {
     if (cancelled) return;
     const t = Math.min(1, (now - started) / 220),
       ease = bezier(t, 0.34, 1.56, 0.64, 1);
-    currentPose = {
-      x: from.x + (to.x - from.x) * ease,
-      y: from.y + (to.y - from.y) * ease,
-    };
-    rootTransform();
+    pressProgress = t === 1 ? to : clamp(from + (to - from) * ease, ...pressLimits);
+    applyPressPose();
     if (t < 1) requestAnimationFrame(step);
+    else if (!down) {
+      // Keep the wider region until the restored pose has had a frame to paint.
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        if (cancelled) return;
+        pressRegionActive = false;
+        updateWindowShape();
+      }));
+    }
   }
   requestAnimationFrame(step);
 }
@@ -109,7 +132,7 @@ function bubbleTransition(open) {
   for (const [el, delay] of entries) {
     el.getAnimations().forEach((a) => a.cancel());
     if (open) el.style.visibility = "visible";
-    el.animate(
+    const animation = el.animate(
       open
         ? [
             { opacity: 0, scale: 0.7 },
@@ -126,12 +149,14 @@ function bubbleTransition(open) {
         fill: "both",
       },
     );
+    if (open) animation.addEventListener("finish", () => animation.cancel(), { once: true });
   }
   scene.getAnimations().forEach(animation=>animation.cancel());
-  scene.animate(
+  const sceneAnimation = scene.animate(
     open ? [{ opacity: 0 }, { opacity: 1 }] : [{ opacity: 1 }, { opacity: 0 }],
-    { duration: open ? 160 : 160, delay: open ? 360 : 0, fill: "both" },
+    { duration: 160, delay: open ? 360 : 0, fill: "both" },
   );
+  if (open) sceneAnimation.addEventListener("finish", () => sceneAnimation.cancel(), { once: true });
   if (!open)
     bubbleHideTimer=setTimeout(() => {
       bubbleHideTimer=null;
@@ -174,7 +199,7 @@ async function preloadAudio(value) {
   if (key === soundKey) return;
   soundKey = key;
   clickSounds.stop({immediate:true});soundBuffers={};
-  if (!audioContext) audioContext = new AudioContext();
+  if (!audioContext) audioContext = new AudioContext({ latencyHint: "playback" });
   const prepared = {},decoded=new Map();
   for (const slot of ["press", "release"])
     for (const preview of [false, true]) {
@@ -193,9 +218,15 @@ async function preloadAudio(value) {
   soundBuffers = prepared;
 }
 const clipPlayer=new ClipPlayer({context:()=>audioContext});
+const usingBuiltInAudio = () => state?.audio?.preferences?.mode === "builtin";
 const clickSounds = new ClickSequence({
-  play: id=>clipPlayer.play(soundBuffers[id],state.settings.soundVolume),
-  stop: options=>clipPlayer.stop(options),
+  play: id => clipPlayer.play(soundBuffers[id], state.settings.soundVolume, {
+    finishNaturally: usingBuiltInAudio() && (id === "press" || id === "release"),
+  }),
+  stop: options => {
+    if (options?.retrigger && usingBuiltInAudio()) return;
+    clipPlayer.stop(options?.preview && usingBuiltInAudio() ? {immediate:true} : options);
+  },
   available: (id) => !!soundBuffers[id],
   duration: (id) => soundBuffers[id]?.duration ?? 0,
   enabled: () => state?.settings.soundOn && state.settings.soundVolume > 0,
@@ -295,11 +326,13 @@ function render(value) {
   box($("tail"), l.tail);
   box($("tail-near"), l.tailNear);
   box(menu, l.menu);
-  box(bubble, l.bubble);
-  bubble.style.transform = `scale(${l.bubble.scale})`;
-  stage.style.transform = `scale(${window.innerWidth / 378})`;
-  rootTransform();
-  scene.style.transform = `scaleX(${l.mirror})`;
+  // Apply steady sizing during layout so text can be rasterized at its final size.
+  const bubbleZoom = l.bubble.scale;
+  box(bubble, { left: l.bubble.left / bubbleZoom, top: l.bubble.top / bubbleZoom });
+  bubble.style.zoom = bubbleZoom === 1 ? "" : String(bubbleZoom);
+  stage.style.zoom = String(window.innerWidth / 378);
+  applyPressPose();
+  scene.style.transform = l.mirror === 1 ? "" : "scaleX(-1)";
   menu.style.transform = `scaleX(${l.mirror})`;
   menu.classList.toggle("hidden", value.settings.hideMenu);
   document.body.classList.toggle("temporary", value.temporary);
@@ -307,6 +340,7 @@ function render(value) {
   const shown = !value.scene.collapsed || value.scene.preview,
     wasShown = !lastCollapsed || lastPreview;
   if (shown !== wasShown) {
+    contentAnimation?.cancel();
     bubbleTransition(shown);
   } else if (lastRevision < 0 && !shown) {
     for (const el of [bubbleAnimation, $("tail"), $("tail-near")])
@@ -314,22 +348,6 @@ function render(value) {
   }
   lastCollapsed = value.scene.collapsed;
   lastPreview = value.scene.preview;
-  if (
-    value.scene.revision !== lastRevision &&
-    lastRevision >= 0 &&
-    shown &&
-    wasShown
-  ) {
-    scene.getAnimations().forEach((a) => a.cancel());
-    scene.animate(
-      [
-        { opacity: 1, offset: 0 },
-        { opacity: 0, offset: 120 / 280 },
-        { opacity: 1, offset: 1 },
-      ],
-      { duration: 280, fill: "both" },
-    );
-  }
   const isQuote = value.scene.mode !== "quota";
   $("quota").style.display = isQuote ? "none" : "block";
   quote.style.display = isQuote ? "block" : "none";
@@ -372,6 +390,15 @@ function render(value) {
   if (value.image) installImage(value.image);
   if (value.audio&&value.audio!==previousAudio) void preloadAudio(value.audio);
   applyColors(value);
+  if (shown && wasShown && value.scene.revision !== lastRevision) {
+    contentAnimation?.cancel();
+    const content = isQuote ? quote : $("quota");
+    if (!matchMedia("(prefers-reduced-motion: reduce)").matches)
+      contentAnimation = content.animate(
+        [{ opacity: 0.78, translate: "0 2px" }, { opacity: 1, translate: "0 0" }],
+        { duration: 180, easing: "ease-out" },
+      );
+  }
   if (value.music && !motion && bounds) {
     startMusic();
   } else if (!value.music && lastMusic) {
@@ -572,6 +599,10 @@ function musicLayout() {
 }
 function startMusic() {
   if (!bounds || !state.frame || !state.normal) return;
+  pressAnimation?.cancel();
+  pressProgress = 0;
+  pressRegionActive = false;
+  applyPressPose();
   const g = state.layout.girl,
     f = state.layout.display * state.dpi,
     alphaWidth = g.width * bounds.width * f,
@@ -712,7 +743,7 @@ function animation(now) {
     frameStats.frames++;
     frameStats.maxGap = Math.max(frameStats.maxGap, elapsed * 1000);
   }
-  shapePublisher.update(state, girl);
+  updateWindowShape();
   requestAnimationFrame(animation);
 }
 window.gpt.onState(render);
@@ -722,7 +753,7 @@ window.gpt.onGeometry((value) => {
   else state={...state,...value,image:null};
 });
 window.addEventListener("resize", () => {
-  stage.style.transform = `scale(${window.innerWidth / 378})`;
+  stage.style.zoom = String(window.innerWidth / 378);
 });
 window.gpt.onAudio((value) => {
   if (value.preview) play(value.preview, true);

@@ -13,6 +13,7 @@ body {
   color: #745a98;
 }
 #stage {
+  position: relative;
   width: 378px;
   height: 378px;
   transform-origin: 0 0;
@@ -137,7 +138,7 @@ button:hover {
 }
 .tail {
   display: block;
-  border: 4px solid #745a98;
+  border: 3px solid #745a98;
   background: #fff;
   border-radius: 50%;
   transform-origin: 50% 50%;
