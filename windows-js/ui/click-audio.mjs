@@ -31,7 +31,7 @@ export class ClickSequence {
     this.stopClip(options);
   }
   press() {
-    this.stop();
+    this.stop({retrigger:true});
     if (
       !this.enabled() ||
       (!this.available("press") && !this.available("release"))
@@ -55,14 +55,14 @@ export class ClickSequence {
     const play = () => {
       this.timer = null;
       if (this.pressing || !this.enabled()) return;
-      this.stopClip();
+      this.stopClip({retrigger:true});
       this.playClip("release");
     };
     if (remaining <= 2) play();
     else this.timer = this.schedule(play, remaining);
   }
   preview(slot) {
-    this.stop();
+    this.stop({preview:true});
     if (this.enabled() && this.available("preview-" + slot))
       this.playClip("preview-" + slot);
   }

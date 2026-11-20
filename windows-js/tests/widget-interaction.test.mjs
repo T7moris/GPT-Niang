@@ -16,5 +16,8 @@ test('renderer keeps geometry lightweight and pointer cancellation does not trig
   assert.deepEqual(result.music,{started:true,width:52,height:208,dragWithoutAudio:true,errors:[]},JSON.stringify(result));
   assert.deepEqual(result.replacement,{sameIdReloaded:true,resourcesUpdated:true});
   assert.equal(result.quoteLayout.matching,true);assert.equal(result.quoteLayout.cases,3);assert.ok(result.quoteLayout.actualCalls<result.quoteLayout.referenceCalls);
+  assert.equal(result.bubbleMotion.restingOpeningEffects,0);
+  assert.equal(result.bubbleMotion.hasTransition,true);
+  assert.ok(result.bubbleMotion.opacity>=0.78&&result.bubbleMotion.opacity<1);
   assert.equal(result.quoteLayout.quotaTooltip,true);assert.equal(result.quoteLayout.colorReset,true);
 });

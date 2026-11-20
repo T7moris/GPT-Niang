@@ -1,8 +1,10 @@
 // Retrigger immediately; only the outgoing voice gets a short, bounded tail.
+const MAX_NATURAL_VOICES = 5;
 export class ClipPlayer {
   constructor({context,fadeSeconds=0.008,maxTails=2,schedule=setTimeout,cancel=clearTimeout}) {
     Object.assign(this,{context,fadeSeconds,maxTails,schedule,cancel});
     this.active=null;this.tails=new Set();this.closed=false;
+    this.naturalVoices = new Set();
   }
   release(voice,stop=false) {
     if(!voice||voice.released)return;
@@ -13,11 +15,15 @@ export class ClipPlayer {
     try{voice.source.disconnect();}catch{}
     try{voice.gain.disconnect();}catch{}
     this.tails.delete(voice);
+    this.naturalVoices.delete(voice);
     if(this.active===voice)this.active=null;
   }
-  play(buffer,volume) {
+  play(buffer,volume,{finishNaturally=false}={}) {
     if(this.closed||!buffer)return;
-    this.stop();
+    if (finishNaturally) {
+      // Let short built-in clips finish. Skip a trigger when all voices are busy.
+      if (this.naturalVoices.size >= MAX_NATURAL_VOICES) return;
+    } else this.stop();
     const context=this.context();if(!context)return;
     let voice;
     try {
@@ -26,11 +32,14 @@ export class ClipPlayer {
       voice.source.buffer=buffer;voice.gain.gain.value=volume;
       voice.source.connect(voice.gain).connect(context.destination);
       voice.source.onended=()=>this.release(voice);
-      this.active=voice;voice.source.start();
+      if (finishNaturally) this.naturalVoices.add(voice);
+      else this.active=voice;
+      voice.source.start();
     } catch {this.release(voice,true);}
   }
   stop({immediate=false}={}) {
     const voice=this.active;this.active=null;
+    if (immediate) for (const naturalVoice of this.naturalVoices) this.release(naturalVoice,true);
     if(immediate){this.release(voice,true);for(const tail of [...this.tails])this.release(tail,true);return;}
     if(!voice)return;
     const context=this.context();
